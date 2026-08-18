@@ -1,0 +1,80 @@
+// refr schema — see SPEC.md §4, §13.3
+
+generator client {
+    provider = "prisma-client-js"
+    output   = "../generated/prisma"
+}
+
+datasource db {
+    provider = "sqlite"
+    url      = env("DATABASE_URL")
+}
+
+model File {
+    id        String    @id // sha256 hex
+    size      BigInt
+    mtime     DateTime // from best-known path; grouping/sorting key
+    width     Int?
+    height    Int?
+    duration  Float? // seconds, video only
+    mediaType String // "image" | "video"
+    addedAt   DateTime  @default(now())
+    paths     FilePath[]
+    tags      FileTag[]
+    embedding FileEmbedding?
+
+    @@index([mtime, id]) // keyset pagination for default sort
+    @@index([mediaType])
+}
+
+model FilePath {
+    id     Int      @id @default(autoincrement())
+    path   String   @unique
+    fileId String
+    size   BigInt // stat at scan time — drift detection
+    mtime  DateTime // stat at scan time — drift detection
+    file   File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+    @@index([fileId])
+}
+
+model Tag {
+    id    Int        @id @default(autoincrement())
+    name  String     @unique
+    files FileTag[]
+    vector TagVector?
+
+    @@index([name])
+}
+
+model FileTag {
+    fileId String
+    tagId  Int
+    file   File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+    tag    Tag  @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+    @@id([fileId, tagId])
+    @@index([tagId, fileId])
+}
+
+model FileEmbedding {
+    fileId    String   @id
+    vector    Bytes // 768 x float32 LE, L2-normalized
+    model     String
+    updatedAt DateTime @updatedAt
+    file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+}
+
+model TagVector {
+    tagId        Int    @id
+    vector       Bytes // combined text+centroid, L2-normalized
+    fileCount    Int
+    linksVersion Int
+    model        String
+    tag          Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+}
+
+model Meta {
+    key   String @id
+    value String // "linksVersion": int, bumped by every tag-link mutation
+}
