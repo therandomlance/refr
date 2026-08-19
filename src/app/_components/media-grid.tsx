@@ -251,14 +251,25 @@ export function MediaGrid({
   }, []);
   // prevent the grid from scrolling while a touch drag-select is in progress — the finger
   // should sweep tiles into the selection, not pan the viewport. non-passive so preventDefault works.
+  // Also: touchmove keeps firing during a browser-pan (unlike pointermove, which stops once
+  // touch-action:pan-y hands off), so we cancel any pending long-press here when the finger
+  // moves >10px — that's the scroll signal.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const prevent = (e: TouchEvent) => {
-      if (touchSelecting.current) e.preventDefault();
+    const onTouchMove = (e: TouchEvent) => {
+      if (touchSelecting.current) {
+        e.preventDefault();
+      } else if (longPressTimer.current) {
+        const t = e.touches[0];
+        if (t && (Math.abs(t.clientX - longPressStart.current.x) > 10 || Math.abs(t.clientY - longPressStart.current.y) > 10)) {
+          clearTimeout(longPressTimer.current);
+          longPressTimer.current = null;
+        }
+      }
     };
-    el.addEventListener("touchmove", prevent, { passive: false });
-    return () => el.removeEventListener("touchmove", prevent);
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    return () => el.removeEventListener("touchmove", onTouchMove);
   }, []);
   const selectRange = useCallback(
     (a: number, b: number, additive = false) => {
@@ -397,6 +408,14 @@ export function MediaGrid({
           }
         }}
         onPointerUp={() => {
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+        }}
+        onPointerCancel={() => {
+          // browser took over the gesture (touch-action: pan-y scroll) — cancel the
+          // long-press so scrolling never selects a tile
           if (longPressTimer.current) {
             clearTimeout(longPressTimer.current);
             longPressTimer.current = null;
