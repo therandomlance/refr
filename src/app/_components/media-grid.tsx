@@ -433,8 +433,8 @@ export function MediaGrid({
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {toolbar && (
-        <div className="flex flex-none items-center gap-2 px-4 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
-          <div className="seg">
+        <div className="flex flex-wrap flex-none items-center gap-2 px-4 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
+          <div className="seg hidden sm:flex">
             {(["horizontal", "vertical"] as const).map((l) => (
               <button key={l} className={layout === l ? "on" : ""} onClick={() => setLayout(l)}>
                 {l === "horizontal" ? "Rows" : "Columns"}

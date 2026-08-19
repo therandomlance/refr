@@ -185,16 +185,23 @@ body {
   .rail-btn:hover { background: var(--hover); color: var(--text); }
 }
 
-/* ponytail: phone layout — bottom bar instead of left rail; tablet+ keeps desktop layout */
+/* ponytail: phone layout — fixed bottom bar; tablet+ keeps desktop layout (static left rail).
+   position:fixed decouples the rail from the flex flow so the column sizing can't
+   collapse it (which is what happened with flex-col-reverse: the space was reserved
+   but the buttons rendered at 0 height). z-index 45 sits above the sidepanel drawer. */
 @media (max-width: 640px) {
   .rail {
+    position: fixed; bottom: 0; left: 0; right: 0;
     width: 100%; height: auto; flex: none; flex-direction: row; align-items: center;
     justify-content: space-around; border-right: 0; border-top: 1px solid var(--border);
-    padding: max(8px, env(safe-area-inset-bottom)) 0;
-    gap: 2px;
+    padding: 8px 0;
+    padding-bottom: calc(8px + env(safe-area-inset-bottom));
+    gap: 2px; z-index: 45;
   }
   .rail .logo { display: none; }
   .rail-btn.active::before { display: none; }
+  /* reserve space for the fixed bar + safe-area so grid content isn't hidden behind it */
+  .app-content { padding-bottom: calc(60px + env(safe-area-inset-bottom)); }
 }
 
 /* ---------- sidebar / tree ---------- */
@@ -311,7 +318,10 @@ body {
 
 /* ponytail: on narrow screens the side panels overlay the stage instead of squeezing it */
 @media (max-width: 640px) {
-  .vside { position: absolute; top: 0; bottom: 0; right: 0; width: 80vw; max-width: 320px; z-index: 4; }
+  .vside {
+    position: absolute; top: 0; bottom: 0; right: 0; width: 80vw; max-width: 320px; z-index: 4;
+    padding-bottom: calc(16px + env(safe-area-inset-bottom));
+  }
   .vside.left { left: 0; right: auto; }
 }
 
@@ -380,14 +390,16 @@ select.input { cursor: pointer; }
 @media (max-width: 640px) {
   .dialog { min-width: 0; width: calc(100vw - 32px); max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); overflow-y: auto; }
   .sidepanel {
-    position: fixed; top: 0; bottom: 56px; left: 0; width: 80vw; max-width: 300px; z-index: 40;
+    position: fixed; top: 0; left: 0; width: 80vw; max-width: 300px; z-index: 40;
+    bottom: calc(60px + env(safe-area-inset-bottom));
   }
   .sidepanel-backdrop {
-    display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 56px;
+    display: block; position: fixed; top: 0; left: 0; right: 0;
+    bottom: calc(60px + env(safe-area-inset-bottom));
     background: rgba(0,0,0,.5); z-index: 30;
   }
   .sidepanel-collapsed {
-    position: fixed; top: 8px; left: 8px; z-index: 20; height: auto;
+    position: fixed; top: 8px; left: 8px; z-index: 46; height: auto;
   }
   .palette-editor-body { flex-direction: column; height: auto; }
   .palette-editor-body > div { max-width: 100% !important; height: auto; }
