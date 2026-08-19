@@ -15,7 +15,6 @@ export default function QueuePage() {
   const [loadOf, setLoadOf] = useState<string | null>(null);
   const [deleteOf, setDeleteOf] = useState<string | null>(null);
   const [savedMenu, setSavedMenu] = useState<{ name: string; x: number; y: number } | null>(null);
-  const fileMenu = useFileContextMenu(selection, setSelection);
 
   const utils = api.useUtils();
   const queue = api.queue.get.useQuery();
@@ -27,6 +26,10 @@ export default function QueuePage() {
   const deleteSaved = api.queue.deleteSaved.useMutation({ onSuccess: () => void utils.queue.listSaved.invalidate() });
 
   const ids = queue.data ?? [];
+  const fileMenu = useFileContextMenu(selection, setSelection, {
+    allIds: ids,
+    onReorder: (next) => setQueue.mutate({ fileIds: next }),
+  });
 
   return (
     <div className="flex min-h-0 flex-1">

@@ -161,7 +161,9 @@ body {
 /* ---------- icon rail ---------- */
 .rail {
   width: 58px; flex: none; display: flex; flex-direction: column; align-items: center;
-  background: var(--rail-bg); border-right: 1px solid var(--border); padding: 10px 0; gap: 4px;
+  background: var(--rail-bg); border-right: 1px solid var(--border);
+  padding: max(10px, env(safe-area-inset-top)) 0 max(10px, env(safe-area-inset-bottom));
+  gap: 4px;
 }
 .rail .logo {
   width: 36px; height: 36px; border-radius: var(--radius); margin-bottom: 14px;
@@ -169,32 +171,50 @@ body {
   display: grid; place-items: center; font-weight: 700; font-size: 15px;
 }
 .rail-btn {
-  width: 42px; height: 42px; border: 0; border-radius: var(--radius); cursor: pointer;
+  width: 44px; height: 44px; border: 0; border-radius: var(--radius); cursor: pointer;
   background: transparent; color: var(--text-dim); display: grid; place-items: center;
   position: relative;
 }
-.rail-btn:hover { background: var(--hover); color: var(--text); }
 .rail-btn.active { background: var(--active); color: var(--accent); }
 .rail-btn.active::before {
   content: ""; position: absolute; left: -8px; top: 10px; bottom: 10px; width: 3px;
   border-radius: 2px; background: var(--accent);
 }
 
+@media (hover: hover) {
+  .rail-btn:hover { background: var(--hover); color: var(--text); }
+}
+
+/* ponytail: phone layout — bottom bar instead of left rail; tablet+ keeps desktop layout */
+@media (max-width: 640px) {
+  .rail {
+    width: 100%; height: auto; flex: none; flex-direction: row; align-items: center;
+    justify-content: space-around; border-right: 0; border-top: 1px solid var(--border);
+    padding: max(8px, env(safe-area-inset-bottom)) 0;
+    gap: 2px;
+  }
+  .rail .logo { display: none; }
+  .rail-btn.active::before { display: none; }
+}
+
 /* ---------- sidebar / tree ---------- */
 .trow {
-  display: flex; align-items: center; gap: 6px; padding: 5px 8px; border-radius: calc(var(--radius) - 3px);
+  display: flex; align-items: center; gap: 6px; padding: 9px 8px; border-radius: calc(var(--radius) - 3px);
   cursor: pointer; color: var(--text-dim); white-space: nowrap; user-select: none;
 }
-.trow:hover { background: var(--hover); color: var(--text); }
 .trow.sel { background: var(--active); color: var(--accent); font-weight: 500; }
-.trow .caret { width: 14px; flex: none; text-align: center; font-size: 9px; opacity: .7; }
+.trow .caret { width: 24px; flex: none; text-align: center; font-size: 10px; opacity: .7; padding: 4px 0; }
 .trow .count { margin-left: auto; font-size: 11px; color: var(--text-faint); }
 .tkids { margin-left: 17px; border-left: 1px solid var(--border); padding-left: 4px; }
+
+@media (hover: hover) {
+  .trow:hover { background: var(--hover); color: var(--text); }
+}
 
 /* ---------- segmented control ---------- */
 .seg { display: flex; background: var(--hover); border-radius: calc(var(--radius) - 2px); padding: 2px; }
 .seg button {
-  border: 0; background: transparent; color: var(--text-dim); padding: 5px 11px;
+  border: 0; background: transparent; color: var(--text-dim); padding: 8px 14px;
   font-size: 12px; border-radius: calc(var(--radius) - 4px); cursor: pointer;
 }
 .seg button.on { background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm); }
@@ -209,9 +229,9 @@ body {
 }
 .ghead span { color: var(--text-faint); font-size: 12px; font-weight: 400; margin-left: 10px; }
 .ghead .gh-check {
-  width: 18px; height: 18px; flex: none; padding: 0; border-radius: 50%; cursor: pointer;
+  width: 28px; height: 28px; flex: none; padding: 0; border-radius: 50%; cursor: pointer;
   border: 2px solid var(--text-faint); background: transparent; color: var(--accent-fg);
-  font-size: 11px; display: grid; place-items: center;
+  font-size: 13px; display: grid; place-items: center;
 }
 .ghead .gh-check.on { background: var(--accent); border-color: var(--accent); }
 .ghead .gseg { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
@@ -221,28 +241,35 @@ body {
   cursor: pointer; background: var(--hover); flex: none;
 }
 .tile img { width: 100%; height: 100%; object-fit: cover; transition: transform .18s ease; display: block; }
-.tile:hover img { transform: scale(1.03); }
 .tile .ovl {
   position: absolute; inset: 0; opacity: 0; transition: opacity .15s;
   background: linear-gradient(to bottom, rgba(0,0,0,.34), transparent 32%, transparent 68%, rgba(0,0,0,.42));
 }
-.tile:hover .ovl, .tile.sel .ovl { opacity: 1; }
+.tile.sel .ovl { opacity: 1; }
 .tile .check {
   position: absolute; top: 8px; left: 8px; width: 20px; height: 20px; border-radius: 50%;
   border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.25);
   opacity: 0; transition: opacity .15s; display: grid; place-items: center; color: #fff; font-size: 12px;
 }
-.tile:hover .check, .tile.sel .check { opacity: 1; }
-.tile.sel .check { background: var(--accent); border-color: var(--accent); }
+.tile.sel .check { opacity: 1; background: var(--accent); border-color: var(--accent); }
 .tile.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
-.tile.sel img, .tile.sel:hover img { transform: scale(.88); }
+.tile.sel img { transform: scale(.88); }
 .tile .thumb-wait { width: 100%; height: 100%; animation: thumbpulse 1.5s ease-in-out infinite; }
 @keyframes thumbpulse { 0%, 100% { opacity: .25; } 50% { opacity: .7; } }
 .tile .badge {
   position: absolute; bottom: 6px; right: 6px; font-size: 10px; padding: 2px 6px;
   background: rgba(0,0,0,.55); color: #fff; border-radius: 4px; opacity: 0; transition: opacity .15s;
 }
-.tile:hover .badge, .tile.vid .badge { opacity: 1; }
+.tile.vid .badge { opacity: 1; }
+
+/* ponytail: hover-only states gated to hover-capable devices; :hover sticks after tap on touch */
+@media (hover: hover) {
+  .tile:hover img { transform: scale(1.03); }
+  .tile.sel:hover img { transform: scale(.88); }
+  .tile:hover .ovl { opacity: 1; }
+  .tile:hover .check { opacity: 1; }
+  .tile:hover .badge { opacity: 1; }
+}
 
 /* ---------- viewer ---------- */
 .viewer {
@@ -256,7 +283,6 @@ body {
   border: 0; border-radius: var(--radius); background: var(--hover); color: var(--text);
   font-size: 20px; cursor: pointer; opacity: .7; z-index: 3;
 }
-.viewer .nav:hover { opacity: 1; }
 .vside {
   width: 280px; flex: none; background: var(--panel); padding: 16px; overflow-y: auto;
   border-left: 1px solid var(--border);
@@ -268,15 +294,25 @@ body {
 .kv span { color: var(--text-faint); flex: none; }
 .kv b { font-weight: 500; word-break: break-all; text-align: right; }
 .carousel {
-  position: absolute; left: 0; right: 0; bottom: 0; height: 86px; display: flex; gap: 6px;
+  position: absolute; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 0); height: 86px; display: flex; gap: 6px;
   align-items: center; justify-content: center; padding: 10px; z-index: 2;
   background: linear-gradient(transparent, rgba(0,0,0,.55)); overflow-x: auto;
 }
 .carousel img { width: 92px; height: 60px; object-fit: cover; border-radius: 6px; flex: none; opacity: .55; cursor: pointer; }
 .carousel img.cur { opacity: 1; outline: 2px solid var(--accent); }
 .vbtn {
-  position: absolute; z-index: 5; width: 38px; height: 38px; border: 0;
-  border-radius: 50%; background: var(--hover); color: var(--text); font-size: 16px; cursor: pointer;
+  position: absolute; z-index: 5; width: 44px; height: 44px; border: 0;
+  border-radius: 50%; background: var(--hover); color: var(--text); font-size: 18px; cursor: pointer;
+}
+
+@media (hover: hover) {
+  .viewer .nav:hover { opacity: 1; }
+}
+
+/* ponytail: on narrow screens the side panels overlay the stage instead of squeezing it */
+@media (max-width: 640px) {
+  .vside { position: absolute; top: 0; bottom: 0; right: 0; width: 80vw; max-width: 320px; z-index: 4; }
+  .vside.left { left: 0; right: auto; }
 }
 
 /* ---------- chips ---------- */
@@ -285,8 +321,10 @@ body {
   background: var(--hover); border-radius: 999px; font-size: 12px; white-space: nowrap;
 }
 .chip .mod { color: var(--accent); font-weight: 600; }
-.chip .x { cursor: pointer; color: var(--text-faint); border-radius: 50%; width: 16px; height: 16px; display: grid; place-items: center; border: 0; background: transparent; font-size: 11px; padding: 0; }
-.chip .x:hover { background: var(--border); color: var(--text); }
+.chip .x { cursor: pointer; color: var(--text-faint); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; border: 0; background: transparent; font-size: 13px; padding: 0; }
+@media (hover: hover) {
+  .chip .x:hover { background: var(--border); color: var(--text); }
+}
 .taginput {
   width: 100%; background: var(--hover); border: 1px solid var(--border); color: var(--text);
   border-radius: calc(var(--radius) - 2px); padding: 7px 10px; font-size: 12px; outline: none;
@@ -295,17 +333,25 @@ body {
 /* ---------- inputs / buttons ---------- */
 .input {
   background: var(--hover); border: 1px solid var(--border); color: var(--text);
-  border-radius: calc(var(--radius) - 2px); padding: 7px 10px; font-size: 13px; outline: none;
+  border-radius: calc(var(--radius) - 2px); padding: 9px 12px; font-size: 13px; outline: none;
 }
 .input:focus { border-color: var(--accent); }
 .btn {
   background: var(--hover); border: 1px solid var(--border); color: var(--text);
-  border-radius: calc(var(--radius) - 2px); padding: 7px 14px; font-size: 13px; cursor: pointer;
+  border-radius: calc(var(--radius) - 2px); padding: 9px 16px; font-size: 13px; cursor: pointer;
 }
-.btn:hover { background: var(--active); }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .btn.danger { background: #a33; border-color: #a33; color: #fff; }
 select.input { cursor: pointer; }
+
+@media (hover: hover) {
+  .btn:hover { background: var(--active); }
+}
+
+/* ponytail: iOS Safari zooms viewport on focus for <16px inputs — bump on touch only */
+@media (hover: none) and (pointer: coarse) {
+  .input, .taginput { font-size: 16px; }
+}
 
 /* ---------- dialog / context menu ---------- */
 .dialog-bg { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.55); display: grid; place-items: center; }
@@ -320,10 +366,32 @@ select.input { cursor: pointer; }
 }
 .ctxmenu button {
   display: flex; width: 100%; text-align: left; border: 0; background: transparent;
-  color: var(--text); padding: 7px 10px; font-size: 13px; border-radius: calc(var(--radius) - 3px); cursor: pointer;
+  color: var(--text); padding: 9px 10px; font-size: 13px; border-radius: calc(var(--radius) - 3px); cursor: pointer;
 }
-.ctxmenu button:hover { background: var(--hover); }
 .ctxmenu hr { border: 0; border-top: 1px solid var(--border); margin: 4px 0; }
+
+@media (hover: hover) {
+  .ctxmenu button:hover { background: var(--hover); }
+}
+
+/* ponytail: phone-only overrides — sidepanel becomes a drawer, dialog + palette editor go single-column */
+.sidepanel-backdrop { display: none; }
+
+@media (max-width: 640px) {
+  .dialog { min-width: 0; width: calc(100vw - 32px); max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); overflow-y: auto; }
+  .sidepanel {
+    position: fixed; top: 0; bottom: 56px; left: 0; width: 80vw; max-width: 300px; z-index: 40;
+  }
+  .sidepanel-backdrop {
+    display: block; position: fixed; top: 0; left: 0; right: 0; bottom: 56px;
+    background: rgba(0,0,0,.5); z-index: 30;
+  }
+  .sidepanel-collapsed {
+    position: fixed; top: 8px; left: 8px; z-index: 20; height: auto;
+  }
+  .palette-editor-body { flex-direction: column; height: auto; }
+  .palette-editor-body > div { max-width: 100% !important; height: auto; }
+}
 
 /* ---------- palette cards ---------- */
 .pcard { border-radius: var(--radius); overflow: hidden; cursor: pointer; background: var(--panel); border: 1px solid var(--border); }

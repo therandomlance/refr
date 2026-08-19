@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { useViewerList } from "./viewer-store";
 import { TagInput } from "./tag-input";
@@ -26,10 +26,17 @@ export function Viewer({
   overlayTop?: React.ReactNode;
 }) {
   const { items, loadMore } = useViewerList();
+  // ponytail: side panels default closed on narrow screens — the 280px panels would
+  // crush the stage on a phone; user can still open them with ⓘ/🏷.
   const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(true);
+  const [rightOpen, setRightOpen] = useState(
+    () => typeof window === "undefined" || window.innerWidth >= 640,
+  );
   const [carouselOpen, setCarouselOpen] = useState(true);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+
+  // ponytail: swipe to navigate on touch — horizontal delta >50px beats vertical
+  const touchStart = useRef<{ x: number; y: number } | null>(null);
 
   // local id state lets us swap images without re-mounting the viewer
   const [localId, setLocalId] = useState(fileId);
@@ -138,7 +145,19 @@ export function Viewer({
 
       {/* clicking the dark backdrop (the stage itself, not the media/controls) closes;
           not in session mode (onNavigate) — a misclick shouldn't kill a timed session */}
-      <div className="stage" onClick={(e) => !onNavigate && e.target === e.currentTarget && onClose()}>
+      <div
+        className="stage"
+        onClick={(e) => !onNavigate && e.target === e.currentTarget && onClose()}
+        onTouchStart={(e) => { touchStart.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; }}
+        onTouchEnd={(e) => {
+          if (!touchStart.current) return;
+          const t = e.changedTouches[0]!;
+          const dx = t.clientX - touchStart.current.x;
+          const dy = t.clientY - touchStart.current.y;
+          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) nav(dx < 0 ? 1 : -1);
+          touchStart.current = null;
+        }}
+      >
         {overlayTop}
         <button className="vbtn" style={{ top: 14, right: 14 }} onClick={onClose}>✕</button>
         <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info">ⓘ</button>

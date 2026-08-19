@@ -120,7 +120,11 @@ export function SessionRunner({
       onNavigate={(i) => setIndex(Math.max(0, Math.min(flat.length - 1, i)))}
       onClose={onClose}
       overlayTop={
-        <div className="absolute top-4 left-1/2 z-10 flex -translate-x-1/2 items-center gap-3" onClick={(e) => e.stopPropagation()}>
+        <div
+          className="absolute left-1/2 z-10 flex -translate-x-1/2 flex-wrap items-center justify-center gap-3 px-4"
+          style={{ top: "max(1rem, env(safe-area-inset-top))" }}
+          onClick={(e) => e.stopPropagation()}
+        >
           <span className="chip">{current!.tag}</span>
           <span className="chip">{index + 1} / {flat.length}</span>
           {remaining !== null && (
@@ -132,14 +136,14 @@ export function SessionRunner({
                 ⏱ {Math.floor(Math.max(0, remaining) / 60)}:{String(Math.max(0, remaining) % 60).padStart(2, "0")}
               </span>
               {([30, 60, 300, 600] as const).map((s) => (
-                <button key={s} className="chip" style={{ cursor: "pointer" }} onClick={() => setRemaining((r) => (r ?? 0) + s)}>
+                <button key={s} className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={() => setRemaining((r) => (r ?? 0) + s)}>
                   +{s >= 60 ? `${s / 60}m` : `${s}s`}
                 </button>
               ))}
             </>
           )}
-          <button className="chip" style={{ cursor: "pointer" }} onClick={next}>Skip →</button>
-          <button className="chip" style={{ cursor: "pointer" }} onClick={() => setDone(true)}>End</button>
+          <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={next}>Skip →</button>
+          <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={() => setDone(true)}>End</button>
         </div>
       }
     />

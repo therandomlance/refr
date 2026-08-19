@@ -58,11 +58,17 @@ export function ContextMenu({
       {items.map((item, i) => {
         if (item === "sep") return <hr key={i} />;
         if ("submenu" in item) {
+          // ponytail: submenu toggles on click (touch has no hover); edge-flip so it stays on-screen.
+          // pos.x is the parent menu's left edge; if it's past the viewport midpoint, open to the left.
+          const flipLeft = pos.x > window.innerWidth / 2;
           return (
             <div key={i} className="relative" onMouseEnter={() => setSub(i)} onMouseLeave={() => setSub(null)}>
-              <button>{item.label} ▸</button>
+              <button onClick={(e) => { e.stopPropagation(); setSub(sub === i ? null : i); }}>{item.label} ▸</button>
               {sub === i && (
-                <div className="ctxmenu" style={{ position: "absolute", left: "100%", top: -4 }}>
+                <div
+                  className="ctxmenu"
+                  style={{ position: "absolute", top: -4, [flipLeft ? "right" : "left"]: "100%" }}
+                >
                   {item.submenu.map((s, j) => (
                     <button key={j} onClick={() => { s.onClick(); onClose(); }}>{s.label}</button>
                   ))}

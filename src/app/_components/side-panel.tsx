@@ -2,13 +2,17 @@
 
 import { useState } from "react";
 
-/** Collapsible left sidebar (browse/search/queue). Collapsed = slim expand strip. */
+/** Collapsible left sidebar (browse/search/queue). Collapsed = slim expand strip.
+ *  ponytail: on phones (<640px) the open state is a fixed drawer with a backdrop;
+ *  on tablet+ it stays in-flow. Default-collapsed on phones. */
 export function SidePanel({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
-  const [open, setOpen] = useState(true);
+  const [open, setOpen] = useState(() =>
+    typeof window === "undefined" || window.innerWidth >= 640,
+  );
   if (!open) {
     return (
       <div
-        className="flex w-8 flex-none flex-col items-center pt-3"
+        className="sidepanel-collapsed flex w-8 flex-none flex-col items-center pt-3"
         style={{ background: "var(--panel)", borderRight: "1px solid var(--border)" }}
       >
         <button
@@ -23,22 +27,25 @@ export function SidePanel({ head, children }: { head: React.ReactNode; children:
     );
   }
   return (
-    <aside
-      className="scroll-thin flex w-60 flex-none flex-col overflow-y-auto"
-      style={{ background: "var(--panel)", borderRight: "1px solid var(--border)" }}
-    >
-      <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
-        <div className="flex min-w-0 flex-1 items-center justify-between gap-2">{head}</div>
-        <button
-          className="rail-btn flex-none"
-          style={{ width: 22, height: 22, fontSize: 12 }}
-          title="Hide sidebar"
-          onClick={() => setOpen(false)}
-        >
-          «
-        </button>
-      </div>
-      {children}
-    </aside>
+    <>
+      <div className="sidepanel-backdrop" onClick={() => setOpen(false)} />
+      <aside
+        className="sidepanel scroll-thin flex w-60 flex-none flex-col overflow-y-auto"
+        style={{ background: "var(--panel)", borderRight: "1px solid var(--border)" }}
+      >
+        <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
+          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">{head}</div>
+          <button
+            className="rail-btn flex-none"
+            style={{ width: 22, height: 22, fontSize: 12 }}
+            title="Hide sidebar"
+            onClick={() => setOpen(false)}
+          >
+            «
+          </button>
+        </div>
+        {children}
+      </aside>
+    </>
   );
 }

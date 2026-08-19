@@ -352,7 +352,7 @@ function PaletteEditor({
         </select>
       </div>
 
-      <div className="mb-4 flex gap-4" style={{ height: "min(60vh, 520px)" }}>
+      <div className="palette-editor-body mb-4 flex gap-4" style={{ height: "min(60vh, 520px)" }}>
         {/* full-height preview stripes; rows compress as colors are added */}
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded">
           {e.colors.map((c, i) => (

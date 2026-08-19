@@ -220,15 +220,24 @@ export function MediaGrid({
   );
 
   // click-drag range selection (ponytail: no rubber band, range replaces selection;
-  // no auto-scroll — only rendered tiles can be entered)
+  // no auto-scroll — only rendered tiles can be entered). Mouse/pen only — touch
+  // uses long-press to start a selection (see long-press handlers below), so scrolling
+  // the grid never bleeds into a range-select.
   const dragFrom = useRef(-1);
   const dragged = useRef(false);
   const suppressClick = useRef(false);
+  // long-press for touch: start a timer on pointerdown, cancel on move (>10px) or up.
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressStart = useRef({ x: 0, y: 0 });
   useEffect(() => {
     const up = () => {
       if (dragged.current) suppressClick.current = true;
       dragged.current = false;
       dragFrom.current = -1;
+      if (longPressTimer.current) {
+        clearTimeout(longPressTimer.current);
+        longPressTimer.current = null;
+      }
     };
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
@@ -320,10 +329,41 @@ export function MediaGrid({
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id))}
         onPointerDown={(e) => {
           suppressClick.current = false;
-          if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) dragFrom.current = index;
+          if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
+            if (e.pointerType === "touch") {
+              // long-press → toggle into selection (the only touch path to start a
+              // multi-select without modifier keys); cancelled by pointerup/move below.
+              longPressStart.current = { x: e.clientX, y: e.clientY };
+              longPressTimer.current = setTimeout(() => {
+                anchor.current = index;
+                toggle(f.id);
+                suppressClick.current = true;
+                if (navigator.vibrate) navigator.vibrate(15);
+                longPressTimer.current = null;
+              }, 500);
+            } else {
+              dragFrom.current = index;
+            }
+          }
+        }}
+        onPointerMove={(e) => {
+          if (!longPressTimer.current) return;
+          // a touch that moves >10px is a scroll, not a long-press — cancel
+          if (Math.abs(e.clientX - longPressStart.current.x) > 10 || Math.abs(e.clientY - longPressStart.current.y) > 10) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
+        }}
+        onPointerUp={() => {
+          if (longPressTimer.current) {
+            clearTimeout(longPressTimer.current);
+            longPressTimer.current = null;
+          }
         }}
         onPointerEnter={(e) => {
-          if (dragFrom.current >= 0 && (e.buttons & 1) === 1 && dragFrom.current !== index) {
+          // mouse/pen drag-select; touch scroll fires pointerenter too but dragFrom
+          // stays -1 on touch (long-press branch), so this never fires for touch
+          if (dragFrom.current >= 0 && (e.buttons & 1) === 1 && dragFrom.current !== index && e.pointerType !== "touch") {
             selectRange(dragFrom.current, index);
             dragged.current = true;
           }
@@ -418,7 +458,7 @@ export function MediaGrid({
           </div>
         </div>
       )}
-      <div ref={scrollRef} className="scroll-thin flex-1 select-none overflow-y-auto px-4 pb-10">
+      <div ref={scrollRef} className="scroll-thin flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y" }}>
         {header}
         {items.length === 0 && (filesQ.isLoading || searchQ.isLoading || idsQ.isLoading) && (
           <p className="p-8 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>

@@ -9,7 +9,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   const jar = await cookies();
   if (!verifySession(jar.get(SESSION_COOKIE)?.value)) redirect("/login");
   return (
-    <div className="flex h-screen overflow-hidden">
+    // ponytail: flex-col-reverse puts the rail at the bottom on phones, left on tablet+ (flex-row)
+    <div className="flex h-screen flex-col-reverse overflow-hidden sm:flex-row">
       <Rail />
       <div className="flex min-w-0 flex-1 flex-col">{children}</div>
     </div>

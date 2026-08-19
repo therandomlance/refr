@@ -308,7 +308,6 @@ function Card({ node, onOpen }: { node: TreeNodeData; onOpen: () => void }) {
     <div
       className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg p-4 text-center"
       style={{ width: 120, height: 96, background: "var(--panel)", border: "1px solid var(--border)" }}
-      onDoubleClick={onOpen}
       onClick={onOpen}
     >
       <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--text-dim)" }}>

@@ -92,6 +92,7 @@ export default function SettingsPage() {
             <input
               className="input w-24"
               type="number"
+              inputMode="numeric"
               min={1}
               defaultValue={s.sessionHistoryCap}
               onBlur={(e) => save({ sessionHistoryCap: Math.max(1, Number(e.target.value) || 1000) })}
@@ -383,7 +384,7 @@ function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: strin
             Tag suggestion text weight
             <input
               className="input w-20"
-              type="number" step={0.05} min={0} max={1}
+              type="number" inputMode="decimal" step={0.05} min={0} max={1}
               defaultValue={ml.tagSuggestionTextWeight}
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionTextWeight: Number(e.target.value) } })}
             />
@@ -393,7 +394,7 @@ function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: strin
             Tag suggestion min score
             <input
               className="input w-20"
-              type="number" step={0.01}
+              type="number" inputMode="decimal" step={0.01}
               defaultValue={ml.tagSuggestionMinScore}
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionMinScore: Number(e.target.value) } })}
             />

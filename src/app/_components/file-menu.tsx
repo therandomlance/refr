@@ -13,6 +13,9 @@ import { PromptDialog } from "./dialog";
 export function useFileContextMenu(
   selection: Set<string>,
   onSelectionChange?: (s: Set<string>) => void,
+  // ponytail: HTML5 drag-and-drop is dead on touch; queue reorder gets Move-to-start/end
+  // menu entries as a fallback. Desktop drag still works.
+  reorder?: { allIds: string[]; onReorder: (next: string[]) => void },
 ) {
   const [menu, setMenu] = useState<{ x: number; y: number; fileIds: string[] } | null>(null);
   const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[] }>(null);
@@ -119,6 +122,16 @@ export function useFileContextMenu(
         ],
       },
     );
+    if (reorder) {
+      const all = reorder.allIds;
+      const move = (fn: (rest: string[], sel: string[]) => string[]) =>
+        reorder.onReorder(fn(all.filter((id) => !fileIds.includes(id)), all.filter((id) => fileIds.includes(id))));
+      items.push(
+        "sep",
+        { label: "Move to start", onClick: () => move((rest, sel) => [...sel, ...rest]) },
+        { label: "Move to end", onClick: () => move((rest, sel) => [...rest, ...sel]) },
+      );
+    }
     return items;
   }
 
