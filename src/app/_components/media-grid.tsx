@@ -220,20 +220,27 @@ export function MediaGrid({
   );
 
   // click-drag range selection (ponytail: no rubber band, range replaces selection;
-  // no auto-scroll — only rendered tiles can be entered). Mouse/pen only — touch
-  // uses long-press to start a selection (see long-press handlers below), so scrolling
-  // the grid never bleeds into a range-select.
+  // no auto-scroll — only rendered tiles can be entered). Mouse/pen drag freely;
+  // touch long-presses first (to start selection) then drags to extend it via
+  // elementFromPoint — touch pointerenter doesn't retarget during a scroll/drag.
   const dragFrom = useRef(-1);
   const dragged = useRef(false);
   const suppressClick = useRef(false);
   // long-press for touch: start a timer on pointerdown, cancel on move (>10px) or up.
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressStart = useRef({ x: 0, y: 0 });
+  // tracks the pointer type of the in-progress gesture so onClick (a MouseEvent) knows
+  // whether it came from a touch tap; touch taps always open the viewer, long-press selects.
+  const lastPointerType = useRef("mouse");
+  // when true, the touch is in drag-select mode (long-press already fired) — pointermove
+  // extends the selection to whatever tile is under the finger via elementFromPoint.
+  const touchSelecting = useRef(false);
   useEffect(() => {
     const up = () => {
-      if (dragged.current) suppressClick.current = true;
+      if (dragged.current || touchSelecting.current) suppressClick.current = true;
       dragged.current = false;
       dragFrom.current = -1;
+      touchSelecting.current = false;
       if (longPressTimer.current) {
         clearTimeout(longPressTimer.current);
         longPressTimer.current = null;
@@ -241,6 +248,17 @@ export function MediaGrid({
     };
     window.addEventListener("pointerup", up);
     return () => window.removeEventListener("pointerup", up);
+  }, []);
+  // prevent the grid from scrolling while a touch drag-select is in progress — the finger
+  // should sweep tiles into the selection, not pan the viewport. non-passive so preventDefault works.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const prevent = (e: TouchEvent) => {
+      if (touchSelecting.current) e.preventDefault();
+    };
+    el.addEventListener("touchmove", prevent, { passive: false });
+    return () => el.removeEventListener("touchmove", prevent);
   }, []);
   const selectRange = useCallback(
     (a: number, b: number, additive = false) => {
@@ -288,6 +306,13 @@ export function MediaGrid({
       suppressClick.current = false;
       return;
     }
+    // touch: tap always opens the viewer — selection is via long-press, not tap.
+    // (a long-press sets suppressClick, so we never reach here after one.)
+    if (lastPointerType.current === "touch") {
+      anchor.current = index;
+      openViewer(f.id);
+      return;
+    }
     if (e.shiftKey && anchor.current >= 0) {
       selectRange(anchor.current, index, true);
     } else if (e.ctrlKey || e.metaKey || selection.size > 0) {
@@ -320,6 +345,7 @@ export function MediaGrid({
     return (
       <div
         key={f.id}
+        data-file-id={f.id}
         className={`tile ${f.mediaType === "video" ? "vid" : ""} ${selection.has(f.id) ? "sel" : ""}`}
         draggable={!!onReorder}
         onDragStart={() => (dragId.current = f.id)}
@@ -329,17 +355,22 @@ export function MediaGrid({
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id))}
         onPointerDown={(e) => {
           suppressClick.current = false;
+          lastPointerType.current = e.pointerType;
           if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
             if (e.pointerType === "touch") {
-              // long-press → toggle into selection (the only touch path to start a
-              // multi-select without modifier keys); cancelled by pointerup/move below.
+              // long-press → toggle into selection, then enter drag-select mode so the
+              // finger can sweep more tiles; cancelled by pointerup/move(>10px) below.
               longPressStart.current = { x: e.clientX, y: e.clientY };
               longPressTimer.current = setTimeout(() => {
                 anchor.current = index;
-                toggle(f.id);
+                dragFrom.current = index;
+                touchSelecting.current = true;
                 suppressClick.current = true;
                 if (navigator.vibrate) navigator.vibrate(15);
                 longPressTimer.current = null;
+                // ponytail: toggle (not replace) so a long-press on an already-selected
+                // tile removes it; the subsequent drag extends from dragFrom.
+                toggle(f.id);
               }, 500);
             } else {
               dragFrom.current = index;
@@ -347,11 +378,22 @@ export function MediaGrid({
           }
         }}
         onPointerMove={(e) => {
-          if (!longPressTimer.current) return;
-          // a touch that moves >10px is a scroll, not a long-press — cancel
-          if (Math.abs(e.clientX - longPressStart.current.x) > 10 || Math.abs(e.clientY - longPressStart.current.y) > 10) {
-            clearTimeout(longPressTimer.current);
-            longPressTimer.current = null;
+          if (longPressTimer.current) {
+            // a touch that moves >10px before the long-press fires is a scroll — cancel
+            if (Math.abs(e.clientX - longPressStart.current.x) > 10 || Math.abs(e.clientY - longPressStart.current.y) > 10) {
+              clearTimeout(longPressTimer.current);
+              longPressTimer.current = null;
+            }
+          }
+          if (touchSelecting.current && e.pointerType === "touch") {
+            // sweep-select: find the tile under the finger and extend the range to it
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            const tile = el?.closest("[data-file-id]") as HTMLElement | null;
+            const tid = tile?.dataset.fileId;
+            if (tid) {
+              const ti = indexOf.get(tid);
+              if (ti !== undefined && ti !== dragFrom.current) selectRange(dragFrom.current, ti);
+            }
           }
         }}
         onPointerUp={() => {
@@ -437,6 +479,14 @@ export function MediaGrid({
                   onClick={() => onSelectionChange(new Set(items.map((f) => f.id)))}
                 >
                   Select all
+                </button>
+                <button
+                  className="btn"
+                  style={{ padding: "3px 8px", fontSize: 12 }}
+                  title="Clear selection"
+                  onClick={() => onSelectionChange(new Set())}
+                >
+                  ✕
                 </button>
                 <button
                   className="btn"
