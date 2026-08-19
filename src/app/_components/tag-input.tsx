@@ -12,6 +12,7 @@ export function TagInput({
   onCommit,
   onRawChange,
   semanticFallback = false,
+  keywords = [],
   autoFocus = false,
 }: {
   placeholder?: string;
@@ -19,6 +20,8 @@ export function TagInput({
   onRawChange?: (raw: string) => void;
   /** when true and no tag matches, last row is "Semantic: '<input>'" */
   semanticFallback?: boolean;
+  /** metadata keywords (e.g. search's `untagged`) offered as suggestions */
+  keywords?: readonly string[];
   autoFocus?: boolean;
 }) {
   const [raw, setRaw] = useState("");
@@ -37,7 +40,11 @@ export function TagInput({
     { enabled: debounced.length > 0 },
   );
 
-  const rows = suggestions.data ?? [];
+  const tagRows = suggestions.data ?? [];
+  const keywordRows = debounced
+    ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
+    : [];
+  const rows: { name: string; count?: number }[] = [...tagRows, ...keywordRows];
   const showSemantic = semanticFallback && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
@@ -100,7 +107,7 @@ export function TagInput({
               onMouseEnter={() => setHighlight(i)}
               onClick={() => commit(r.name)}
             >
-              {r.name} <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>
+              {r.name} {r.count != null && <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>}
             </button>
           ))}
           {showSemantic && (

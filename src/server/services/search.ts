@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { KEYWORD_NAMES } from "refr/lib/keywords";
 
 /**
  * §9.1 token model + §9.2 grammar + §9.3 SQL translation.
@@ -104,10 +105,13 @@ function existsClause(cond: Sql, negate: boolean): Sql {
   };
 }
 
-/** Metadata keywords (§9.3). Extensible registry; unknown → literal tag. */
-export const KEYWORDS: Record<string, () => Sql> = {
+/** Metadata keywords (§9.3). Extensible: add a name to KEYWORD_NAMES (lib)
+ *  and an entry here; unknown → literal tag. */
+const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   untagged: () => ({ text: `NOT EXISTS (SELECT 1 FROM FileTag ft WHERE ft.fileId = f.id)`, params: [] }),
 };
+
+export const KEYWORDS: Record<string, () => Sql> = KEYWORD_SQL;
 
 /**
  * Translate tag tokens to a WHERE clause (without leading WHERE).

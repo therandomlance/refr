@@ -10,6 +10,7 @@ import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
+import { KEYWORD_NAMES } from "refr/lib/keywords";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -149,6 +150,7 @@ export default function SearchPage() {
             <TagInput
               placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard)" : ""}
               onCommit={addChip}
+              keywords={KEYWORD_NAMES}
               semanticFallback={mlStatus.data?.state === "ready" && !hasVectorChip}
             />
           </div>
