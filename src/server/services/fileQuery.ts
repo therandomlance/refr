@@ -50,13 +50,22 @@ export async function executeList(input: {
 }
 
 /** WHERE builder helpers used by files.list. */
-export function pathPrefixWhere(prefix: string): Sql {
-  // folders: direct children only — a file belongs to a folder if its path is
-  // <prefix>/<name> with no further "/" in <name> (unlike tags, no descendants)
+export function pathPrefixWhere(prefix: string, recursive = false): Sql {
+  // folders: by default direct children only — a file belongs to a folder if
+  // its path is <prefix>/<name> with no further "/" in <name>. recursive=true
+  // matches every descendant path (prefix + "/...")
+  const esc = prefix.replace(/[\\%_]/g, (c) => "\\" + c);
+  if (recursive) {
+    return {
+      text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id
+             AND fp.path LIKE ? ESCAPE '\\')`,
+      params: [esc + "/%"],
+    };
+  }
   return {
     text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id
            AND fp.path LIKE ? ESCAPE '\\' AND instr(substr(fp.path, ?), '/') = 0)`,
-    params: [prefix.replace(/[\\%_]/g, (c) => "\\" + c) + "/%", prefix.length + 2],
+    params: [esc + "/%", prefix.length + 2],
   };
 }
 

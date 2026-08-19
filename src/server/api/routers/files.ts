@@ -20,6 +20,7 @@ export const filesRouter = createTRPCRouter({
         pathPrefix: z.string().optional(),
         tag: z.string().optional(),
         ids: z.array(z.string()).optional(), // explicit ids mode (queue/similar): order preserved, no pagination
+        recursive: z.boolean().optional(), // include files in subfolders/subtags (default true)
         sort: sortEnum.default("date"),
         cursor: z.string().nullish(),
         limit: z.number().int().min(1).max(500).optional(),
@@ -29,16 +30,25 @@ export const filesRouter = createTRPCRouter({
       if (input.ids) {
         return { items: await listByOrderedIds(input.ids), nextCursor: null };
       }
+      const recursive = input.recursive ?? true;
       let where: { text: string; params: unknown[] } | undefined;
       if (input.pathPrefix !== undefined) {
-        where = pathPrefixWhere(input.pathPrefix);
+        where = pathPrefixWhere(input.pathPrefix, recursive);
       } else if (input.tag !== undefined) {
         const tag = input.tag.replace(/[\\%_]/g, (c) => "\\" + c);
-        where = {
-          text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
-                 WHERE ft.fileId = f.id AND (t.name = ? OR t.name LIKE ? ESCAPE '\\'))`,
-          params: [input.tag, tag + "/%"],
-        };
+        if (recursive) {
+          where = {
+            text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+                   WHERE ft.fileId = f.id AND (t.name = ? OR t.name LIKE ? ESCAPE '\\'))`,
+            params: [input.tag, tag + "/%"],
+          };
+        } else {
+          where = {
+            text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+                   WHERE ft.fileId = f.id AND t.name = ?)`,
+            params: [input.tag],
+          };
+        }
       }
       return executeList({ where, sort: input.sort, cursor: input.cursor, limit: input.limit });
     }),

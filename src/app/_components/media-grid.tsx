@@ -51,6 +51,9 @@ export function MediaGrid({
   const [grouping, setGrouping] = useState<Grouping>("day");
   const [layout, setLayout] = useState<Layout>("horizontal");
   const [size, setSize] = useState<TileSize>("medium");
+  // include files from subfolders/subtags (default true; only relevant for
+  // files sources with a pathPrefix or tag filter)
+  const [includeKids, setIncludeKids] = useState(true);
   const settings = api.settings.get.useQuery();
   const utils = api.useUtils();
   const patchSettings = api.settings.patch.useMutation({
@@ -94,6 +97,7 @@ export function MediaGrid({
     {
       pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
       tag: source.kind === "files" ? source.tag : undefined,
+      recursive: includeKids,
       sort,
     },
     {
@@ -372,6 +376,16 @@ export function MediaGrid({
                 </select>
               )}
             </>
+          )}
+          {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
+            <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include files from subfolders/subtags">
+              <input
+                type="checkbox"
+                checked={includeKids}
+                onChange={(e) => setIncludeKids(e.target.checked)}
+              />
+              {source.pathPrefix ? "Subfolders" : "Subtags"}
+            </label>
           )}
           <div className="ml-auto flex items-center gap-2">
             {selection.size > 0 && (

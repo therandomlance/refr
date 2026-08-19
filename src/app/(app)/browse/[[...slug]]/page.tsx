@@ -199,13 +199,6 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {childCards.length > 0 && (
-              <div className="flex flex-none flex-wrap gap-3 px-4 pt-1 pb-3">
-                {childCards.map((c) => (
-                  <Card key={c.key} node={c} onOpen={() => selectNode(c.key)} />
-                ))}
-              </div>
-            )}
             {mode === "tags" && suggestions.data && suggestions.data.length > 0 && (
               <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
                 <button className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold" onClick={() => setStripOpen(!stripOpen)}>
@@ -245,6 +238,15 @@ export default function BrowsePage() {
               selection={selection}
               onSelectionChange={setSelection}
               onContextMenu={fileMenu.open}
+              header={
+                childCards.length > 0 ? (
+                  <div className="flex flex-wrap gap-3 pb-3 pt-1">
+                    {childCards.map((c) => (
+                      <Card key={c.key} node={c} onOpen={() => selectNode(c.key)} />
+                    ))}
+                  </div>
+                ) : null
+              }
             />
           </>
         )}

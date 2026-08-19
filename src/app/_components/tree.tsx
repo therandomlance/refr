@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 export type TreeNodeData = {
   name: string; // display label
@@ -62,6 +62,15 @@ function TreeNode({
   const [open, setOpen] = useState(false);
   const [children, setChildren] = useState<TreeNodeData[] | null>(node.children ?? null);
   const expandable = node.hasChildren !== false;
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  // scroll the selected row into view once it mounts (ancestors auto-expand and
+  // load children async, so the selected node may appear well after page load)
+  useEffect(() => {
+    if (selected === node.key && rowRef.current) {
+      rowRef.current.scrollIntoView({ block: "nearest" });
+    }
+  }, [selected, node.key]);
 
   // auto-expand the selected node and its ancestors so the full path is
   // visible on page load / URL navigation
@@ -92,6 +101,7 @@ function TreeNode({
   return (
     <div>
       <div
+        ref={rowRef}
         className={`trow ${selected === node.key ? "sel" : ""}`}
         onClick={() => onSelect(node.key)}
         onContextMenu={(e) => {
