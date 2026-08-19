@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { usePersistentBoolean } from "refr/lib/persistent-state";
 
 /** Collapsible left sidebar (browse/search/queue). Collapsed = slim expand strip.
  *  ponytail: on phones (<640px) the open state is a fixed drawer with a backdrop;
- *  on tablet+ it stays in-flow. Default-collapsed on phones. */
+ *  on tablet+ it stays in-flow. Open/closed persists in localStorage across reloads. */
 export function SidePanel({ head, children }: { head: React.ReactNode; children: React.ReactNode }) {
-  const [open, setOpen] = useState(() =>
+  const [open, setOpen] = usePersistentBoolean("refr:sidepanel-open", () =>
     typeof window === "undefined" || window.innerWidth >= 640,
   );
   if (!open) {

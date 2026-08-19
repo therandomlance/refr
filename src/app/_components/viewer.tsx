@@ -6,6 +6,7 @@ import { useViewerList } from "./viewer-store";
 import { TagInput } from "./tag-input";
 import { ConfirmDialog } from "./dialog";
 import { formatDuration } from "./media-grid";
+import { usePersistentBoolean } from "refr/lib/persistent-state";
 
 /**
  * Fullscreen viewer (§10.2). Left panel: metadata + options. Right: tag manager
@@ -26,13 +27,14 @@ export function Viewer({
   overlayTop?: React.ReactNode;
 }) {
   const { items, loadMore } = useViewerList();
-  // ponytail: side panels default closed on narrow screens — the 280px panels would
-  // crush the stage on a phone; user can still open them with ⓘ/🏷.
-  const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(
-    () => typeof window === "undefined" || window.innerWidth >= 640,
+  // ponytail: side panels + carousel remember their open/closed state across viewer
+  // reopens and reloads. Defaults: left closed, right open on tablet+, closed on phone,
+  // carousel open.
+  const [leftOpen, setLeftOpen] = usePersistentBoolean("refr:viewer-left", () => false);
+  const [rightOpen, setRightOpen] = usePersistentBoolean("refr:viewer-right", () =>
+    typeof window === "undefined" || window.innerWidth >= 640,
   );
-  const [carouselOpen, setCarouselOpen] = useState(true);
+  const [carouselOpen, setCarouselOpen] = usePersistentBoolean("refr:viewer-carousel", () => true);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
   // ponytail: swipe to navigate on touch — horizontal delta >50px beats vertical
