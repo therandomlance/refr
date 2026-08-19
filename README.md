@@ -2,7 +2,7 @@
 
 Self-hosted, single-user reference-image manager. Indexes read-only media libraries by
 content hash, tags them hierarchically, and serves browse/search/queue/session/palette
-workflows on top. See `refr.md` (vision) and `SPEC.md` (implementation spec).
+workflows on top. See [refr](refr.md) (vision) and [SPEC](SPEC.md) (implementation spec).
 
 ## Run
 
