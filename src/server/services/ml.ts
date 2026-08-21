@@ -436,18 +436,22 @@ export async function excludeSuggestion(tagName: string, fileId: string) {
 
 // ---------------------------------------------------------------- tag vectors
 
-export async function bumpLinksVersion() {
-  const row = await db.meta.findUnique({ where: { key: "linksVersion" } });
-  await db.meta.upsert({
-    where: { key: "linksVersion" },
-    create: { key: "linksVersion", value: "1" },
-    update: { value: String(Number(row?.value ?? "0") + 1) },
-  });
+/** Invalidate cached vectors for the given tag names (by resolving to tagIds
+ *  and deleting those TagVector rows). Called from setTags on the hot path —
+ *  only the touched tag + its ancestors need recompute, not the whole matrix.
+ *  Unknown names (no Tag row) are silently skipped. */
+export async function invalidateTagVectors(tagNames: string[]) {
+  if (tagNames.length === 0) return;
+  const tags = await db.tag.findMany({ where: { name: { in: tagNames } }, select: { id: true } });
+  if (tags.length === 0) return;
+  await db.tagVector.deleteMany({ where: { tagId: { in: tags.map((t) => t.id) } } });
 }
 
-async function linksVersion(): Promise<number> {
-  const row = await db.meta.findUnique({ where: { key: "linksVersion" } });
-  return Number(row?.value ?? "0");
+/** Wipe the whole TagVector matrix — for rare bulk admin ops (rename/merge/
+ *  delete) where computing the precise affected set is more code than it's
+ *  worth. The matrix rebuilds lazily on next suggestTagsForFile call. */
+export async function invalidateAllTagVectors() {
+  await db.tagVector.deleteMany({});
 }
 
 function normalize(v: Float32Array): Float32Array {
@@ -504,14 +508,14 @@ async function computeTagVector(
   return { v: normalize(combined), fileCount };
 }
 
-/** Cached tag vector keyed by tagId; invalidated by linksVersion + model. */
+/** Cached tag vector keyed by tagId; invalidated by deletion (invalidateTagVectors)
+ *  or model mismatch. Recomputes lazily — presence + matching model = valid. */
 export async function tagVector(tagId: number): Promise<Float32Array | null> {
   const tag = await db.tag.findUnique({ where: { id: tagId }, select: { name: true } });
   if (!tag) return null;
-  const lv = await linksVersion();
   const modelId = currentModelId();
   const cached = await db.tagVector.findUnique({ where: { tagId } });
-  if (cached?.linksVersion === lv && cached.model === modelId) {
+  if (cached?.model === modelId) {
     return new Float32Array(cached.vector.buffer, cached.vector.byteOffset, cached.vector.length / 4);
   }
   if (!(await isReady())) return null;
@@ -520,8 +524,8 @@ export async function tagVector(tagId: number): Promise<Float32Array | null> {
   const { v, fileCount } = await computeTagVector(tag.name, textEmb);
   await db.tagVector.upsert({
     where: { tagId },
-    create: { tagId, vector: vecToBytes(v), fileCount, linksVersion: lv, model: modelId },
-    update: { vector: vecToBytes(v), fileCount, linksVersion: lv, model: modelId },
+    create: { tagId, vector: vecToBytes(v), fileCount, linksVersion: 0, model: modelId },
+    update: { vector: vecToBytes(v), fileCount, model: modelId },
   });
   return v;
 }
@@ -542,11 +546,16 @@ export async function tagVectorByName(tagName: string): Promise<Float32Array | n
   return tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
 }
 
-/** Batch-rebuild TagVector rows (one text-embed call for all tags). */
-async function refreshTagVectors() {
-  const lv = await linksVersion();
+/** Batch-rebuild TagVector rows (one text-embed call for all tags). With no
+ *  tagIds, rebuilds up to 500 tags (cold start); with tagIds, only those
+ *  (incremental after invalidateTagVectors). */
+async function refreshTagVectors(tagIds?: number[]) {
   const modelId = currentModelId();
-  const tags = await db.tag.findMany({ select: { id: true, name: true }, take: 500 });
+  const tags = await db.tag.findMany({
+    where: tagIds ? { id: { in: tagIds } } : undefined,
+    select: { id: true, name: true },
+    take: 500,
+  });
   if (tags.length === 0) return;
   const textEmbs = await embedText(tags.map((t) => prettify(t.name)));
   for (let i = 0; i < tags.length; i++) {
@@ -555,8 +564,8 @@ async function refreshTagVectors() {
     const { v, fileCount } = await computeTagVector(tags[i]!.name, textEmb);
     await db.tagVector.upsert({
       where: { tagId: tags[i]!.id },
-      create: { tagId: tags[i]!.id, vector: vecToBytes(v), fileCount, linksVersion: lv, model: modelId },
-      update: { vector: vecToBytes(v), fileCount, linksVersion: lv, model: modelId },
+      create: { tagId: tags[i]!.id, vector: vecToBytes(v), fileCount, linksVersion: 0, model: modelId },
+      update: { vector: vecToBytes(v), fileCount, model: modelId },
     });
   }
 }
@@ -628,23 +637,39 @@ export async function suggestImagesOutsideRoot(tagName: string) {
   return knn(v, 60, 0, root, excluded.size ? [...excluded] : undefined);
 }
 
-/** Suggested tags for a file: file vector vs TagVector matrix, top 5. */
+/** Suggested tags for a file: file vector vs TagVector matrix, top 5.
+ *  Cold start (empty matrix) → rebuild all (capped 500). After a tag mutation,
+ *  invalidateTagVectors deleted only the touched rows; this rebuilds just those
+ *  (one batched text-embed call for the missing set), not the whole matrix. */
 export async function suggestTagsForFile(fileId: string): Promise<{ tag: string; score: number }[]> {
   if (!(await isReady())) return [];
   const v = await fileVector(fileId);
   if (!v) return [];
-  const lv = await linksVersion();
   const modelId = currentModelId();
-  const stale = await db.tagVector.count({
-    where: { OR: [{ linksVersion: { not: lv } }, { model: { not: modelId } }] },
-  });
-  let rows = await db.tagVector.findMany({ include: { tag: { select: { name: true } } } });
-  if (stale > 0 || rows.length === 0) {
+  let rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
+  if (rows.length === 0) {
     try {
       await refreshTagVectors();
-      rows = await db.tagVector.findMany({ include: { tag: { select: { name: true } } } });
+      rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
     } catch {
       return [];
+    }
+  } else {
+    // incremental: rebuild any vectors deleted by invalidateTagVectors
+    const tagCount = await db.tag.count();
+    if (rows.length < tagCount) {
+      const present = new Set(rows.map((r) => r.tagId));
+      const missing = (await db.tag.findMany({ select: { id: true }, take: 500 }))
+        .map((t) => t.id)
+        .filter((id) => !present.has(id));
+      if (missing.length > 0) {
+        try {
+          await refreshTagVectors(missing);
+          rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
+        } catch {
+          // keep the partial set we have
+        }
+      }
     }
   }
   const existing = await db.fileTag.findMany({

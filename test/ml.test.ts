@@ -49,19 +49,20 @@ describe("ml (stub sidecar)", () => {
   });
   afterAll(() => stub.close());
 
-  it("combined tag vector: cold start = text embedding; cache invalidated by linksVersion", async () => {
+  it("combined tag vector: cold start = text embedding; cache invalidated by deletion", async () => {
     const tag = await db.tag.findUnique({ where: { name: "mltag" } });
     const v1 = await ml.tagVector(tag!.id);
     expect(v1).not.toBeNull();
     const norm = Math.sqrt(v1!.reduce((s, x) => s + x * x, 0));
     expect(norm).toBeCloseTo(1, 3);
 
-    // bump linksVersion → recompute path taken again (same result, but cache rewrote linksVersion)
-    await ml.bumpLinksVersion();
-    const cached1 = await db.tagVector.findUnique({ where: { tagId: tag!.id } });
+    // invalidate → row deleted → next call recomputes
+    await ml.invalidateTagVectors(["mltag"]);
+    const gone = await db.tagVector.findUnique({ where: { tagId: tag!.id } });
+    expect(gone).toBeNull();
     await ml.tagVector(tag!.id);
-    const cached2 = await db.tagVector.findUnique({ where: { tagId: tag!.id } });
-    expect(cached2!.linksVersion).toBeGreaterThan(cached1!.linksVersion);
+    const cached = await db.tagVector.findUnique({ where: { tagId: tag!.id } });
+    expect(cached).not.toBeNull();
   });
 
   it("suggestTagsForFile excludes tags already on the file", async () => {

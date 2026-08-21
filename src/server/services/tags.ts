@@ -1,6 +1,6 @@
 import "server-only";
 import { db } from "refr/server/db";
-import { bumpLinksVersion } from "./ml";
+import { invalidateTagVectors, invalidateAllTagVectors } from "./ml";
 
 /** trim, collapse repeated '/', strip leading/trailing '/', lowercase. */
 export function normalize(name: string): string {
@@ -50,7 +50,13 @@ export async function setTags(fileIds: string[], add: string[], remove: string[]
   });
   if (add.length || remove.length) {
     invalidateTreeCache();
-    await bumpLinksVersion();
+    // invalidate vectors for the touched tags + their ancestors (whose centroids
+    // also shift when a descendant file set changes) — precise, not global
+    const affected = new Set<string>();
+    for (const n of [...add, ...remove]) {
+      for (const a of ancestors(normalize(n))) affected.add(a);
+    }
+    await invalidateTagVectors([...affected]);
   }
 }
 
@@ -85,7 +91,7 @@ export async function rename(oldName: string, newName: string) {
     }
   });
   invalidateTreeCache();
-  await bumpLinksVersion();
+  await invalidateAllTagVectors();
 }
 
 /** Repoint all links from sources to target, dedupe, delete sources. */
@@ -109,7 +115,7 @@ export async function merge(sources: string[], target: string) {
     }
   });
   invalidateTreeCache();
-  await bumpLinksVersion();
+  await invalidateAllTagVectors();
 }
 
 /** Delete a tag and all descendants. */
@@ -117,7 +123,7 @@ export async function deleteTag(name: string) {
   const n = normalize(name);
   await db.tag.deleteMany({ where: { OR: [{ name: n }, { name: { startsWith: n + "/" } }] } });
   invalidateTreeCache();
-  await bumpLinksVersion();
+  await invalidateAllTagVectors();
 }
 
 export type TreeNode = { name: string; count: number };
