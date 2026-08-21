@@ -184,8 +184,11 @@ def knn(req: KnnReq):
         finally:
             conn.close()
 
-    k = min(req.k + req.skip, len(ids))
-    idx = np.argpartition(-scores, k - 1)[:k]
+    # Over-fetch by the exclusion count so filtering out already-tagged/denied
+    # files doesn't shrink the returned list below k (pigeonhole: among the top
+    # k + len(exclude_ids) candidates at most len(exclude_ids) are excluded).
+    over = min(req.k + req.skip + len(exclude_ids), len(ids))
+    idx = np.argpartition(-scores, over - 1)[:over]
     idx = idx[np.argsort(-scores[idx])]
     out = []
     for i in idx:
@@ -193,7 +196,7 @@ def knn(req: KnnReq):
         if fid in exclude_ids:
             continue
         out.append({"fileId": fid, "score": float(scores[i])})
-    return out[req.skip :]
+    return out[req.skip : req.k + req.skip]
 
 
 if __name__ == "__main__":
