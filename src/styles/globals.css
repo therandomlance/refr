@@ -258,6 +258,11 @@ body {
   border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.25);
   opacity: 0; transition: opacity .15s; display: grid; place-items: center; color: #fff; font-size: 12px;
 }
+.tile .deny {
+  position: absolute; top: 8px; right: 8px; width: 20px; height: 20px; border-radius: 50%;
+  border: 2px solid rgba(255,255,255,.85); background: rgba(0,0,0,.25);
+  opacity: 0; transition: opacity .15s; display: grid; place-items: center; color: #fff; font-size: 12px;
+}
 .tile.sel .check { opacity: 1; background: var(--accent); border-color: var(--accent); }
 .tile.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
 .tile.sel img { transform: scale(.88); }

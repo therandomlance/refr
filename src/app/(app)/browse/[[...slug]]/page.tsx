@@ -362,8 +362,8 @@ function SuggestionStrip({
                 ✓
               </button>
               <button
-                className="x"
-                style={{ top: 6, right: 6, width: 22, height: 22, fontSize: 12, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "50%", display: "grid", placeItems: "center", cursor: "pointer", zIndex: 2 }}
+                className="deny"
+                style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
                 title="Exclude from suggestions"
                 onClick={() => onDeny(s.fileId)}
               >
