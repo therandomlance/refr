@@ -83,9 +83,7 @@ export default function BrowsePage() {
       void utils.files.list.invalidate();
     },
   });
-  const excludeSuggestion = api.ml.excludeSuggestion.useMutation({
-    onError: (e) => console.error("deny failed:", e.message),
-  });
+  const excludeSuggestion = api.ml.excludeSuggestion.useMutation();
 
   const tagNames = useMemo(() => (tags.data ?? []).filter((t) => t.count > 0).map((t) => t.name), [tags.data]);
   const tagCounts = useMemo(() => new Map((tags.data ?? []).map((t) => [t.name, t.count])), [tags.data]);

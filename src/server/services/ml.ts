@@ -422,29 +422,16 @@ export async function similar(fileId: string): Promise<{ fileId: string; score: 
 // ---------------------------------------------------------------- suggestion exclusions
 
 async function getExclusions(tagName: string): Promise<Set<string>> {
-  try {
-    const rows = await db.suggestionDenial.findMany({ where: { tagName }, select: { fileId: true } });
-    const set = new Set(rows.map((r) => r.fileId));
-    console.log("[getExclusions]", tagName, "->", set.size, "excluded");
-    return set;
-  } catch (e) {
-    console.error("[getExclusions] FAILED for", tagName, ":", e instanceof Error ? e.message : e);
-    return new Set();
-  }
+  const rows = await db.suggestionDenial.findMany({ where: { tagName }, select: { fileId: true } });
+  return new Set(rows.map((r) => r.fileId));
 }
 
 export async function excludeSuggestion(tagName: string, fileId: string) {
-  try {
-    await db.suggestionDenial.upsert({
-      where: { tagName_fileId: { tagName, fileId } },
-      create: { tagName, fileId },
-      update: {},
-    });
-    console.log("[excludeSuggestion] saved:", tagName, fileId);
-  } catch (e) {
-    console.error("[excludeSuggestion] FAILED:", tagName, fileId, e instanceof Error ? e.message : e);
-    throw e;
-  }
+  await db.suggestionDenial.upsert({
+    where: { tagName_fileId: { tagName, fileId } },
+    create: { tagName, fileId },
+    update: {},
+  });
 }
 
 // ---------------------------------------------------------------- tag vectors
