@@ -19,11 +19,25 @@ export async function register() {
     );
   });
 
+  // fallback: ensure SuggestionDenial table exists even if migration failed
+  // (npx prisma can be absent in prod). Raw SQL via the already-connected client.
+  const { db } = await import("./server/db");
+  try {
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "SuggestionDenial" (
+      "tagName" TEXT NOT NULL,
+      "fileId" TEXT NOT NULL,
+      CONSTRAINT "SuggestionDenial_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+    )`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "SuggestionDenial_tagName_idx" ON "SuggestionDenial"("tagName")`);
+    await db.$executeRawUnsafe(`CREATE UNIQUE INDEX IF NOT EXISTS "SuggestionDenial_tagName_fileId_key" ON "SuggestionDenial"("tagName", "fileId")`);
+  } catch (e) {
+    console.error("[schema] SuggestionDenial fallback failed:", e instanceof Error ? e.message : e);
+  }
+
   const { watch } = await import("./server/services/config");
   watch();
 
   // thumbnail catch-up for any files missing thumbs
-  const { db } = await import("./server/db");
   const { hasThumb, enqueueThumbs } = await import("./server/services/thumbs");
   const files = await db.file.findMany({
     select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
