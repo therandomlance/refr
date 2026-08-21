@@ -163,7 +163,8 @@ def knn(req: KnnReq):
                    WHERE t.name = ? OR t.name LIKE ? ESCAPE '\\'""",
                 (req.excludeTag, pat),
             ).fetchall()
-            exclude_ids = {r[0] for r in rows}
+            # union with the ids already excluded (manual denials) — don't clobber
+            exclude_ids.update(r[0] for r in rows)
         finally:
             conn.close()
 
