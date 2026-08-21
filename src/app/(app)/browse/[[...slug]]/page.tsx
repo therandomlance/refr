@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useState, useEffect } from "react";
+import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { usePathname, useRouter, useParams, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
@@ -21,7 +21,7 @@ export default function BrowsePage() {
   // Derive mode + selected from the URL path:
   //   /browse/tags/reference/figure  → tags, "reference/figure"
   //   /browse/folders/mnt/network     → folders, "/mnt/network"
-  //   /browse                        → folders (default), null
+  //   /browse                        → tags (default), null
   // Decode each segment — useParams() may return URL-encoded values for
   // catch-all routes (e.g. "ai%20generated" instead of "ai generated").
   const slug = (urlParams.slug ?? []).map((s) => {
@@ -31,7 +31,7 @@ export default function BrowsePage() {
       return s;
     }
   });
-  const mode: "folders" | "tags" = slug[0] === "tags" ? "tags" : "folders";
+  const mode: "folders" | "tags" = slug[0] === "folders" ? "folders" : "tags";
   const selectedPath = slug.slice(1).join("/");
   const selected = slug.length > 1 ? (mode === "folders" ? "/" + selectedPath : selectedPath) : null;
 
@@ -120,7 +120,7 @@ export default function BrowsePage() {
     void (mode === "folders" ? folderChildren(selected) : tagChildren(selected)).then(setChildCards);
   }, [selected, mode, folderChildren, tagChildren]);
 
-  // suggested strip for tag mode.
+  // suggested strips for tag mode.
   const suggestions = api.ml.suggestImagesForTag.useQuery(
     { tag: selected ?? "" },
     { enabled: mode === "tags" && selected !== null && mlStatus.data?.state === "ready" },
@@ -130,8 +130,14 @@ export default function BrowsePage() {
     { tag: selected ?? "" },
     { enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
   );
+  const outsideRoot = api.ml.suggestImagesOutsideRoot.useQuery(
+    { tag: selected ?? "" },
+    { enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
+  );
+  const [suggestionsOpen, setSuggestionsOpen] = usePersistentBoolean("refr:browse:suggestions-open", () => true);
   const [stripOpen, setStripOpen] = usePersistentBoolean("refr:browse:strip-suggested", () => true);
   const [parentStripOpen, setParentStripOpen] = usePersistentBoolean("refr:browse:strip-parent", () => true);
+  const [outsideStripOpen, setOutsideStripOpen] = usePersistentBoolean("refr:browse:strip-outside", () => true);
   const [removed, setRemoved] = useState<Set<string>>(new Set());
   useEffect(() => { setRemoved(new Set()); }, [selected]);
 
@@ -154,6 +160,10 @@ export default function BrowsePage() {
 
   const suggestedItems = (suggestions.data ?? []).filter((s) => !removed.has(s.fileId));
   const parentItems = (withinParent.data ?? []).filter((s) => !removed.has(s.fileId));
+  const outsideItems = (outsideRoot.data ?? []).filter((s) => !removed.has(s.fileId));
+  const anySuggestionData =
+    (suggestions.data?.length ?? 0) > 0 || (withinParent.data?.length ?? 0) > 0 || (outsideRoot.data?.length ?? 0) > 0;
+  const totalSuggestions = suggestedItems.length + parentItems.length + outsideItems.length;
 
   const crumbs = selected ? selected.split("/").filter(Boolean) : [];
   const crumbPath = (i: number) => {
@@ -168,8 +178,8 @@ export default function BrowsePage() {
           <>
             <h2 className="text-[13px] font-semibold">Browse</h2>
             <div className="seg">
-              <button className={mode === "folders" ? "on" : ""} onClick={() => switchMode("folders")}>Folders</button>
               <button className={mode === "tags" ? "on" : ""} onClick={() => switchMode("tags")}>Tags</button>
+              <button className={mode === "folders" ? "on" : ""} onClick={() => switchMode("folders")}>Folders</button>
             </div>
           </>
         }
@@ -231,29 +241,59 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {mode === "tags" && (
-              <SuggestionStrip
-                title="Suggested for this tag"
-                items={suggestedItems}
-                open={stripOpen}
-                setOpen={setStripOpen}
-                onRefresh={() => void suggestions.refetch()}
-                onOpen={(id) => openWith(suggestedItems, id)}
-                onAccept={acceptTile}
-                onDeny={denyTile}
-              />
-            )}
-            {mode === "tags" && (
-              <SuggestionStrip
-                title="Suggested within parent tag"
-                items={parentItems}
-                open={parentStripOpen}
-                setOpen={setParentStripOpen}
-                onRefresh={() => void withinParent.refetch()}
-                onOpen={(id) => openWith(parentItems, id)}
-                onAccept={acceptTile}
-                onDeny={denyTile}
-              />
+            {mode === "tags" && anySuggestionData && (
+              <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+                <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
+                  <button className="hover:underline" onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
+                    {suggestionsOpen ? "▾" : "▸"} Image suggestions
+                  </button>
+                  <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{totalSuggestions}</span>
+                </div>
+                {suggestionsOpen && (
+                  <div className="px-1 pb-1">
+                    <SuggestionStrip
+                      title="Suggested for this tag"
+                      items={suggestedItems}
+                      hasData={(suggestions.data?.length ?? 0) > 0}
+                      refreshKey={suggestions.dataUpdatedAt}
+                      open={stripOpen}
+                      setOpen={setStripOpen}
+                      onRefresh={() => void suggestions.refetch()}
+                      onOpen={(id) => openWith(suggestedItems, id)}
+                      onAccept={acceptTile}
+                      onDeny={denyTile}
+                    />
+                    {parentTag !== null && (
+                      <SuggestionStrip
+                        title="Suggested within parent tag"
+                        items={parentItems}
+                        hasData={(withinParent.data?.length ?? 0) > 0}
+                        refreshKey={withinParent.dataUpdatedAt}
+                        open={parentStripOpen}
+                        setOpen={setParentStripOpen}
+                        onRefresh={() => void withinParent.refetch()}
+                        onOpen={(id) => openWith(parentItems, id)}
+                        onAccept={acceptTile}
+                        onDeny={denyTile}
+                      />
+                    )}
+                    {parentTag !== null && (
+                      <SuggestionStrip
+                        title="Suggested outside root tag"
+                        items={outsideItems}
+                        hasData={(outsideRoot.data?.length ?? 0) > 0}
+                        refreshKey={outsideRoot.dataUpdatedAt}
+                        open={outsideStripOpen}
+                        setOpen={setOutsideStripOpen}
+                        onRefresh={() => void outsideRoot.refetch()}
+                        onOpen={(id) => openWith(outsideItems, id)}
+                        onAccept={acceptTile}
+                        onDeny={denyTile}
+                      />
+                    )}
+                  </div>
+                )}
+              </div>
             )}
             <MediaGrid
               source={mode === "folders" ? { kind: "files", pathPrefix: selected } : { kind: "files", tag: selected }}
@@ -321,6 +361,8 @@ export default function BrowsePage() {
 function SuggestionStrip({
   title,
   items,
+  hasData,
+  refreshKey,
   open,
   setOpen,
   onRefresh,
@@ -330,6 +372,8 @@ function SuggestionStrip({
 }: {
   title: string;
   items: { fileId: string; score: number }[];
+  hasData: boolean;
+  refreshKey: number;
   open: boolean;
   setOpen: (v: boolean | ((p: boolean) => boolean)) => void;
   onRefresh: () => void;
@@ -337,9 +381,28 @@ function SuggestionStrip({
   onAccept: (id: string) => void;
   onDeny: (id: string) => void;
 }) {
-  if (items.length === 0) return null;
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const tilesMounted = open && items.length > 0;
+  // wheel → horizontal scroll while hovering the strip (non-passive so preventDefault works)
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (e.deltaY !== 0 && e.deltaX === 0) {
+        el.scrollLeft += e.deltaY;
+        e.preventDefault();
+      }
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, [tilesMounted]);
+  // reset to start when the suggestions are refreshed or the strip opens
+  useEffect(() => {
+    if (scrollRef.current) scrollRef.current.scrollLeft = 0;
+  }, [refreshKey, tilesMounted]);
+  if (!hasData) return null;
   return (
-    <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+    <div className="mx-1 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
       <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
         <button className="hover:underline" onClick={() => setOpen(!open)}>
           {open ? "▾" : "▸"} {title}
@@ -348,30 +411,34 @@ function SuggestionStrip({
         <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{items.length}</span>
       </div>
       {open && (
-        <div className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
-          {items.map((s) => (
-            <div key={s.fileId} className="tile" style={{ width: 220, height: 222 }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={`/api/thumb/${s.fileId}`} alt="" onClick={() => onOpen(s.fileId)} />
-              <button
-                className="check"
-                style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
-                title="Accept tag"
-                onClick={() => onAccept(s.fileId)}
-              >
-                ✓
-              </button>
-              <button
-                className="deny"
-                style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
-                title="Exclude from suggestions"
-                onClick={() => onDeny(s.fileId)}
-              >
-                ✕
-              </button>
-            </div>
-          ))}
-        </div>
+        items.length > 0 ? (
+          <div ref={scrollRef} className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
+            {items.map((s) => (
+              <div key={s.fileId} className="tile" style={{ width: 220, height: 222 }}>
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={`/api/thumb/${s.fileId}`} alt="" onClick={() => onOpen(s.fileId)} />
+                <button
+                  className="check"
+                  style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                  title="Accept tag"
+                  onClick={() => onAccept(s.fileId)}
+                >
+                  ✓
+                </button>
+                <button
+                  className="deny"
+                  style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
+                  title="Exclude from suggestions"
+                  onClick={() => onDeny(s.fileId)}
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="px-3 pb-3 text-xs" style={{ color: "var(--text-faint)" }}>All done ✓</div>
+        )
       )}
     </div>
   );

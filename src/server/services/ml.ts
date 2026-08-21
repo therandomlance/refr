@@ -421,7 +421,7 @@ export async function similar(fileId: string): Promise<{ fileId: string; score: 
 
 // ---------------------------------------------------------------- suggestion exclusions
 
-async function getExclusions(tagName: string): Promise<Set<string>> {
+export async function getExclusions(tagName: string): Promise<Set<string>> {
   const rows = await db.suggestionDenial.findMany({ where: { tagName }, select: { fileId: true } });
   return new Set(rows.map((r) => r.fileId));
 }
@@ -535,6 +535,13 @@ async function computeTagVectorByName(tagName: string): Promise<Float32Array | n
   return v;
 }
 
+/** Tag vector by name — cached TagVector row if the Tag exists, else the
+ *  uncached compute path for prefix tree nodes with no Tag row. */
+export async function tagVectorByName(tagName: string): Promise<Float32Array | null> {
+  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true } });
+  return tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
+}
+
 /** Batch-rebuild TagVector rows (one text-embed call for all tags). */
 async function refreshTagVectors() {
   const lv = await linksVersion();
@@ -558,8 +565,7 @@ async function refreshTagVectors() {
  *  or manually excluded via the ✕ button. */
 export async function suggestImagesForTag(tagName: string) {
   if (!(await isReady())) return [];
-  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true } });
-  const v = tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
+  const v = await tagVectorByName(tagName);
   if (!v) return [];
   const excluded = await getExclusions(tagName);
   return knn(v, 60, 0, tagName, excluded.size ? [...excluded] : undefined);
@@ -576,8 +582,7 @@ export async function suggestImagesWithinParent(tagName: string) {
   const parent = parentOf(tagName);
   if (!parent) return [];
   if (!(await isReady())) return [];
-  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true } });
-  const v = tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
+  const v = await tagVectorByName(tagName);
   if (!v) return [];
   const esc = parent.replace(/[\\%_]/g, (c) => "\\" + c);
   const rows = await db.$queryRawUnsafe<{ fileId: string; vector: Buffer }[]>(
@@ -607,6 +612,20 @@ export async function suggestImagesWithinParent(tagName: string) {
     });
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, 60);
+}
+
+/** Suggested images for a tag, excluding files tagged with the root ancestor
+ *  or any descendant — images completely outside the root category, ranked by
+ *  similarity to the selected tag's vector. Only meaningful for nested tags
+ *  (top-level would duplicate suggestImagesForTag). Same ✕ exclusion set. */
+export async function suggestImagesOutsideRoot(tagName: string) {
+  const root = tagName.split("/")[0]!;
+  if (root === tagName) return [];
+  if (!(await isReady())) return [];
+  const v = await tagVectorByName(tagName);
+  if (!v) return [];
+  const excluded = await getExclusions(tagName);
+  return knn(v, 60, 0, root, excluded.size ? [...excluded] : undefined);
 }
 
 /** Suggested tags for a file: file vector vs TagVector matrix, top 5. */

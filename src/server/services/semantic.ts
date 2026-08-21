@@ -86,3 +86,26 @@ export async function similarSearch(
   if (!q) return { items: [], nextCursor: null };
   return vectorSearch(q, tagChips, cursor, pageSize, fileId);
 }
+
+/** suggest:<tag> chip → tag vector → kNN (excluding files already tagged with the
+ *  tag or descendants + manual denials); tag chips filter the kNN loop. Degrades
+ *  to tag-only when ML is down. */
+export async function suggestSearch(
+  tagName: string,
+  tagChips: Token[],
+  cursor: string | null | undefined,
+  pageSize: number,
+) {
+  const status = await ml.status();
+  if (status.state !== "ready") {
+    const where = tokensToWhere(tagChips);
+    return executeList({ where, sort: "date", cursor, limit: pageSize });
+  }
+
+  const q = await ml.tagVectorByName(tagName);
+  if (!q) return { items: [], nextCursor: null };
+  const excluded = await ml.getExclusions(tagName);
+  const excludeIds = excluded.size ? [...excluded] : undefined;
+  return vectorSearch(q, tagChips, cursor, pageSize, null, (vec, k, skip) =>
+    ml.knn(vec, k, skip, tagName, excludeIds));
+}

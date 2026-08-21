@@ -52,7 +52,9 @@ export default function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
-  const hasVectorChip = tokens.some((t) => t.kind === "text" || t.kind === "similar");
+  const hasVectorChip = tokens.some(
+    (t) => t.kind === "text" || t.kind === "similar" || (t.kind === "tag" && t.tag.startsWith("suggest:")),
+  );
   const mlStatus = api.ml.status.useQuery();
 
   // similarity is the natural ordering for semantic/similar search; revert to
@@ -69,15 +71,21 @@ export default function SearchPage() {
   const addChip = useCallback(
     (raw: string) => {
       // quote-prefixed = semantic text chip from the autocomplete fallback row
+      const isVector = (t: Token) =>
+        t.kind === "text" || t.kind === "similar" || (t.kind === "tag" && t.tag.startsWith("suggest:"));
       if (raw.startsWith('"')) {
         const value = raw.slice(1);
         setTokens((ts) =>
-          ts.some((t) => t.kind === "text") ? ts : [...ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }],
+          ts.some(isVector) ? ts : [...ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }],
         );
         return;
       }
       const [token] = parseQuery(raw);
       if (!token) return;
+      if (isVector(token)) {
+        setTokens((ts) => (ts.some(isVector) ? ts : [...ts, token]));
+        return;
+      }
       setTokens((ts) => [...ts, token]);
     },
     [],
@@ -135,6 +143,8 @@ export default function SearchPage() {
                 <>
                   {t.kind === "text" ? (
                     <span className="mod">⌕</span>
+                  ) : t.kind === "tag" && t.tag.startsWith("suggest:") ? (
+                    <span className="mod">✦</span>
                   ) : (
                     (t.negate || t.or || t.exact) && (
                       <span className="mod">{t.negate ? "-" : ""}{t.or ? "~" : ""}{t.exact ? "=" : ""}</span>
@@ -148,11 +158,12 @@ export default function SearchPage() {
           ))}
           <div className="min-w-48 flex-1">
             <TagInput
-              placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard, path: filter)" : ""}
+              placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard, path: filter, suggest: for-tag)" : ""}
               onCommit={addChip}
               keywords={KEYWORD_NAMES}
               semanticFallback={mlStatus.data?.state === "ready" && !hasVectorChip}
               pathAutocomplete
+              suggestAutocomplete
             />
           </div>
         </div>

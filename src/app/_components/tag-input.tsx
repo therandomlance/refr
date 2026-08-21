@@ -15,6 +15,7 @@ export function TagInput({
   keywords = [],
   autoFocus = false,
   pathAutocomplete = false,
+  suggestAutocomplete = false,
 }: {
   placeholder?: string;
   onCommit: (raw: string, suggestion?: string) => void;
@@ -26,6 +27,8 @@ export function TagInput({
   autoFocus?: boolean;
   /** when true, input starting with `path:` offers library path completions */
   pathAutocomplete?: boolean;
+  /** when true, input starting with `suggest:` offers tag completions (search) */
+  suggestAutocomplete?: boolean;
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
@@ -40,11 +43,14 @@ export function TagInput({
   }, [raw]);
 
   const pathMode = pathAutocomplete && debounced.startsWith("path:");
+  const suggestMode = suggestAutocomplete && !pathMode && debounced.startsWith("suggest:");
   const pathTyped = pathMode ? debounced.slice(5) : "";
+  const suggestTyped = suggestMode ? debounced.slice(8) : "";
+  const tagTerm = suggestMode ? suggestTyped : debounced;
 
   const suggestions = api.tags.search.useQuery(
-    { term: debounced, limit: 20 },
-    { enabled: debounced.length > 0 && !pathMode },
+    { term: tagTerm, limit: 20 },
+    { enabled: tagTerm.length > 0 && !pathMode },
   );
   const pathSuggestions = api.files.pathComplete.useQuery(
     { typed: pathTyped },
@@ -53,11 +59,14 @@ export function TagInput({
 
   const tagRows = suggestions.data ?? [];
   const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: "path:" + p })) : [];
-  const keywordRows = !pathMode && debounced
+  const suggestRows = suggestMode
+    ? tagRows.map((r) => ({ name: "suggest:" + r.name, count: r.count }))
+    : [];
+  const keywordRows = !pathMode && !suggestMode && debounced
     ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
     : [];
-  const rows: { name: string; count?: number }[] = [...pathRows, ...tagRows, ...keywordRows];
-  const showSemantic = semanticFallback && !pathMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
+  const rows: { name: string; count?: number }[] = [...pathRows, ...(suggestMode ? suggestRows : tagRows), ...keywordRows];
+  const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
   useEffect(() => setHighlight(0), [debounced]);

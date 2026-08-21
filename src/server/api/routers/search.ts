@@ -3,7 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import { tokenSchema, tokensToWhere } from "refr/server/services/search";
 import { executeList } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
-import { semanticSearch, similarSearch } from "refr/server/services/semantic";
+import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
 
 const sortEnum = z.enum(["date", "name", "size", "random", "similarity"]);
 
@@ -21,12 +21,25 @@ export const searchRouter = createTRPCRouter({
     .query(async ({ input }) => {
       const textChip = input.tokens.find((t) => t.kind === "text");
       const similarChip = input.tokens.find((t) => t.kind === "similar");
-      const tagChips = input.tokens.filter((t) => t.kind === "tag");
+      const suggestChip = input.tokens.find(
+        (t) => t.kind === "tag" && t.tag.startsWith("suggest:"),
+      );
+      const tagChips = input.tokens.filter(
+        (t) => t.kind === "tag" && !t.tag.startsWith("suggest:"),
+      );
       if (textChip) {
         return semanticSearch(textChip, tagChips, input.cursor, input.limit ?? 200);
       }
       if (similarChip) {
         return similarSearch(similarChip.tag, tagChips, input.cursor, input.limit ?? 200);
+      }
+      if (suggestChip) {
+        return suggestSearch(
+          suggestChip.tag.slice("suggest:".length),
+          tagChips,
+          input.cursor,
+          input.limit ?? 200,
+        );
       }
       const where = tokensToWhere(input.tokens);
       return executeList({ where, sort: input.sort, cursor: input.cursor, limit: input.limit });
