@@ -29,7 +29,6 @@ export const settingsRouter = createTRPCRouter({
               model: z.string(),
               pretrained: z.string(),
               tagSuggestionTextWeight: z.number().min(0).max(1),
-              tagSuggestionMinScore: z.number(),
             })
             .partial(),
         })

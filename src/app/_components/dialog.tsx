@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { TagInput } from "./tag-input";
 
 export function Dialog({
   title,
@@ -89,6 +90,25 @@ export function PromptDialog({
           <button type="submit" className="btn primary">OK</button>
         </div>
       </form>
+    </Dialog>
+  );
+}
+
+export function TagPromptDialog({
+  title,
+  label,
+  onSubmit,
+  onClose,
+}: {
+  title: string;
+  label: string;
+  onSubmit: (value: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <Dialog title={title} onClose={onClose}>
+      <label className="mb-1 block text-xs" style={{ color: "var(--text-faint)" }}>{label}</label>
+      <TagInput autoFocus onCommit={(value) => { onSubmit(value); onClose(); }} />
     </Dialog>
   );
 }

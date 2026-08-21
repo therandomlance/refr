@@ -12,6 +12,36 @@ import { db } from "refr/server/db";
 
 const sortEnum = z.enum(["date", "name", "size", "random", "similarity"]);
 
+/** `path:` autocomplete — filesystem readdir of one directory, constrained to
+ *  configured libraries. Cost is bounded by one dir's size, not total files. */
+async function pathComplete(typed: string): Promise<string[]> {
+  const LIMIT = 20;
+  const libs = config.get().libraries.map((l) => path.resolve(l));
+  if (!typed) return libs.slice(0, LIMIT);
+  const t = path.normalize(typed);
+  const lib = libs.find((l) => l === t || t.startsWith(l + "/"));
+  if (!lib) return libs.filter((l) => l.startsWith(t)).slice(0, LIMIT);
+  let dir: string, partial: string;
+  try {
+    const st = await fsp.stat(t);
+    if (!st.isDirectory()) return [];
+    dir = t;
+    partial = "";
+  } catch {
+    const i = t.lastIndexOf("/");
+    dir = i <= 0 ? "/" : t.slice(0, i);
+    partial = t.slice(i + 1);
+  }
+  let entries: fs.Dirent[];
+  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
+  catch { return []; }
+  return entries
+    .filter((e) => e.isDirectory() && e.name.startsWith(partial))
+    .map((e) => path.join(dir, e.name))
+    .sort((a, b) => a.localeCompare(b))
+    .slice(0, LIMIT);
+}
+
 export const filesRouter = createTRPCRouter({
   /** Shared cursor query (§9.4). Filter by path prefix, tag, or explicit ids. */
   list: protectedProcedure
@@ -96,4 +126,8 @@ export const filesRouter = createTRPCRouter({
   purgeExternal: protectedProcedure.mutation(() => purgeExternal()),
   countExternal: protectedProcedure.query(() => countExternal()),
   purgeOrphanThumbs: protectedProcedure.mutation(() => purgeOrphanThumbs()),
+
+  pathComplete: protectedProcedure
+    .input(z.object({ typed: z.string() }))
+    .query(({ input }) => pathComplete(input.typed)),
 });

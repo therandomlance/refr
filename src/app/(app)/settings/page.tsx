@@ -344,7 +344,7 @@ function PasswordControls({ hasPassword }: { hasPassword: boolean }) {
   );
 }
 
-function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: string; pretrained: string; tagSuggestionTextWeight: number; tagSuggestionMinScore: number } }) {
+function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: string; pretrained: string; tagSuggestionTextWeight: number } }) {
   const utils = api.useUtils();
   const patch = api.settings.patch.useMutation({ onSuccess: () => void utils.settings.get.invalidate() });
   const setEnabled = api.ml.setEnabled.useMutation({ onSuccess: () => void utils.ml.status.invalidate() });
@@ -389,15 +389,6 @@ function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: strin
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionTextWeight: Number(e.target.value) } })}
             />
             <span className="text-xs" style={{ color: "var(--text-faint)" }}>0 = image centroid only, 1 = tag name only</span>
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            Tag suggestion min score
-            <input
-              className="input w-20"
-              type="number" inputMode="decimal" step={0.01}
-              defaultValue={ml.tagSuggestionMinScore}
-              onBlur={(e) => patch.mutate({ ml: { tagSuggestionMinScore: Number(e.target.value) } })}
-            />
           </label>
           <div>
             <button className="btn" onClick={() => setReembedConfirm(true)}>Re-embed all</button>

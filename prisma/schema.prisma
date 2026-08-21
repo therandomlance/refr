@@ -22,6 +22,7 @@ model File {
     paths     FilePath[]
     tags      FileTag[]
     embedding FileEmbedding?
+    denials   SuggestionDenial[]
 
     @@index([mtime, id]) // keyset pagination for default sort
     @@index([mediaType])
@@ -77,4 +78,13 @@ model TagVector {
 model Meta {
     key   String @id
     value String // "linksVersion": int, bumped by every tag-link mutation
+}
+
+model SuggestionDenial {
+    tagName String
+    fileId  String
+    file    File   @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+    @@id([tagName, fileId])
+    @@index([tagName])
 }

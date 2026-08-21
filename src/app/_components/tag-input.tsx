@@ -14,6 +14,7 @@ export function TagInput({
   semanticFallback = false,
   keywords = [],
   autoFocus = false,
+  pathAutocomplete = false,
 }: {
   placeholder?: string;
   onCommit: (raw: string, suggestion?: string) => void;
@@ -23,29 +24,40 @@ export function TagInput({
   /** metadata keywords (e.g. search's `untagged`) offered as suggestions */
   keywords?: readonly string[];
   autoFocus?: boolean;
+  /** when true, input starting with `path:` offers library path completions */
+  pathAutocomplete?: boolean;
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
   const [debounced, setDebounced] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(stripModifiers(raw)), 150);
     return () => clearTimeout(t);
   }, [raw]);
 
+  const pathMode = pathAutocomplete && debounced.startsWith("path:");
+  const pathTyped = pathMode ? debounced.slice(5) : "";
+
   const suggestions = api.tags.search.useQuery(
     { term: debounced, limit: 20 },
-    { enabled: debounced.length > 0 },
+    { enabled: debounced.length > 0 && !pathMode },
+  );
+  const pathSuggestions = api.files.pathComplete.useQuery(
+    { typed: pathTyped },
+    { enabled: pathMode },
   );
 
   const tagRows = suggestions.data ?? [];
-  const keywordRows = debounced
+  const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: "path:" + p })) : [];
+  const keywordRows = !pathMode && debounced
     ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
     : [];
-  const rows: { name: string; count?: number }[] = [...tagRows, ...keywordRows];
-  const showSemantic = semanticFallback && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
+  const rows: { name: string; count?: number }[] = [...pathRows, ...tagRows, ...keywordRows];
+  const showSemantic = semanticFallback && !pathMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
   useEffect(() => setHighlight(0), [debounced]);
@@ -77,6 +89,7 @@ export function TagInput({
         placeholder={placeholder}
         autoFocus={autoFocus}
         value={raw}
+        ref={inputRef}
         onChange={(e) => {
           setRaw(e.target.value);
           setOpen(true);
@@ -86,6 +99,17 @@ export function TagInput({
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, rowCount - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+          else if (e.key === "Tab" && rows[highlight]) {
+            e.preventDefault();
+            const filled = applyModifiers(raw, rows[highlight].name);
+            setRaw(filled);
+            onRawChange?.(filled);
+            setOpen(true);
+            requestAnimationFrame(() => {
+              const el = inputRef.current;
+              if (el) { el.focus(); el.setSelectionRange(filled.length, filled.length); }
+            });
+          }
           else if (e.key === "Enter") {
             e.preventDefault();
             if (showSemantic && highlight === rows.length) {

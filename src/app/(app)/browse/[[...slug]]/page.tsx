@@ -10,6 +10,7 @@ import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { publishViewerList } from "refr/app/_components/viewer-store";
+import { usePersistentBoolean } from "refr/lib/persistent-state";
 
 export default function BrowsePage() {
   const router = useRouter();
@@ -76,10 +77,13 @@ export default function BrowsePage() {
   const renameM = api.tags.rename.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
   const mergeM = api.tags.merge.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
   const deleteM = api.tags.delete.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
-  const setTags = api.tags.setTags.useMutation({ onSuccess: () => void utils.invalidate() });
-  const excludeSuggestion = api.ml.excludeSuggestion.useMutation({
-    onSuccess: () => void utils.ml.suggestImagesForTag.invalidate(),
+  const setTags = api.tags.setTags.useMutation({
+    onSuccess: () => {
+      void utils.browse.tagTree.invalidate();
+      void utils.files.list.invalidate();
+    },
   });
+  const excludeSuggestion = api.ml.excludeSuggestion.useMutation();
 
   const tagNames = useMemo(() => (tags.data ?? []).filter((t) => t.count > 0).map((t) => t.name), [tags.data]);
   const tagCounts = useMemo(() => new Map((tags.data ?? []).map((t) => [t.name, t.count])), [tags.data]);
@@ -116,12 +120,40 @@ export default function BrowsePage() {
     void (mode === "folders" ? folderChildren(selected) : tagChildren(selected)).then(setChildCards);
   }, [selected, mode, folderChildren, tagChildren]);
 
-  // suggested strip for tag mode
+  // suggested strip for tag mode.
   const suggestions = api.ml.suggestImagesForTag.useQuery(
     { tag: selected ?? "" },
     { enabled: mode === "tags" && selected !== null && mlStatus.data?.state === "ready" },
   );
-  const [stripOpen, setStripOpen] = useState(true);
+  const parentTag = selected ? (selected.includes("/") ? selected.slice(0, selected.lastIndexOf("/")) : null) : null;
+  const withinParent = api.ml.suggestImagesWithinParent.useQuery(
+    { tag: selected ?? "" },
+    { enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
+  );
+  const [stripOpen, setStripOpen] = usePersistentBoolean("refr:browse:strip-suggested", () => true);
+  const [parentStripOpen, setParentStripOpen] = usePersistentBoolean("refr:browse:strip-parent", () => true);
+  const [removed, setRemoved] = useState<Set<string>>(new Set());
+  useEffect(() => { setRemoved(new Set()); }, [selected]);
+
+  const acceptTile = useCallback((id: string) => {
+    if (!selected) return;
+    setTags.mutate({ fileIds: [id], add: [selected], remove: [] });
+    setRemoved((p) => new Set(p).add(id));
+  }, [selected, setTags]);
+  const denyTile = useCallback((id: string) => {
+    if (!selected) return;
+    excludeSuggestion.mutate({ tag: selected, fileId: id });
+    setRemoved((p) => new Set(p).add(id));
+  }, [selected, excludeSuggestion]);
+  const openWith = useCallback((items: { fileId: string }[], id: string) => {
+    publishViewerList({ items: items.map((s) => ({ id: s.fileId, mediaType: "image", width: null, height: null, duration: null, mtime: 0 })), loadMore: null, hasMore: false });
+    const p = new URLSearchParams(window.location.search);
+    p.set("v", id);
+    router.push(`${pathname}?${p.toString()}`);
+  }, [router, pathname]);
+
+  const suggestedItems = (suggestions.data ?? []).filter((s) => !removed.has(s.fileId));
+  const parentItems = (withinParent.data ?? []).filter((s) => !removed.has(s.fileId));
 
   const crumbs = selected ? selected.split("/").filter(Boolean) : [];
   const crumbPath = (i: number) => {
@@ -199,39 +231,29 @@ export default function BrowsePage() {
           </div>
         ) : (
           <>
-            {mode === "tags" && suggestions.data && suggestions.data.length > 0 && (
-              <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
-                <button className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold" onClick={() => setStripOpen(!stripOpen)}>
-                  {stripOpen ? "▾" : "▸"} Suggested for this tag
-                  <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{suggestions.data.length}</span>
-                </button>
-                {stripOpen && (
-                  <div className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
-                    {suggestions.data.map((s) => (
-                      <div key={s.fileId} className="tile" style={{ width: 220, height: 148 }}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={`/api/thumb/${s.fileId}`} alt="" onClick={() => publishAndOpen(s.fileId)} />
-                        <button
-                          className="check"
-                          style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
-                          title="Accept tag"
-                          onClick={() => setTags.mutate({ fileIds: [s.fileId], add: [selected], remove: [] })}
-                        >
-                          ✓
-                        </button>
-                        <button
-                          className="x"
-                          style={{ top: 6, right: 6, width: 22, height: 22, fontSize: 12, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "50%", display: "grid", placeItems: "center", cursor: "pointer", zIndex: 2 }}
-                          title="Exclude from suggestions"
-                          onClick={() => excludeSuggestion.mutate({ tag: selected ?? "", fileId: s.fileId })}
-                        >
-                          ✕
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+            {mode === "tags" && (
+              <SuggestionStrip
+                title="Suggested for this tag"
+                items={suggestedItems}
+                open={stripOpen}
+                setOpen={setStripOpen}
+                onRefresh={() => void suggestions.refetch()}
+                onOpen={(id) => openWith(suggestedItems, id)}
+                onAccept={acceptTile}
+                onDeny={denyTile}
+              />
+            )}
+            {mode === "tags" && (
+              <SuggestionStrip
+                title="Suggested within parent tag"
+                items={parentItems}
+                open={parentStripOpen}
+                setOpen={setParentStripOpen}
+                onRefresh={() => void withinParent.refetch()}
+                onOpen={(id) => openWith(parentItems, id)}
+                onAccept={acceptTile}
+                onDeny={denyTile}
+              />
             )}
             <MediaGrid
               source={mode === "folders" ? { kind: "files", pathPrefix: selected } : { kind: "files", tag: selected }}
@@ -294,13 +316,65 @@ export default function BrowsePage() {
       )}
     </div>
   );
+}
 
-  function publishAndOpen(id: string) {
-    publishViewerList({ items: suggestions.data!.map((s) => ({ id: s.fileId, mediaType: "image", width: null, height: null, duration: null, mtime: 0 })), loadMore: null, hasMore: false });
-    const p = new URLSearchParams(window.location.search);
-    p.set("v", id);
-    router.push(`${pathname}?${p.toString()}`);
-  }
+function SuggestionStrip({
+  title,
+  items,
+  open,
+  setOpen,
+  onRefresh,
+  onOpen,
+  onAccept,
+  onDeny,
+}: {
+  title: string;
+  items: { fileId: string; score: number }[];
+  open: boolean;
+  setOpen: (v: boolean | ((p: boolean) => boolean)) => void;
+  onRefresh: () => void;
+  onOpen: (id: string) => void;
+  onAccept: (id: string) => void;
+  onDeny: (id: string) => void;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+      <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
+        <button className="hover:underline" onClick={() => setOpen(!open)}>
+          {open ? "▾" : "▸"} {title}
+        </button>
+        <button title="Refresh suggestions" onClick={onRefresh} style={{ color: "var(--text-dim)" }}>↻</button>
+        <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{items.length}</span>
+      </div>
+      {open && (
+        <div className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
+          {items.map((s) => (
+            <div key={s.fileId} className="tile" style={{ width: 220, height: 222 }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={`/api/thumb/${s.fileId}`} alt="" onClick={() => onOpen(s.fileId)} />
+              <button
+                className="check"
+                style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                title="Accept tag"
+                onClick={() => onAccept(s.fileId)}
+              >
+                ✓
+              </button>
+              <button
+                className="x"
+                style={{ top: 6, right: 6, width: 22, height: 22, fontSize: 12, background: "var(--panel)", border: "1px solid var(--border)", borderRadius: "50%", display: "grid", placeItems: "center", cursor: "pointer", zIndex: 2 }}
+                title="Exclude from suggestions"
+                onClick={() => onDeny(s.fileId)}
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Card({ node, onOpen }: { node: TreeNodeData; onOpen: () => void }) {

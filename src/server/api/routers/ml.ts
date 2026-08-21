@@ -17,6 +17,10 @@ export const mlRouter = createTRPCRouter({
     .input(z.object({ tag: z.string() }))
     .query(({ input }) => ml.suggestImagesForTag(input.tag)),
 
+  suggestImagesWithinParent: protectedProcedure
+    .input(z.object({ tag: z.string() }))
+    .query(({ input }) => ml.suggestImagesWithinParent(input.tag)),
+
   suggestTagsForFile: protectedProcedure
     .input(z.object({ fileId: z.string() }))
     .query(({ input }) => ml.suggestTagsForFile(input.fileId)),

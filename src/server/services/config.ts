@@ -28,7 +28,6 @@ const configSchema = z.object({
       model: z.string().default("ViT-B-16-SigLIP2"),
       pretrained: z.string().default("webli"),
       tagSuggestionTextWeight: z.number().min(0).max(1).default(0.5),
-      tagSuggestionMinScore: z.number().default(0.25),
     })
     .default({}),
 });

@@ -94,6 +94,25 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await idsOf(parseQuery("untagged"))).toEqual(["f4"]);
   });
 
+  it("tagged keyword", async () => {
+    expect(await idsOf(parseQuery("tagged"))).toEqual(["f1", "f2", "f3"]);
+    expect(await idsOf(parseQuery("-tagged"))).toEqual(["f4"]);
+  });
+
+  it("setup paths", async () => {
+    await db.filePath.create({ data: { path: "/refrtest/lib/sub/a.png", fileId: "f1", size: 1, mtime: new Date() } });
+    await db.filePath.create({ data: { path: "/refrtest/lib/b.png", fileId: "f2", size: 1, mtime: new Date() } });
+    await db.filePath.create({ data: { path: "/refrtest/other/c.png", fileId: "f3", size: 1, mtime: new Date() } });
+    await db.filePath.create({ data: { path: "/refrtest/other/d.png", fileId: "f4", size: 1, mtime: new Date() } });
+  });
+
+  it("path: keyword filters by library path", async () => {
+    expect(await idsOf(parseQuery("path:/refrtest/lib"))).toEqual(["f1", "f2"]);
+    expect(await idsOf(parseQuery("path:/refrtest/lib/sub"))).toEqual(["f1"]);
+    expect(await idsOf(parseQuery("path:/refrtest/lib/b.png"))).toEqual(["f2"]);
+    expect(await idsOf(parseQuery("-path:/refrtest/other"))).toEqual(["f1", "f2"]);
+  });
+
   it("multi-word tag with spaces", async () => {
     // multi-word tags are expressed as chips (canonical), not the string grammar
     expect(await idsOf([makeToken({ tag: "artwork/fanart/mass effect/liara" })])).toEqual(["f2"]);

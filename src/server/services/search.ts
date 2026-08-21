@@ -105,10 +105,24 @@ function existsClause(cond: Sql, negate: boolean): Sql {
   };
 }
 
+/** `path:<dir>` keyword — files whose FilePath is <dir> or beneath it. Value-
+ *  carrying, so handled before the zero-arg KEYWORDS registry. Negatable. */
+function pathClause(t: Token): Sql | null {
+  if (t.exact || t.wildcard || !t.tag.startsWith("path:")) return null;
+  const p = t.tag.slice(5);
+  if (!p) return null;
+  const esc = p.replace(/[\\%_]/g, (c) => "\\" + c);
+  return {
+    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (fp.path = ? OR fp.path LIKE ? ESCAPE '\\'))`,
+    params: [p, esc + "/%"],
+  };
+}
+
 /** Metadata keywords (§9.3). Extensible: add a name to KEYWORD_NAMES (lib)
  *  and an entry here; unknown → literal tag. */
 const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   untagged: () => ({ text: `NOT EXISTS (SELECT 1 FROM FileTag ft WHERE ft.fileId = f.id)`, params: [] }),
+  tagged: () => ({ text: `EXISTS (SELECT 1 FROM FileTag ft WHERE ft.fileId = f.id)`, params: [] }),
 };
 
 export const KEYWORDS: Record<string, () => Sql> = KEYWORD_SQL;
@@ -127,6 +141,8 @@ export function tokensToWhere(tokens: Token[]): Sql {
   const ors = tagTokens.filter((t) => !t.negate && t.or);
 
   for (const t of positive) {
+    const pc = pathClause(t);
+    if (pc) { clauses.push(pc.text); params.push(...pc.params); continue; }
     const kw = KEYWORDS[t.tag];
     if (kw && !t.exact && !t.wildcard) {
       const k = kw();
@@ -139,6 +155,8 @@ export function tokensToWhere(tokens: Token[]): Sql {
     params.push(...c.params);
   }
   for (const t of negated) {
+    const pc = pathClause(t);
+    if (pc) { clauses.push(`NOT (${pc.text})`); params.push(...pc.params); continue; }
     const kw = KEYWORDS[t.tag];
     if (kw && !t.exact && !t.wildcard) {
       const k = kw();

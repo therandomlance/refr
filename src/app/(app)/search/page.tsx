@@ -148,10 +148,11 @@ export default function SearchPage() {
           ))}
           <div className="min-w-48 flex-1">
             <TagInput
-              placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard)" : ""}
+              placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard, path: filter)" : ""}
               onCommit={addChip}
               keywords={KEYWORD_NAMES}
               semanticFallback={mlStatus.data?.state === "ready" && !hasVectorChip}
+              pathAutocomplete
             />
           </div>
         </div>

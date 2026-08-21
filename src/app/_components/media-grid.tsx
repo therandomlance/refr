@@ -9,7 +9,7 @@ import { buildRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
 import { ContextMenu } from "./context-menu";
-import { PromptDialog } from "./dialog";
+import { TagPromptDialog } from "./dialog";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -607,7 +607,7 @@ export function MediaGrid({
         />
       )}
       {tagPrompt && (
-        <PromptDialog
+        <TagPromptDialog
           title={tagPrompt === "add" ? "Add tag" : "Remove tag"}
           label={`Tag to ${tagPrompt} on ${selection.size} file${selection.size === 1 ? "" : "s"}`}
           onSubmit={(tag) =>

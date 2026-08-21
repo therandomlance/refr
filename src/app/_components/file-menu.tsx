@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
-import { PromptDialog } from "./dialog";
+import { TagPromptDialog } from "./dialog";
 
 /**
  * Shared context actions (§10.2) for grid tiles + viewer: queue, palette,
@@ -54,7 +54,7 @@ export function useFileContextMenu(
         />
       )}
       {prompt && (
-        <PromptDialog
+        <TagPromptDialog
           title={prompt.mode === "add" ? "Add tag" : "Remove tag"}
           label={`Tag to ${prompt.mode} ${prompt.fileIds.length > 1 ? `on ${prompt.fileIds.length} files` : ""}`}
           onSubmit={(tag) =>

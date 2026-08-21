@@ -422,23 +422,15 @@ export async function similar(fileId: string): Promise<{ fileId: string; score: 
 // ---------------------------------------------------------------- suggestion exclusions
 
 async function getExclusions(tagName: string): Promise<Set<string>> {
-  const row = await db.meta.findUnique({ where: { key: `suggestionExclusion:${tagName}` } });
-  if (!row) return new Set();
-  try {
-    return new Set(JSON.parse(row.value) as string[]);
-  } catch {
-    return new Set();
-  }
+  const rows = await db.suggestionDenial.findMany({ where: { tagName }, select: { fileId: true } });
+  return new Set(rows.map((r) => r.fileId));
 }
 
 export async function excludeSuggestion(tagName: string, fileId: string) {
-  const key = `suggestionExclusion:${tagName}`;
-  const existing = await getExclusions(tagName);
-  existing.add(fileId);
-  await db.meta.upsert({
-    where: { key },
-    create: { key, value: JSON.stringify([...existing]) },
-    update: { value: JSON.stringify([...existing]) },
+  await db.suggestionDenial.upsert({
+    where: { tagName_fileId: { tagName, fileId } },
+    create: { tagName, fileId },
+    update: {},
   });
 }
 
@@ -473,6 +465,12 @@ function prettify(tag: string): string {
 function ancestors(name: string): string[] {
   const parts = name.split("/");
   return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
+}
+
+/** Parent tag of a hierarchical name, or null for a top-level tag. */
+function parentOf(name: string): string | null {
+  const i = name.lastIndexOf("/");
+  return i <= 0 ? null : name.slice(0, i);
 }
 
 /** §13.4: v = normalize(w_text·textEmb(tag) + w_img·centroid(images)); cold start = textEmb. */
@@ -567,7 +565,51 @@ export async function suggestImagesForTag(tagName: string) {
   return knn(v, 60, 0, tagName, excluded.size ? [...excluded] : undefined);
 }
 
-/** Suggested tags for a file: file vector vs TagVector matrix, top 5 ≥ minScore. */
+/** Suggested images for a tag, limited to files carrying the bare parent tag
+ *  but no descendant of the parent (images sitting at the parent level, not
+ *  yet sub-categorized under T or any sibling). Ranked by similarity to T's
+ *  vector. Same ✕ exclusion set as the main strip.
+ *  ponytail: Node-side dot-product over the bare-parent candidate set. Fine
+ *  up to ~10k such files; at scale, push an includeIds filter into the sidecar
+ *  /knn (which currently only supports excludeIds). */
+export async function suggestImagesWithinParent(tagName: string) {
+  const parent = parentOf(tagName);
+  if (!parent) return [];
+  if (!(await isReady())) return [];
+  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true } });
+  const v = tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
+  if (!v) return [];
+  const esc = parent.replace(/[\\%_]/g, (c) => "\\" + c);
+  const rows = await db.$queryRawUnsafe<{ fileId: string; vector: Buffer }[]>(
+    `SELECT fe.fileId AS fileId, fe.vector
+     FROM FileEmbedding fe
+     WHERE fe.model = ? AND fe.fileId IN (
+       SELECT ft.fileId FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+       WHERE t.name = ?
+         AND NOT EXISTS (
+           SELECT 1 FROM FileTag ft2 JOIN Tag t2 ON t2.id = ft2.tagId
+           WHERE ft2.fileId = ft.fileId AND t2.name LIKE ? ESCAPE '\\'
+         )
+     )`,
+    currentModelId(),
+    parent,
+    esc + "/%",
+  );
+  if (rows.length === 0) return [];
+  const excluded = await getExclusions(tagName);
+  const scored = rows
+    .filter((r) => !excluded.has(r.fileId))
+    .map((r) => {
+      const sv = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
+      let score = 0;
+      for (let i = 0; i < DIM; i++) score += v[i]! * sv[i]!;
+      return { fileId: r.fileId, score };
+    });
+  scored.sort((a, b) => b.score - a.score);
+  return scored.slice(0, 60);
+}
+
+/** Suggested tags for a file: file vector vs TagVector matrix, top 5. */
 export async function suggestTagsForFile(fileId: string): Promise<{ tag: string; score: number }[]> {
   if (!(await isReady())) return [];
   const v = await fileVector(fileId);
@@ -595,14 +637,13 @@ export async function suggestTagsForFile(fileId: string): Promise<{ tag: string;
   for (const e of existing) {
     for (const a of ancestors(e.tag.name)) excludeNames.add(a);
   }
-  const minScore = config.get().ml.tagSuggestionMinScore;
   const scored: { tag: string; score: number }[] = [];
   for (const r of rows) {
     if (excludeNames.has(r.tag.name)) continue;
     const tv = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
     let score = 0;
     for (let i = 0; i < DIM; i++) score += v[i]! * tv[i]!;
-    if (score >= minScore) scored.push({ tag: r.tag.name, score });
+    scored.push({ tag: r.tag.name, score });
   }
   return scored.sort((a, b) => b.score - a.score).slice(0, 5);
 }
