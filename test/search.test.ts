@@ -20,6 +20,7 @@ describe("query grammar", () => {
       "-=reference/figure",
       "~=x",
       "-*nsfw*",
+      "suggest:artwork/fanart",
     ];
     for (const c of cases) {
       expect(serializeQuery(parseQuery(c))).toBe(c);
