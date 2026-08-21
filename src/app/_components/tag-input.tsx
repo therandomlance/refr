@@ -62,7 +62,7 @@ export function TagInput({
   const suggestRows = suggestMode
     ? tagRows.map((r) => ({ name: "suggest:" + r.name, count: r.count }))
     : [];
-  const keywordRows = !pathMode && !suggestMode && debounced
+  const keywordRows = !pathMode && !suggestMode
     ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
     : [];
   const rows: { name: string; count?: number }[] = [...pathRows, ...(suggestMode ? suggestRows : tagRows), ...keywordRows];
