@@ -1,6 +1,8 @@
 """refr CLIP sidecar: embeddings + in-RAM kNN. See SPEC.md §13.1."""
 import argparse
+import ctypes
 import sqlite3
+import sys
 import threading
 
 import numpy as np
@@ -18,6 +20,20 @@ parser.add_argument("--port", type=int, default=3777)
 parser.add_argument("--model", default="ViT-B-16-SigLIP2")
 parser.add_argument("--pretrained", default="webli")
 args = parser.parse_args()
+
+
+def die_with_parent():
+    """Linux: ask the kernel to SIGKILL us when our parent process dies, for
+    ANY reason (including SIGKILL of the parent, which no handler can catch).
+    Belt-and-suspenders on top of Node's clean-exit child.kill(). No-op off-Linux."""
+    if not sys.platform.startswith("linux"):
+        return
+    PR_SET_PDEATHSIG = 1
+    libc = ctypes.CDLL("libc.so.6", use_errno=True)
+    libc.prctl(PR_SET_PDEATHSIG, 9)  # SIGKILL
+
+
+die_with_parent()
 
 app = FastAPI()
 device = "cuda" if torch.cuda.is_available() else "cpu"
