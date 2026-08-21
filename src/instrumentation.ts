@@ -11,7 +11,11 @@ export async function register() {
       "npx",
       ["prisma", "migrate", "deploy"],
       { env: { ...process.env, DATABASE_URL: `file:${paths.db}` } },
-      () => resolve(), // don't block boot on migration failure; requests will surface errors
+      (err, stdout, stderr) => {
+        if (err) console.error("[migrate] failed:", err.message, stderr);
+        else console.log("[migrate] ok:", stdout.trim());
+        resolve();
+      },
     );
   });
 
