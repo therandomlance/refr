@@ -24,7 +24,8 @@ const stub = http.createServer((req, res) => {
     } else if (req.url === "/embed/text") {
       res.end(JSON.stringify({ vectors: (parsed.texts ?? []).map((t) => vec(t.length % 97)) }));
     } else if (req.url === "/embed/image") {
-      res.end(JSON.stringify({ vectors: (parsed.paths ?? []).map((p) => vec(p.length % 97)) }));
+      const paths = parsed.paths ?? [];
+      res.end(JSON.stringify({ vectors: paths.map((p) => vec(p.length % 97)), kept: paths.map((_, i) => i) }));
     } else if (req.url === "/knn") {
       res.end(JSON.stringify([]));
     } else {

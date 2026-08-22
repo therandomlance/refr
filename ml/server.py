@@ -146,12 +146,12 @@ def embed_image(req: ImageReq):
         except Exception:
             pass
     if not imgs:
-        return {"vectors": []}
+        return {"vectors": [], "kept": []}
     with torch.no_grad():
         batch = torch.stack(imgs).to(device)
         feats = model.encode_image(batch)
         feats = feats / feats.norm(dim=-1, keepdim=True)
-    return {"vectors": feats.cpu().numpy().astype(np.float32).tolist()}
+    return {"vectors": feats.cpu().numpy().astype(np.float32).tolist(), "kept": keep}
 
 
 @app.post("/knn")

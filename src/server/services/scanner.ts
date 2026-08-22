@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "refr/server/db";
 import * as config from "./config";
-import { deleteThumb, enqueueThumbs, hasThumb } from "./thumbs";
+import { deleteThumb, enqueueThumbs, hasThumb, setOnThumbDrain } from "./thumbs";
 import { enqueueEmbeddings } from "./ml";
 
 const execFileP = promisify(execFile);
@@ -220,6 +220,9 @@ async function enqueueMissingThumbs() {
   enqueueThumbs(
     want.map((f) => ({ fileId: f.id, mediaType: f.mediaType, path: f.paths[0]!.path })),
   );
+  // New files get thumbs asynchronously; once the FIFO drains, retry embeddings
+  // for any that were skipped for lack of a thumbnail.
+  setOnThumbDrain(() => void enqueueEmbeddings());
 }
 
 /** Purge: delete File rows with zero paths (+ their thumbnails). Returns count deleted. */

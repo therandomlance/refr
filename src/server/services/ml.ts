@@ -328,11 +328,12 @@ export async function enqueueEmbeddings() {
       const withThumbs = batch.filter((b) => hasThumb(b.fileId));
       if (withThumbs.length === 0) continue;
       try {
-        const vectors = await embedImages(withThumbs.map((b) => thumbPath(b.fileId)));
-        for (let i = 0; i < withThumbs.length; i++) {
+        const { vectors, kept } = await embedImages(withThumbs.map((b) => thumbPath(b.fileId)));
+        for (let i = 0; i < kept.length; i++) {
+          const fileId = withThumbs[kept[i]!]!.fileId;
           await db.fileEmbedding.upsert({
-            where: { fileId: withThumbs[i]!.fileId },
-            create: { fileId: withThumbs[i]!.fileId, vector: vecToBytes(vectors[i]!), model: modelId },
+            where: { fileId },
+            create: { fileId, vector: vecToBytes(vectors[i]!), model: modelId },
             update: { vector: vecToBytes(vectors[i]!), model: modelId },
           });
         }
@@ -371,9 +372,11 @@ export async function embedText(texts: string[]): Promise<Float32Array[]> {
   return r.vectors.map((v) => Float32Array.from(v));
 }
 
-async function embedImages(imagePaths: string[]): Promise<Float32Array[]> {
-  const r = await post<{ vectors: number[][] }>("/embed/image", { paths: imagePaths });
-  return r.vectors.map((v) => Float32Array.from(v));
+async function embedImages(
+  imagePaths: string[],
+): Promise<{ vectors: Float32Array[]; kept: number[] }> {
+  const r = await post<{ vectors: number[][]; kept: number[] }>("/embed/image", { paths: imagePaths });
+  return { vectors: r.vectors.map((v) => Float32Array.from(v)), kept: r.kept };
 }
 
 export async function knn(
@@ -402,7 +405,8 @@ export async function fileVector(fileId: string): Promise<Float32Array | null> {
   }
   // on-demand single embed for unembedded files (§13.6: allowed in request path)
   if (!(await isReady()) || !hasThumb(fileId)) return null;
-  const [v] = await embedImages([thumbPath(fileId)]);
+  const { vectors } = await embedImages([thumbPath(fileId)]);
+  const v = vectors[0];
   if (!v) return null;
   await db.fileEmbedding.upsert({
     where: { fileId },
