@@ -3,7 +3,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "refr/server/db";
-import { scanNow, purgeOrphans } from "refr/server/services/scanner";
+import { scanNow, purgeOrphans, displayDims } from "refr/server/services/scanner";
 import { executeList, pathPrefixWhere } from "refr/server/services/fileQuery";
 import * as config from "refr/server/services/config";
 import { setTags, forFiles } from "refr/server/services/tags";
@@ -80,5 +80,19 @@ describe("scanner", () => {
     expect(orphaned.length).toBeGreaterThan(0);
     await purgeOrphans();
     expect(await db.file.count({ where: { paths: { none: {} } } })).toBe(0);
+  });
+});
+
+describe("displayDims (video rotation)", () => {
+  it("swaps coded dims for 90/270 rotations (phone portrait videos)", () => {
+    expect(displayDims(1920, 1080, -90)).toEqual({ width: 1080, height: 1920 });
+    expect(displayDims(1920, 1080, 270)).toEqual({ width: 1080, height: 1920 });
+    expect(displayDims(1920, 1080, 450)).toEqual({ width: 1080, height: 1920 });
+  });
+
+  it("keeps orientation for 0/180/45/undefined", () => {
+    expect(displayDims(1920, 1080, 0)).toEqual({ width: 1920, height: 1080 });
+    expect(displayDims(1920, 1080, 180)).toEqual({ width: 1920, height: 1080 });
+    expect(displayDims(1920, 1080, undefined)).toEqual({ width: 1920, height: 1080 });
   });
 });

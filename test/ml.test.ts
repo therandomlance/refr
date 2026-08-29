@@ -130,6 +130,22 @@ describe("ml (stub sidecar)", () => {
     expect(res.items.map((i) => i.id)).toEqual(["vs1", "vs2", "vs3", "vs4", "vs5"]);
     expect(res.nextCursor).not.toBeNull();
   });
+
+  it("suggestTagsForFiles scores the selection centroid, excludes selection-wide tags", async () => {
+    await db.file.create({ data: { id: "img2", size: 1, mtime: new Date(), mediaType: "image" } });
+    await db.fileEmbedding.create({
+      data: { fileId: "img2", vector: Buffer.from(new Float32Array(vec(7)).buffer), model: mlModel() },
+    });
+    // "commontag" sits on the whole selection → excluded; "weighted" only on img1
+    await setTags(["img1", "img2"], ["commontag"], []);
+    const out = await ml.suggestTagsForFiles(["img1", "img2"]);
+    expect(out.length).toBeGreaterThan(0);
+    expect(out.every((s) => s.tag !== "commontag")).toBe(true);
+    // scores descend
+    for (let i = 1; i < out.length; i++) expect(out[i - 1]!.score).toBeGreaterThanOrEqual(out[i]!.score);
+    // no embeddings → no suggestions
+    expect(await ml.suggestTagsForFiles(["vs0"])).toEqual([]);
+  });
 });
 
 function mlModel(): string {
