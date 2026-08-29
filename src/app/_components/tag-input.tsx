@@ -50,7 +50,8 @@ export function TagInput({
 
   const suggestions = api.tags.search.useQuery(
     { term: tagTerm, limit: 20 },
-    { enabled: tagTerm.length > 0 && !pathMode },
+    // in suggest: mode even an empty term lists tags (all get the suggest: prefix)
+    { enabled: (tagTerm.length > 0 && !pathMode) || suggestMode },
   );
   const pathSuggestions = api.files.pathComplete.useQuery(
     { typed: pathTyped },
@@ -65,7 +66,17 @@ export function TagInput({
   const keywordRows = !pathMode && !suggestMode
     ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
     : [];
-  const rows: { name: string; count?: number }[] = [...pathRows, ...(suggestMode ? suggestRows : tagRows), ...keywordRows];
+  // the suggest: keyword itself, offered as a fill-row while typing toward it
+  // (once suggestMode is active, tag completions take over)
+  const suggestRow = suggestAutocomplete && !pathMode && !suggestMode && "suggest:".includes(debounced)
+    ? [{ name: "suggest:" }]
+    : [];
+  const rows: { name: string; count?: number }[] = [
+    ...suggestRow,
+    ...pathRows,
+    ...(suggestMode ? suggestRows : tagRows),
+    ...keywordRows,
+  ];
   const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
@@ -89,6 +100,17 @@ export function TagInput({
   const commitSemantic = () => {
     // quote-prefixed — the caller's parser turns this into a text chip
     commit(`"${stripModifiers(raw)}"`);
+  };
+
+  // selecting the suggest: row fills the input (more typing expected), not a chip
+  const fillSuggest = () => {
+    setRaw("suggest:");
+    onRawChange?.("suggest:");
+    setOpen(true);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(8, 8); }
+    });
   };
 
   return (
@@ -123,6 +145,8 @@ export function TagInput({
             e.preventDefault();
             if (showSemantic && highlight === rows.length) {
               commitSemantic();
+            } else if (rows[highlight]?.name === "suggest:") {
+              fillSuggest();
             } else if (rows[highlight]) {
               commit(applyModifiers(raw, rows[highlight].name));
             } else if (raw.trim()) {
@@ -138,7 +162,7 @@ export function TagInput({
               key={r.name}
               style={i === highlight ? { background: "var(--hover)" } : undefined}
               onMouseEnter={() => setHighlight(i)}
-              onClick={() => commit(r.name)}
+              onClick={() => (r.name === "suggest:" ? fillSuggest() : commit(r.name))}
             >
               {r.name} {r.count != null && <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>}
             </button>

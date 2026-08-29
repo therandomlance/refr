@@ -4,6 +4,7 @@ import path from "node:path";
 import { execFile, spawn, type ChildProcess } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "refr/server/db";
+import { forFiles } from "./tags";
 import * as config from "./config";
 import { paths } from "./dataDir";
 import { thumbPath, hasThumb } from "./thumbs";
@@ -641,14 +642,10 @@ export async function suggestImagesOutsideRoot(tagName: string) {
   return knn(v, 60, 0, root, excluded.size ? [...excluded] : undefined);
 }
 
-/** Suggested tags for a file: file vector vs TagVector matrix, top 5.
- *  Cold start (empty matrix) → rebuild all (capped 500). After a tag mutation,
- *  invalidateTagVectors deleted only the touched rows; this rebuilds just those
- *  (one batched text-embed call for the missing set), not the whole matrix. */
-export async function suggestTagsForFile(fileId: string): Promise<{ tag: string; score: number }[]> {
-  if (!(await isReady())) return [];
-  const v = await fileVector(fileId);
-  if (!v) return [];
+/** TagVector matrix for the current model, with cold-start/incremental rebuild:
+ *  empty matrix → rebuild all (capped 500); rows deleted by invalidateTagVectors
+ *  → rebuild just those (one batched text-embed call for the missing set). */
+async function tagMatrix(): Promise<{ tagId: number; name: string; vector: Float32Array }[]> {
   const modelId = currentModelId();
   let rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
   if (rows.length === 0) {
@@ -676,6 +673,34 @@ export async function suggestTagsForFile(fileId: string): Promise<{ tag: string;
       }
     }
   }
+  return rows.map((r) => ({
+    tagId: r.tagId,
+    name: r.tag.name,
+    vector: new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4),
+  }));
+}
+
+/** Dot-product `v` against the tag matrix, minus excluded names, top 5. */
+function scoreTags(
+  v: Float32Array,
+  matrix: { name: string; vector: Float32Array }[],
+  excludeNames: Set<string>,
+): { tag: string; score: number }[] {
+  const scored: { tag: string; score: number }[] = [];
+  for (const r of matrix) {
+    if (excludeNames.has(r.name)) continue;
+    let score = 0;
+    for (let i = 0; i < DIM; i++) score += v[i]! * r.vector[i]!;
+    scored.push({ tag: r.name, score });
+  }
+  return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+}
+
+/** Suggested tags for a file: file vector vs TagVector matrix, top 5. */
+export async function suggestTagsForFile(fileId: string): Promise<{ tag: string; score: number }[]> {
+  if (!(await isReady())) return [];
+  const v = await fileVector(fileId);
+  if (!v) return [];
   const existing = await db.fileTag.findMany({
     where: { fileId },
     select: { tag: { select: { name: true } } },
@@ -685,15 +710,32 @@ export async function suggestTagsForFile(fileId: string): Promise<{ tag: string;
   for (const e of existing) {
     for (const a of ancestors(e.tag.name)) excludeNames.add(a);
   }
-  const scored: { tag: string; score: number }[] = [];
+  return scoreTags(v, await tagMatrix(), excludeNames);
+}
+
+/** Suggested tags for a multi-selection: centroid of the selected files'
+ *  embeddings vs the tag matrix (§13.7, single-file logic reused). Excludes
+ *  tags the WHOLE selection already carries + their ancestors. */
+export async function suggestTagsForFiles(fileIds: string[]): Promise<{ tag: string; score: number }[]> {
+  if (!(await isReady()) || fileIds.length === 0) return [];
+  const rows = await db.fileEmbedding.findMany({
+    where: { fileId: { in: fileIds }, model: currentModelId() },
+    select: { vector: true },
+  });
+  if (rows.length === 0) return [];
+  const v = new Float32Array(DIM);
   for (const r of rows) {
-    if (excludeNames.has(r.tag.name)) continue;
-    const tv = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
-    let score = 0;
-    for (let i = 0; i < DIM; i++) score += v[i]! * tv[i]!;
-    scored.push({ tag: r.tag.name, score });
+    const sv = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
+    for (let i = 0; i < DIM; i++) v[i]! += sv[i]!;
   }
-  return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  for (let i = 0; i < DIM; i++) v[i]! /= rows.length;
+  // forFiles = intersection of tags across the selection — those are no-ops to add
+  const existing = await forFiles(fileIds);
+  const excludeNames = new Set<string>();
+  for (const name of existing) {
+    for (const a of ancestors(name)) excludeNames.add(a);
+  }
+  return scoreTags(normalize(v), await tagMatrix(), excludeNames);
 }
 
 export async function reembedAll() {

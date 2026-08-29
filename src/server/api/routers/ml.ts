@@ -29,6 +29,10 @@ export const mlRouter = createTRPCRouter({
     .input(z.object({ fileId: z.string() }))
     .query(({ input }) => ml.suggestTagsForFile(input.fileId)),
 
+  suggestTagsForFiles: protectedProcedure
+    .input(z.object({ fileIds: z.array(z.string()).min(1).max(500) }))
+    .query(({ input }) => ml.suggestTagsForFiles(input.fileIds)),
+
   excludeSuggestion: protectedProcedure
     .input(z.object({ tag: z.string(), fileId: z.string() }))
     .mutation(({ input }) => ml.excludeSuggestion(input.tag, input.fileId)),

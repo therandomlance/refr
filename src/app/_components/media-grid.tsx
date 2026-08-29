@@ -403,7 +403,7 @@ export function MediaGrid({
             const tid = tile?.dataset.fileId;
             if (tid) {
               const ti = indexOf.get(tid);
-              if (ti !== undefined && ti !== dragFrom.current) selectRange(dragFrom.current, ti);
+              if (ti !== undefined && ti !== dragFrom.current) selectRange(dragFrom.current, ti, true);
             }
           }
         }}
@@ -425,7 +425,8 @@ export function MediaGrid({
           // mouse/pen drag-select; touch scroll fires pointerenter too but dragFrom
           // stays -1 on touch (long-press branch), so this never fires for touch
           if (dragFrom.current >= 0 && (e.buttons & 1) === 1 && dragFrom.current !== index && e.pointerType !== "touch") {
-            selectRange(dragFrom.current, index);
+            // additive: dragging extends the selection, never de-selects tiles picked earlier
+            selectRange(dragFrom.current, index, true);
             dragged.current = true;
           }
         }}
@@ -610,6 +611,7 @@ export function MediaGrid({
         <TagPromptDialog
           title={tagPrompt === "add" ? "Add tag" : "Remove tag"}
           label={`Tag to ${tagPrompt} on ${selection.size} file${selection.size === 1 ? "" : "s"}`}
+          suggestFor={tagPrompt === "add" ? [...selection] : undefined}
           onSubmit={(tag) =>
             setTags.mutate({
               fileIds: [...selection],

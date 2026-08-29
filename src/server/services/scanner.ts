@@ -64,6 +64,18 @@ async function hashFile(filePath: string): Promise<string> {
   });
 }
 
+/** Display dimensions for a rotated video stream (phone videos are coded
+ *  landscape + rotated via display matrix). 90/270 swap; 0/180 and free-form
+ *  angles don't. */
+export function displayDims(
+  width: number | undefined,
+  height: number | undefined,
+  rot: number | undefined,
+): { width: number | undefined; height: number | undefined } {
+  const swap = rot != null && Math.abs(rot % 180) === 90;
+  return { width: swap ? height : width, height: swap ? width : height };
+}
+
 async function probe(filePath: string, mediaType: "image" | "video") {
   if (mediaType === "image") {
     try {
@@ -80,11 +92,22 @@ async function probe(filePath: string, mediaType: "image" | "video") {
     ]);
     const data = JSON.parse(stdout) as {
       format?: { duration?: string };
-      streams?: { codec_type?: string; width?: number; height?: number }[];
+      streams?: {
+        codec_type?: string;
+        width?: number;
+        height?: number;
+        tags?: { rotate?: string };
+        side_data_list?: { rotation?: number }[];
+      }[];
     };
     const vs = data.streams?.find((s) => s.codec_type === "video");
     const duration = data.format?.duration ? parseFloat(data.format.duration) : undefined;
-    return { width: vs?.width, height: vs?.height, duration };
+    // ffprobe ≥7 applies rotation to width/height (and omits the side data);
+    // older versions report coded dims + the rotation — handle both, prefer
+    // display orientation.
+    const rot = vs?.side_data_list?.find((d) => typeof d.rotation === "number")?.rotation
+      ?? (vs?.tags?.rotate ? parseFloat(vs.tags.rotate) : undefined);
+    return { ...displayDims(vs?.width, vs?.height, rot), duration };
   } catch {
     return {}; // ffprobe missing or failed — index anyway
   }
@@ -141,6 +164,28 @@ async function runScan() {
         await hashAndAttach(item, null, touchedFiles);
         progress.processed++;
       }
+    }
+
+    // Pass 2.5: re-probe files whose probe failed at creation (file unreadable
+    // or still copying then) — without this, null dims persist forever and
+    // their tiles render wrong. Usually an empty set.
+    progress.phase = "re-probing";
+    const dimless = await db.file.findMany({
+      where: { OR: [{ width: null }, { height: null }] },
+      select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
+    });
+    for (const f of dimless) {
+      const p = f.paths[0]?.path;
+      if (!p) continue;
+      const probed = await probe(p, f.mediaType as "image" | "video");
+      await db.file.update({
+        where: { id: f.id },
+        data: {
+          width: probed.width,
+          height: probed.height,
+          duration: "duration" in probed ? probed.duration : undefined,
+        },
+      });
     }
 
     // Pass 3: update File.mtime = max mtime across current paths (touched files only)

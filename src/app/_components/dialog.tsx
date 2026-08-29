@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { api } from "refr/trpc/react";
 import { TagInput } from "./tag-input";
 
 export function Dialog({
@@ -99,14 +100,39 @@ export function TagPromptDialog({
   label,
   onSubmit,
   onClose,
+  suggestFor,
 }: {
   title: string;
   label: string;
   onSubmit: (value: string) => void;
   onClose: () => void;
+  /** file ids of the selection — shows clickable tag suggestions (viewer-style) */
+  suggestFor?: string[];
 }) {
+  const mlStatus = api.ml.status.useQuery();
+  const suggestedQ = api.ml.suggestTagsForFiles.useQuery(
+    { fileIds: suggestFor ?? [] },
+    { enabled: !!suggestFor?.length && mlStatus.data?.state === "ready" },
+  );
   return (
     <Dialog title={title} onClose={onClose}>
+      {suggestedQ.data && suggestedQ.data.length > 0 && (
+        <div className="mb-3 flex flex-wrap gap-1">
+          {suggestedQ.data.map((s) => (
+            <span
+              key={s.tag}
+              className="chip"
+              style={{ cursor: "pointer", border: "1px dashed var(--border)" }}
+              onClick={() => {
+                onSubmit(s.tag);
+                onClose();
+              }}
+            >
+              + {s.tag}
+            </span>
+          ))}
+        </div>
+      )}
       <label className="mb-1 block text-xs" style={{ color: "var(--text-faint)" }}>{label}</label>
       <TagInput autoFocus onCommit={(value) => { onSubmit(value); onClose(); }} />
     </Dialog>
