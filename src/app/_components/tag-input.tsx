@@ -130,7 +130,7 @@ export function TagInput({
         onKeyDown={(e) => {
           if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, rowCount - 1)); }
           else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
-          else if (e.key === "Tab" && rows[highlight]) {
+          else if (e.key === "Tab" && open && rows[highlight]) {
             e.preventDefault();
             const filled = applyModifiers(raw, rows[highlight].name);
             setRaw(filled);
@@ -143,7 +143,11 @@ export function TagInput({
           }
           else if (e.key === "Enter") {
             e.preventDefault();
-            if (showSemantic && highlight === rows.length) {
+            // dropdown closed (Esc / outside click) → add exactly what was typed;
+            // no stale suggestion may override the literal input
+            if (!open) {
+              if (raw.trim()) commit(raw.trim());
+            } else if (showSemantic && highlight === rows.length) {
               commitSemantic();
             } else if (rows[highlight]?.name === "suggest:") {
               fillSuggest();
