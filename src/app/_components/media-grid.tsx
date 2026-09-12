@@ -10,6 +10,7 @@ import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
 import { ContextMenu } from "./context-menu";
 import { TagPromptDialog } from "./dialog";
+import { TimelineScrubber } from "./timeline-scrubber";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -93,12 +94,34 @@ export function MediaGrid({
   const rowH = baseRowH * SIZE_SCALE[size];
 
   // ---------------- data
+  // Timeline seek: the scrubber jumps the list to a date by starting the
+  // infinite query at a keyset cursor. Scoped per filter so changing the
+  // source/sort resets it automatically.
+  const filterKey = JSON.stringify({
+    k: source.kind,
+    p: source.kind === "files" ? source.pathPrefix : undefined,
+    t: source.kind === "files" ? source.tag : undefined,
+    s: source.kind === "search" ? source.tokens : undefined,
+    kids: includeKids,
+    sort,
+  });
+  const [seek, setSeek] = useState<{ cursor: string | null; key: string }>({
+    cursor: null,
+    key: "",
+  });
+  const seekCursor = seek.key === filterKey ? seek.cursor : null;
+  const seekTo = (cursor: string | null) => {
+    setSeek({ cursor, key: filterKey });
+    scrollRef.current?.scrollTo({ top: 0 });
+  };
+
   const filesQ = api.files.list.useInfiniteQuery(
     {
       pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
       tag: source.kind === "files" ? source.tag : undefined,
       recursive: includeKids,
       sort,
+      seek: seekCursor,
     },
     {
       enabled: source.kind === "files",
@@ -106,7 +129,7 @@ export function MediaGrid({
     },
   );
   const searchQ = api.search.query.useInfiniteQuery(
-    { tokens: source.kind === "search" ? source.tokens : [], sort },
+    { tokens: source.kind === "search" ? source.tokens : [], sort, seek: seekCursor },
     {
       enabled: source.kind === "search",
       getNextPageParam: (p) => p.nextCursor ?? undefined,
@@ -116,6 +139,27 @@ export function MediaGrid({
     { ids: source.kind === "ids" ? source.ids : [] },
     { enabled: source.kind === "ids" },
   );
+
+  // month buckets for the whole filtered library (timeline scrubber)
+  const timelineQ = api.files.timeline.useQuery(
+    {
+      pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
+      tag: source.kind === "files" ? source.tag : undefined,
+      recursive: includeKids,
+    },
+    { enabled: source.kind === "files" && sort === "date" },
+  );
+  const searchTimelineQ = api.search.timeline.useQuery(
+    { tokens: source.kind === "search" ? source.tokens : [] },
+    { enabled: source.kind === "search" && sort === "date" },
+  );
+  const buckets =
+    source.kind === "files"
+      ? timelineQ.data
+      : source.kind === "search"
+        ? searchTimelineQ.data
+        : undefined;
+  const showTimeline = sort === "date" && layout === "horizontal" && (buckets?.length ?? 0) > 1;
 
   const filesData = filesQ.data;
   const searchData = searchQ.data;
@@ -177,6 +221,37 @@ export function MediaGrid({
   });
 
   const indexOf = useMemo(() => new Map(items.map((f, i) => [f.id, i])), [items]);
+
+  // ---- timeline position: month of the topmost visible file
+  const topVisibleMtime = (): number | null => {
+    if (layout !== "horizontal") return items[0]?.mtime ?? null;
+    const st = scrollRef.current?.scrollTop ?? 0;
+    for (const vr of rowVirtualizer.getVirtualItems()) {
+      if (vr.start + vr.size <= st + 1) continue;
+      const row = rows[vr.index];
+      if (row?.type === "tiles" && row.files[0]) return row.files[0].mtime;
+    }
+    return items[0]?.mtime ?? null;
+  };
+  let activeMonth: { year: number; month: number; fraction: number } | null = null;
+  if (showTimeline && buckets && items.length > 0) {
+    const top = topVisibleMtime();
+    if (top !== null) {
+      const d = new Date(top);
+      const idx = buckets.findIndex((b) => b.year === d.getFullYear() && b.month === d.getMonth() + 1);
+      if (idx >= 0) {
+        const b = buckets[idx]!;
+        const older = buckets[idx + 1];
+        const lo = older ? older.maxMtime : b.maxMtime - 30 * 864e5; // ~30d fallback
+        const span = b.maxMtime - lo;
+        activeMonth = {
+          year: b.year,
+          month: b.month,
+          fraction: span > 0 ? Math.min(1, Math.max(0, (b.maxMtime - top) / span)) : 0,
+        };
+      }
+    }
+  }
 
   // infinite scroll trigger (rows mode)
   useEffect(() => {
@@ -528,7 +603,8 @@ export function MediaGrid({
           </div>
         </div>
       )}
-      <div ref={scrollRef} className="scroll-thin flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y" }}>
+      <div className="flex min-h-0 flex-1">
+        <div ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y" }}>
         {header}
         {items.length === 0 && (filesQ.isLoading || searchQ.isLoading || idsQ.isLoading) && (
           <p className="p-8 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>
@@ -593,6 +669,14 @@ export function MediaGrid({
               <ColumnView key={ci} col={col} width={colWidth} gap={gap} scrollRef={scrollRef} renderTileSized={renderTileSized} />
             ))}
           </div>
+        )}
+        </div>
+        {showTimeline && (
+          <TimelineScrubber
+            buckets={buckets ?? []}
+            active={activeMonth}
+            onSeek={(b) => seekTo(`${b.maxMtime + 1}|`)}
+          />
         )}
       </div>
       {viewerId && <Viewer fileId={viewerId} onClose={closeViewer} />}

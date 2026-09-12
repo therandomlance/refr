@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
-import { executeList, listByOrderedIds, pathPrefixWhere } from "refr/server/services/fileQuery";
+import { executeList, listByOrderedIds, sourceWhere, timelineBuckets } from "refr/server/services/fileQuery";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
 import { purgeOrphanThumbs } from "refr/server/services/thumbs";
 import * as config from "refr/server/services/config";
@@ -53,6 +53,8 @@ export const filesRouter = createTRPCRouter({
         recursive: z.boolean().optional(), // include files in subfolders/subtags (default true)
         sort: sortEnum.default("date"),
         cursor: z.string().nullish(),
+        // timeline scrubber seek: used only for the first page (when no page cursor yet)
+        seek: z.string().nullish(),
         limit: z.number().int().min(1).max(500).optional(),
       }),
     )
@@ -60,28 +62,29 @@ export const filesRouter = createTRPCRouter({
       if (input.ids) {
         return { items: await listByOrderedIds(input.ids), nextCursor: null };
       }
-      const recursive = input.recursive ?? true;
-      let where: { text: string; params: unknown[] } | undefined;
-      if (input.pathPrefix !== undefined) {
-        where = pathPrefixWhere(input.pathPrefix, recursive);
-      } else if (input.tag !== undefined) {
-        const tag = input.tag.replace(/[\\%_]/g, (c) => "\\" + c);
-        if (recursive) {
-          where = {
-            text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
-                   WHERE ft.fileId = f.id AND (t.name = ? OR t.name LIKE ? ESCAPE '\\'))`,
-            params: [input.tag, tag + "/%"],
-          };
-        } else {
-          where = {
-            text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
-                   WHERE ft.fileId = f.id AND t.name = ?)`,
-            params: [input.tag],
-          };
-        }
-      }
-      return executeList({ where, sort: input.sort, cursor: input.cursor, limit: input.limit });
+      const where = sourceWhere({
+        pathPrefix: input.pathPrefix,
+        tag: input.tag,
+        recursive: input.recursive,
+      });
+      return executeList({
+        where,
+        sort: input.sort,
+        cursor: input.cursor ?? input.seek,
+        limit: input.limit,
+      });
     }),
+
+  /** Month buckets for the timeline scrubber, scoped to the same filters as `list`. */
+  timeline: protectedProcedure
+    .input(
+      z.object({
+        pathPrefix: z.string().optional(),
+        tag: z.string().optional(),
+        recursive: z.boolean().optional(),
+      }),
+    )
+    .query(({ input }) => timelineBuckets(sourceWhere(input))),
 
   byId: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const file = await db.file.findUnique({

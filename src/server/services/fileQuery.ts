@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "refr/server/db";
+import type { TimelineBucket } from "refr/lib/timeline";
 import {
   buildListQuery,
   nextCursorFor,
@@ -49,6 +50,33 @@ export async function executeList(input: {
   return { items, nextCursor };
 }
 
+/**
+ * Month buckets for the timeline scrubber: one row per local calendar month
+ * (newest first) with a file count and the newest mtime (the seek anchor).
+ * mtime is stored by Prisma as integer ms; `unixepoch` wants seconds.
+ */
+export async function timelineBuckets(where?: Sql): Promise<TimelineBucket[]> {
+  const text = where?.text ?? "1=1";
+  const rows = await db.$queryRawUnsafe<
+    { ym: string; count: number | bigint; mx: number | bigint }[]
+  >(
+    `SELECT strftime('%Y-%m', f.mtime / 1000, 'unixepoch', 'localtime') AS ym,
+            COUNT(*) AS count, MAX(f.mtime) AS mx
+     FROM File f WHERE ${text}
+     GROUP BY ym ORDER BY mx DESC`,
+    ...(where?.params ?? []),
+  );
+  return rows.map((r) => {
+    const [year, month] = r.ym.split("-");
+    return {
+      year: Number(year),
+      month: Number(month),
+      count: Number(r.count),
+      maxMtime: Number(r.mx),
+    };
+  });
+}
+
 /** WHERE builder helpers used by files.list. */
 export function pathPrefixWhere(prefix: string, recursive = false): Sql {
   // folders: by default direct children only — a file belongs to a folder if
@@ -67,6 +95,34 @@ export function pathPrefixWhere(prefix: string, recursive = false): Sql {
            AND fp.path LIKE ? ESCAPE '\\' AND instr(substr(fp.path, ?), '/') = 0)`,
     params: [esc + "/%", prefix.length + 2],
   };
+}
+
+/** WHERE for a browse source: a folder prefix or a tag (and its descendants). */
+export function sourceWhere(input: {
+  pathPrefix?: string;
+  tag?: string;
+  recursive?: boolean;
+}): Sql | undefined {
+  const recursive = input.recursive ?? true;
+  if (input.pathPrefix !== undefined) {
+    return pathPrefixWhere(input.pathPrefix, recursive);
+  }
+  if (input.tag !== undefined) {
+    const tag = input.tag.replace(/[\\%_]/g, (c) => "\\" + c);
+    if (recursive) {
+      return {
+        text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+               WHERE ft.fileId = f.id AND (t.name = ? OR t.name LIKE ? ESCAPE '\\'))`,
+        params: [input.tag, tag + "/%"],
+      };
+    }
+    return {
+      text: `EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+             WHERE ft.fileId = f.id AND t.name = ?)`,
+      params: [input.tag],
+    };
+  }
+  return undefined;
 }
 
 export function idsWhere(ids: string[]): Sql {
