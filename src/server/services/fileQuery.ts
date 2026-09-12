@@ -80,10 +80,14 @@ export function idsWhere(ids: string[]): Sql {
 /** Explicit ordered ids (queue/similar): preserve order, chunk the IN clause. */
 export async function listByOrderedIds(ids: string[]): Promise<FileSummary[]> {
   if (ids.length === 0) return [];
-  const rows = await db.file.findMany({
-    where: { id: { in: ids } },
-    select: { id: true, mediaType: true, width: true, height: true, duration: true, mtime: true },
-  });
-  const byId = new Map(rows.map((r) => [r.id, { ...r, mtime: r.mtime.getTime() }]));
+  const CHUNK = 500;
+  const byId = new Map<string, FileSummary>();
+  for (let i = 0; i < ids.length; i += CHUNK) {
+    const rows = await db.file.findMany({
+      where: { id: { in: ids.slice(i, i + CHUNK) } },
+      select: { id: true, mediaType: true, width: true, height: true, duration: true, mtime: true },
+    });
+    for (const r of rows) byId.set(r.id, { ...r, mtime: r.mtime.getTime() });
+  }
   return ids.map((id) => byId.get(id)).filter((r): r is FileSummary => r !== undefined);
 }

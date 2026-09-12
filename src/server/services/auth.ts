@@ -40,7 +40,14 @@ export function verifyPassword(password: string): boolean {
 }
 
 function hmac(value: string): string {
-  return crypto.createHmac("sha256", getSecret()).update(value).digest("hex");
+  // bind to the current password hash so changing/clearing the password
+  // invalidates previously issued session cookies
+  return crypto
+    .createHmac("sha256", getSecret())
+    .update(value)
+    .update("\0")
+    .update(config.get().passwordHash ?? "")
+    .digest("hex");
 }
 
 /** Cookie value: `<expiryTs>.<hmac>` */

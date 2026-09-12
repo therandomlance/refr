@@ -63,9 +63,13 @@ export function renameTemplate(oldName: string, newName: string) {
   if (!tpl) throw new Error(`template '${oldName}' not found`);
   const renamed = { ...tpl, name: newName };
   saveTemplate(renamed);
-  fs.rmSync(templatePath(oldName), { force: true });
-  if (fs.existsSync(historyPath(oldName))) {
-    fs.renameSync(historyPath(oldName), historyPath(newName));
+  // only remove the old file when it isn't the file we just wrote (same or
+  // colliding safeName) — otherwise this deletes the save
+  if (templatePath(oldName) !== templatePath(newName)) {
+    fs.rmSync(templatePath(oldName), { force: true });
+    if (fs.existsSync(historyPath(oldName))) {
+      fs.renameSync(historyPath(oldName), historyPath(newName));
+    }
   }
 }
 

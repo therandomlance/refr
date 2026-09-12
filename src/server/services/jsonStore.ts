@@ -13,8 +13,13 @@ export function safeName(name: string): string {
 
 export function readJson<S extends z.ZodTypeAny>(file: string, schema: S): z.infer<S> | null {
   if (!fs.existsSync(file)) return null;
-  const raw = fs.readFileSync(file, "utf8");
-  return schema.parse(JSON.parse(raw)) as z.infer<S>;
+  // tolerant: one corrupt file shouldn't take down the whole list view
+  try {
+    const raw = fs.readFileSync(file, "utf8");
+    return schema.parse(JSON.parse(raw)) as z.infer<S>;
+  } catch {
+    return null;
+  }
 }
 
 export function writeJson(file: string, value: unknown) {

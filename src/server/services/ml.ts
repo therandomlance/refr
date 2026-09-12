@@ -660,7 +660,7 @@ async function tagMatrix(): Promise<{ tagId: number; name: string; vector: Float
     const tagCount = await db.tag.count();
     if (rows.length < tagCount) {
       const present = new Set(rows.map((r) => r.tagId));
-      const missing = (await db.tag.findMany({ select: { id: true }, take: 500 }))
+      const missing = (await db.tag.findMany({ select: { id: true } }))
         .map((t) => t.id)
         .filter((id) => !present.has(id));
       if (missing.length > 0) {

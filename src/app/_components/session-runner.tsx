@@ -40,6 +40,9 @@ export function SessionRunner({
   const [remaining, setRemaining] = useState<number | null>(flat[0]?.seconds ?? null);
   const [flash, setFlash] = useState(false);
   const startedAt = useRef(Date.now());
+  // guards the expiry effect so a single timer zero acts once, not once per
+  // render (index changes while `remaining` is still 0, re-firing the effect).
+  const expired = useRef(-1);
 
   const current = flat[index];
 
@@ -71,10 +74,11 @@ export function SessionRunner({
 
   // expiry
   useEffect(() => {
-    if (remaining === null || remaining > 0) return;
+    if (remaining === null || remaining > 0 || expired.current === index) return;
+    expired.current = index;
     if (current?.autoScroll) next();
     else setFlash(true);
-  }, [remaining, current?.autoScroll, next]);
+  }, [remaining, current?.autoScroll, next, index]);
 
   if (flat.length === 0) {
     return (
@@ -103,7 +107,7 @@ export function SessionRunner({
             </div>
           </div>
           <div className="flex gap-2">
-            <button className="btn primary" onClick={() => { setIndex(0); setDone(false); startedAt.current = Date.now(); }}>
+            <button className="btn primary" onClick={() => { setIndex(0); setDone(false); expired.current = -1; startedAt.current = Date.now(); }}>
               Replay this session
             </button>
             <button className="btn" onClick={onClose}>Done</button>

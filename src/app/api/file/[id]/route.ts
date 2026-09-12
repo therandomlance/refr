@@ -33,9 +33,17 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
   const range = req.headers.get("range");
   if (range) {
     const m = /^bytes=(\d*)-(\d*)$/.exec(range);
-    if (m) {
-      const start = m[1] ? parseInt(m[1], 10) : 0;
-      const end = m[2] ? Math.min(parseInt(m[2], 10), stat.size - 1) : stat.size - 1;
+    if (m && !(m[1] === "" && m[2] === "")) {
+      let start: number, end: number;
+      if (m[1] === "") {
+        // suffix range: last N bytes
+        const suffix = parseInt(m[2]!, 10);
+        start = Math.max(0, stat.size - suffix);
+        end = stat.size - 1;
+      } else {
+        start = parseInt(m[1]!, 10);
+        end = m[2] ? Math.min(parseInt(m[2], 10), stat.size - 1) : stat.size - 1;
+      }
       if (start < stat.size && start <= end) {
         const stream = Readable.toWeb(
           fs.createReadStream(existing, { start, end }),
@@ -50,6 +58,10 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
           },
         });
       }
+      return new NextResponse(null, {
+        status: 416,
+        headers: { "content-range": `bytes */${stat.size}` },
+      });
     }
   }
 

@@ -41,5 +41,7 @@ export function rename(oldName: string, newName: string) {
   const existing = readJson(fileFor(oldName), savedSchema);
   if (!existing) throw new Error(`search '${oldName}' not found`);
   save(newName, existing.tokens, existing.sort);
-  fs.rmSync(fileFor(oldName), { force: true });
+  // guard against removing the file we just wrote when the names resolve to the
+  // same path (identical, or colliding after safeName)
+  if (fileFor(oldName) !== fileFor(newName)) fs.rmSync(fileFor(oldName), { force: true });
 }

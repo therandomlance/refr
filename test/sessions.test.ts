@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
-import { generate, getHistory, saveTemplate, replay } from "refr/server/services/sessions";
+import { generate, getHistory, getTemplate, saveTemplate, replay, renameTemplate } from "refr/server/services/sessions";
 import { setTags } from "refr/server/services/tags";
 import * as config from "refr/server/services/config";
 
@@ -44,5 +44,10 @@ describe("sessions", () => {
   it("replay returns a fixed entry", async () => {
     const entry = replay(TPL, 0);
     expect(entry.blocks.length).toBeGreaterThan(0);
+  });
+
+  it("renaming to the same name keeps the template (no self-delete)", () => {
+    renameTemplate(TPL, TPL);
+    expect(getTemplate(TPL)).not.toBeNull();
   });
 });

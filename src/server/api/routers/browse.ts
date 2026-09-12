@@ -54,7 +54,14 @@ export const browseRouter = createTRPCRouter({
 
   children: protectedProcedure
     .input(z.object({ path: z.string() }))
-    .query(({ input }) => childrenOf(input.path)),
+    .query(({ input }) => {
+      // only allow listing within configured libraries — otherwise this is an
+      // arbitrary filesystem browser
+      const target = path.resolve(input.path);
+      const libs = config.get().libraries.map((l) => path.resolve(l));
+      if (!libs.some((l) => target === l || target.startsWith(l + path.sep))) return [];
+      return childrenOf(target);
+    }),
 
   /** Tag tree with counts incl. descendants; empty tags hidden client-side. */
   tagTree: protectedProcedure.query(() => tagTreeService()),
