@@ -229,9 +229,22 @@ export function MediaGrid({
   }, [items, layout, colCount, colWidth]);
 
   // ---------------- virtualization
+  // Stable per-content keys so prepended rows keep their measured sizes instead
+  // of inheriting the old row-at-this-index (which makes the grid jump).
+  const rowKey = useCallback(
+    (i: number) => {
+      const r = rows[i];
+      if (!r) return `row-${i}`;
+      return r.type === "header"
+        ? `h:${r.segs.flatMap((s) => s.ids).slice(0, 4).join(",")}`
+        : `t:${r.files[0]?.id ?? i}`;
+    },
+    [rows],
+  );
   const rowVirtualizer = useVirtualizer({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
+    getItemKey: rowKey,
     estimateSize: (i) => (rows[i]!.type === "header" ? 46 : (rows[i] as { height: number }).height + 2 * PAD),
     overscan: 4,
   });
@@ -272,8 +285,9 @@ export function MediaGrid({
   // user actually returns to the top.
   // ponytail: loads PAGE_SIZE files, not whole months — fine until a month exceeds 200.
   useEffect(() => {
+    if (layout !== "horizontal" || source.kind === "ids") return;
     const el = scrollRef.current;
-    if (!el || source.kind === "ids") return;
+    if (!el) return;
     const onScroll = () => {
       if (el.scrollTop < 4 && hasPreviousPage && !isFetchingPreviousPage) {
         void fetchPreviousPage();
@@ -281,23 +295,53 @@ export function MediaGrid({
     };
     el.addEventListener("scroll", onScroll);
     return () => el.removeEventListener("scroll", onScroll);
-  }, [source.kind, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
+  }, [layout, source.kind, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
 
-  // keep the viewport anchored when newer items are prepended (estimateSize is
-  // exact for our rows, so the total-size delta is the visual shift to cancel).
+  // after a seek, pull the page above the landing spot once so the user can
+  // immediately scroll up, and so the anchor correction runs before they do.
+  const autoPrevGen = useRef<string | null>(null);
+  useEffect(() => {
+    if (layout !== "horizontal" || source.kind === "ids" || !hasPreviousPage) return;
+    if (autoPrevGen.current === listGen) return;
+    autoPrevGen.current = listGen;
+    void fetchPreviousPage();
+  }, [layout, source.kind, listGen, hasPreviousPage, fetchPreviousPage]);
+
+  // keep the viewport anchored when newer items are prepended: measure how much
+  // the list grew and push scrollTop down by the same amount, so the tiles under
+  // the cursor stay put instead of the new page shoving them down.
+  const anchorToken = useRef(0);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const firstId = items[0]?.id ?? null;
     const total = rowVirtualizer.getTotalSize();
     const sameGen = prevGen.current === listGen;
-    if (sameGen && prevFirstId.current && firstId && firstId !== prevFirstId.current && total > prevTotal.current) {
-      if (el) el.scrollTop += total - prevTotal.current;
+    if (
+      layout === "horizontal" &&
+      sameGen &&
+      prevFirstId.current &&
+      firstId &&
+      firstId !== prevFirstId.current &&
+      total > prevTotal.current
+    ) {
+      const delta = total - prevTotal.current;
+      if (el) {
+        el.scrollTop += delta;
+        // off-screen headers measure a hair taller than their estimate; correct
+        // once after paint (skipped if another prepend superseded this one)
+        const token = ++anchorToken.current;
+        requestAnimationFrame(() => {
+          if (anchorToken.current !== token) return;
+          const drift = rowVirtualizer.getTotalSize() - total;
+          if (drift !== 0) el.scrollTop += drift;
+        });
+      }
     }
     prevGen.current = listGen;
     prevFirstId.current = firstId;
     prevTotal.current = total;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, listGen, rowVirtualizer.getTotalSize()]);
+  }, [items, listGen, layout, rowVirtualizer.getTotalSize()]);
 
   // infinite scroll trigger (rows mode)
   useEffect(() => {
@@ -650,7 +694,7 @@ export function MediaGrid({
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <div ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y" }}>
+        <div ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
         {header}
         {items.length === 0 && (filesQ.isLoading || searchQ.isLoading || idsQ.isLoading) && (
           <p className="p-8 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>
