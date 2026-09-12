@@ -66,12 +66,17 @@ export function TagInput({
   const keywordRows = !pathMode && !suggestMode
     ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
     : [];
-  // the suggest: keyword itself, offered as a fill-row while typing toward it
-  // (once suggestMode is active, tag completions take over)
+  // fill-rows for value-carrying keywords: offered while typing toward them
+  // (and when the input is empty, so they show among the plain keywords). Once
+  // active, their own completion mode takes over.
   const suggestRow = suggestAutocomplete && !pathMode && !suggestMode && "suggest:".includes(debounced)
     ? [{ name: "suggest:" }]
     : [];
+  const pathRow = pathAutocomplete && !pathMode && !suggestMode && "path:".includes(debounced)
+    ? [{ name: "path:" }]
+    : [];
   const rows: { name: string; count?: number }[] = [
+    ...pathRow,
     ...suggestRow,
     ...pathRows,
     ...(suggestMode ? suggestRows : tagRows),
@@ -102,14 +107,15 @@ export function TagInput({
     commit(`"${stripModifiers(raw)}"`);
   };
 
-  // selecting the suggest: row fills the input (more typing expected), not a chip
-  const fillSuggest = () => {
-    setRaw("suggest:");
-    onRawChange?.("suggest:");
+  // selecting a fill-row keyword ("suggest:" / "path:") fills the input (more
+  // typing expected) instead of committing a chip
+  const fillKeyword = (prefix: string) => {
+    setRaw(prefix);
+    onRawChange?.(prefix);
     setOpen(true);
     requestAnimationFrame(() => {
       const el = inputRef.current;
-      if (el) { el.focus(); el.setSelectionRange(8, 8); }
+      if (el) { el.focus(); el.setSelectionRange(prefix.length, prefix.length); }
     });
   };
 
@@ -143,16 +149,17 @@ export function TagInput({
           }
           else if (e.key === "Enter") {
             e.preventDefault();
+            const pick = open ? rows[highlight] : undefined;
             // dropdown closed (Esc / outside click) → add exactly what was typed;
             // no stale suggestion may override the literal input
             if (!open) {
               if (raw.trim()) commit(raw.trim());
             } else if (showSemantic && highlight === rows.length) {
               commitSemantic();
-            } else if (rows[highlight]?.name === "suggest:") {
-              fillSuggest();
-            } else if (rows[highlight]) {
-              commit(applyModifiers(raw, rows[highlight].name));
+            } else if (pick?.name === "suggest:" || pick?.name === "path:") {
+              fillKeyword(pick.name);
+            } else if (pick) {
+              commit(applyModifiers(raw, pick.name));
             } else if (raw.trim()) {
               commit(raw.trim());
             }
@@ -166,7 +173,7 @@ export function TagInput({
               key={r.name}
               style={i === highlight ? { background: "var(--hover)" } : undefined}
               onMouseEnter={() => setHighlight(i)}
-              onClick={() => (r.name === "suggest:" ? fillSuggest() : commit(r.name))}
+              onClick={() => (r.name === "suggest:" || r.name === "path:" ? fillKeyword(r.name) : commit(r.name))}
             >
               {r.name} {r.count != null && <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>}
             </button>
