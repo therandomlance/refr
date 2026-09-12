@@ -1,3 +1,13 @@
+# Foreward
+
+"I got tired of X, so I built Y". Today's subject: [Immich](https://github.com/immich-app/immich). 
+
+This is a 100% vibe coded personal project to take what I liked from Immich and focus less on "normal users and families wanting a direct replacement for Google Photos" and more on managing/searching through a large library of unsorted images, particularly artwork. 
+
+I aimed to improve the two main things Immich was and still is severly lacking in support: flexible and powerful searching, and streamlined tagging workflows. Additional features include a color palette manager (similar to [colorhunt](https://colorhunt.co/)), and other currently untested features (including an image queue for saving art/reference for study and a random session runner for drawing study)
+
+With that out of the way, here's the current AI slop readme:
+
 # refr
 
 Self-hosted, single-user reference-image manager. Indexes read-only media libraries by
