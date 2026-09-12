@@ -1,5 +1,6 @@
 import "server-only";
 import fs from "node:fs";
+import path from "node:path";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import YAML from "yaml";
@@ -8,9 +9,28 @@ import { initDataDir, paths } from "./dataDir";
 
 export { THEMES };
 
+/** A read-only library root. `alias` names it for `path:<alias>` searching;
+ *  `timeline` toggles whether it feeds the timeline scrubber. */
+export const librarySchema = z.object({
+  path: z.string(),
+  alias: z.string().optional(),
+  timeline: z.boolean().default(true),
+});
+export type Library = z.infer<typeof librarySchema>;
+
 const configSchema = z.object({
   passwordHash: z.string().nullable().default(null),
-  libraries: z.array(z.string()).default([]),
+  // Accepts legacy `libraries: ["/path"]` and normalizes to objects.
+  libraries: z
+    .array(z.union([z.string(), librarySchema]))
+    .default([])
+    .transform((libs) =>
+      libs.map((l) =>
+        typeof l === "string"
+          ? { path: l, timeline: true }
+          : { path: l.path, alias: l.alias, timeline: l.timeline },
+      ),
+    ),
   scanTime: z
     .string()
     .regex(/^\d{2}:\d{2}$/)
@@ -66,6 +86,19 @@ export function get(): Config {
   cache = readFile();
   cacheMtime = fs.existsSync(paths.config) ? fs.statSync(paths.config).mtimeMs : 0;
   return cache;
+}
+
+/** Resolved library roots (in config order). */
+export function libraryRoots(): string[] {
+  return get().libraries.map((l) => path.resolve(l.path));
+}
+
+/** Roots feeding the timeline scrubber. `undefined` = no libraries configured
+ *  (unconstrained), `[]` = libraries configured but all excluded. */
+export function timelineRoots(): string[] | undefined {
+  const libs = get().libraries;
+  if (libs.length === 0) return undefined;
+  return libs.filter((l) => l.timeline !== false).map((l) => path.resolve(l.path));
 }
 
 function write(cfg: Config) {

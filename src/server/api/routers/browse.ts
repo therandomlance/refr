@@ -40,13 +40,17 @@ async function hasMediaOrSubdirs(dir: string): Promise<boolean> {
 }
 
 export const browseRouter = createTRPCRouter({
-  /** Top level = configured libraries. */
+  /** Top level = configured libraries (shown by alias when set). */
   folderTree: protectedProcedure.query(async (): Promise<FolderNode[]> => {
-    const libs = config.get().libraries.map((l) => path.resolve(l));
     const out: FolderNode[] = [];
-    for (const lib of libs) {
-      if (fs.existsSync(lib)) {
-        out.push({ name: path.basename(lib) || lib, path: lib, hasChildren: await hasMediaOrSubdirs(lib) });
+    for (const lib of config.get().libraries) {
+      const root = path.resolve(lib.path);
+      if (fs.existsSync(root)) {
+        out.push({
+          name: lib.alias ?? (path.basename(root) || root),
+          path: root,
+          hasChildren: await hasMediaOrSubdirs(root),
+        });
       }
     }
     return out;
@@ -58,7 +62,7 @@ export const browseRouter = createTRPCRouter({
       // only allow listing within configured libraries — otherwise this is an
       // arbitrary filesystem browser
       const target = path.resolve(input.path);
-      const libs = config.get().libraries.map((l) => path.resolve(l));
+      const libs = config.libraryRoots();
       if (!libs.some((l) => target === l || target.startsWith(l + path.sep))) return [];
       return childrenOf(target);
     }),

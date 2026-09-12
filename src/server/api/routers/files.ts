@@ -12,33 +12,70 @@ import { db } from "refr/server/db";
 
 const sortEnum = z.enum(["date", "name", "size", "random", "similarity"]);
 
-/** `path:` autocomplete — filesystem readdir of one directory, constrained to
- *  configured libraries. Cost is bounded by one dir's size, not total files. */
+/** Directory names in `dir` whose name starts with `partial`. */
+async function dirSuggestions(dir: string, partial: string): Promise<string[]> {
+  let entries: fs.Dirent[];
+  try {
+    entries = await fsp.readdir(dir, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+  return entries
+    .filter((e) => e.isDirectory() && e.name.toLowerCase().startsWith(partial.toLowerCase()))
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/** Split a full path into its existing parent dir + trailing partial segment. */
+async function resolveDir(full: string): Promise<{ dir: string; partial: string }> {
+  try {
+    const st = await fsp.stat(full);
+    if (st.isDirectory()) return { dir: full, partial: "" };
+  } catch {
+    // doesn't exist yet — treat the last segment as a partial name
+  }
+  const i = full.lastIndexOf("/");
+  return { dir: i <= 0 ? "/" : full.slice(0, i), partial: full.slice(i + 1) };
+}
+
+/** `path:` autocomplete: library aliases + directory completion within libraries.
+ *  `alias/sub` suggestions stay in alias form so the chip keeps working. */
 async function pathComplete(typed: string): Promise<string[]> {
   const LIMIT = 20;
-  const libs = config.get().libraries.map((l) => path.resolve(l));
-  if (!typed) return libs.slice(0, LIMIT);
-  const t = path.normalize(typed);
-  const lib = libs.find((l) => l === t || t.startsWith(l + "/"));
-  if (!lib) return libs.filter((l) => l.startsWith(t)).slice(0, LIMIT);
-  let dir: string, partial: string;
-  try {
-    const st = await fsp.stat(t);
-    if (!st.isDirectory()) return [];
-    dir = t;
-    partial = "";
-  } catch {
-    const i = t.lastIndexOf("/");
-    dir = i <= 0 ? "/" : t.slice(0, i);
-    partial = t.slice(i + 1);
+  const libs = config
+    .get()
+    .libraries.map((l) => ({ root: path.resolve(l.path), alias: l.alias }));
+  if (!typed) return libs.map((l) => l.alias ?? l.root).slice(0, LIMIT);
+
+  const slash = typed.indexOf("/");
+  const head = slash === -1 ? typed : typed.slice(0, slash);
+  const aliasLib = libs.find((l) => l.alias?.toLowerCase() === head.toLowerCase());
+
+  if (aliasLib) {
+    const rest = slash === -1 ? "" : typed.slice(slash + 1);
+    const full = rest ? path.join(aliasLib.root, rest) : aliasLib.root;
+    const { dir, partial } = await resolveDir(full);
+    const names = await dirSuggestions(dir, partial);
+    return names
+      .map((n) => `${aliasLib.alias}/${path.relative(aliasLib.root, path.join(dir, n))}`)
+      .slice(0, LIMIT);
   }
-  let entries: fs.Dirent[];
-  try { entries = await fsp.readdir(dir, { withFileTypes: true }); }
-  catch { return []; }
-  return entries
-    .filter((e) => e.isDirectory() && e.name.startsWith(partial))
-    .map((e) => path.join(dir, e.name))
-    .sort((a, b) => a.localeCompare(b))
+
+  const t = path.normalize(typed);
+  if (t.startsWith("/")) {
+    const roots = libs.map((l) => l.root);
+    const lib = roots.find((l) => l === t || t.startsWith(l + "/"));
+    if (lib) {
+      const { dir, partial } = await resolveDir(t);
+      return (await dirSuggestions(dir, partial)).map((n) => path.join(dir, n)).slice(0, LIMIT);
+    }
+    return roots.filter((r) => r.startsWith(t)).slice(0, LIMIT);
+  }
+
+  // partial alias (no slash)
+  return libs
+    .filter((l) => l.alias?.toLowerCase().startsWith(typed.toLowerCase()))
+    .map((l) => l.alias!)
     .slice(0, LIMIT);
 }
 
@@ -60,7 +97,7 @@ export const filesRouter = createTRPCRouter({
     )
     .query(async ({ input }) => {
       if (input.ids) {
-        return { items: await listByOrderedIds(input.ids), nextCursor: null };
+        return { items: await listByOrderedIds(input.ids), nextCursor: null, prevCursor: null };
       }
       const where = sourceWhere({
         pathPrefix: input.pathPrefix,
@@ -84,7 +121,7 @@ export const filesRouter = createTRPCRouter({
         recursive: z.boolean().optional(),
       }),
     )
-    .query(({ input }) => timelineBuckets(sourceWhere(input))),
+    .query(({ input }) => timelineBuckets(sourceWhere(input), config.timelineRoots())),
 
   byId: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const file = await db.file.findUnique({

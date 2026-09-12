@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import type { FileSummary, Sort, Token } from "refr/server/services/search";
+import type { TimelineBucket } from "refr/lib/timeline";
 import { buildRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
@@ -114,6 +115,16 @@ export function MediaGrid({
     setSeek({ cursor, key: filterKey });
     scrollRef.current?.scrollTo({ top: 0 });
   };
+  // mid-month: fraction 0 = segment top (newest) → the month's maxMtime
+  const seekToBucket = (b: TimelineBucket, fraction: number) => {
+    const target = Math.round(b.minMtime + (1 - fraction) * (b.maxMtime - b.minMtime));
+    seekTo(`!${target + 1}|`);
+  };
+  // generation changes reset prepend anchoring (seek/filter = fresh list, not prepend)
+  const listGen = `${filterKey}|${seekCursor ?? ""}`;
+  const prevFirstId = useRef<string | null>(null);
+  const prevTotal = useRef(0);
+  const prevGen = useRef(listGen);
 
   const filesQ = api.files.list.useInfiniteQuery(
     {
@@ -126,6 +137,7 @@ export function MediaGrid({
     {
       enabled: source.kind === "files",
       getNextPageParam: (p) => p.nextCursor ?? undefined,
+      getPreviousPageParam: (p) => p.prevCursor ?? undefined,
     },
   );
   const searchQ = api.search.query.useInfiniteQuery(
@@ -133,6 +145,7 @@ export function MediaGrid({
     {
       enabled: source.kind === "search",
       getNextPageParam: (p) => p.nextCursor ?? undefined,
+      getPreviousPageParam: (p) => p.prevCursor ?? undefined,
     },
   );
   const idsQ = api.files.list.useQuery(
@@ -171,6 +184,9 @@ export function MediaGrid({
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
   const hasNextPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasNextPage;
+  const fetchPreviousPage = source.kind === "files" ? filesQ.fetchPreviousPage : searchQ.fetchPreviousPage;
+  const hasPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasPreviousPage;
+  const isFetchingPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).isFetchingPreviousPage;
 
   useEffect(() => {
     publishViewerList({
@@ -241,9 +257,7 @@ export function MediaGrid({
       const idx = buckets.findIndex((b) => b.year === d.getFullYear() && b.month === d.getMonth() + 1);
       if (idx >= 0) {
         const b = buckets[idx]!;
-        const older = buckets[idx + 1];
-        const lo = older ? older.maxMtime : b.maxMtime - 30 * 864e5; // ~30d fallback
-        const span = b.maxMtime - lo;
+        const span = b.maxMtime - b.minMtime;
         activeMonth = {
           year: b.year,
           month: b.month,
@@ -252,6 +266,38 @@ export function MediaGrid({
       }
     }
   }
+
+  // load newer pages when the user scrolls to the very top (Immich month loading).
+  // scrollTop is pushed back down after a prepend, so this only refires when the
+  // user actually returns to the top.
+  // ponytail: loads PAGE_SIZE files, not whole months — fine until a month exceeds 200.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || source.kind === "ids") return;
+    const onScroll = () => {
+      if (el.scrollTop < 4 && hasPreviousPage && !isFetchingPreviousPage) {
+        void fetchPreviousPage();
+      }
+    };
+    el.addEventListener("scroll", onScroll);
+    return () => el.removeEventListener("scroll", onScroll);
+  }, [source.kind, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
+
+  // keep the viewport anchored when newer items are prepended (estimateSize is
+  // exact for our rows, so the total-size delta is the visual shift to cancel).
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const firstId = items[0]?.id ?? null;
+    const total = rowVirtualizer.getTotalSize();
+    const sameGen = prevGen.current === listGen;
+    if (sameGen && prevFirstId.current && firstId && firstId !== prevFirstId.current && total > prevTotal.current) {
+      if (el) el.scrollTop += total - prevTotal.current;
+    }
+    prevGen.current = listGen;
+    prevFirstId.current = firstId;
+    prevTotal.current = total;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, listGen, rowVirtualizer.getTotalSize()]);
 
   // infinite scroll trigger (rows mode)
   useEffect(() => {
@@ -672,11 +718,7 @@ export function MediaGrid({
         )}
         </div>
         {showTimeline && (
-          <TimelineScrubber
-            buckets={buckets ?? []}
-            active={activeMonth}
-            onSeek={(b) => seekTo(`${b.maxMtime + 1}|`)}
-          />
+          <TimelineScrubber buckets={buckets ?? []} active={activeMonth} onSeek={seekToBucket} />
         )}
       </div>
       {viewerId && <Viewer fileId={viewerId} onClose={closeViewer} />}

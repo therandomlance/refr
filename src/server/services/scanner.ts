@@ -130,7 +130,7 @@ async function runScan() {
   progress.phase = "scanning";
   const touchedFiles = new Set<string>();
   try {
-    const libraries = config.get().libraries.map((l) => path.resolve(l));
+    const libraries = config.libraryRoots();
 
     // Pass 1: reconcile known paths (all libraries at once, batched)
     const known = await db.filePath.findMany({ select: { id: true, path: true, size: true, mtime: true } });
@@ -287,7 +287,7 @@ export async function countOrphans(): Promise<number> {
 
 /** Files with no path under any configured library (e.g. after removing a library). */
 async function externalFiles(): Promise<{ id: string }[]> {
-  const libs = config.get().libraries.map((l) => path.resolve(l) + path.sep);
+  const libs = config.libraryRoots().map((l) => l + path.sep);
   const files = await db.file.findMany({ select: { id: true, paths: { select: { path: true } } } });
   // ponytail: O(files×paths×libs) filter in JS — one-off maintenance op at single-user scale
   return files.filter((f) => !f.paths.some((p) => libs.some((l) => p.path.startsWith(l))));

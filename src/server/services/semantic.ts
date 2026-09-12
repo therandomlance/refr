@@ -47,7 +47,7 @@ export async function vectorSearch(
 
   const summaries = await listByOrderedIds(items.map((i) => i.fileId));
   const more = items.length >= pageSize;
-  return { items: summaries, nextCursor: more ? String(fetched) : null };
+  return { items: summaries, nextCursor: more ? String(fetched) : null, prevCursor: null };
 }
 
 /** §13.5: text chip → kNN; tag chips filter the kNN loop. Degrades to tag-only when ML is down. */
@@ -65,7 +65,7 @@ export async function semanticSearch(
   }
 
   const [q] = await ml.embedText([textChip.tag]);
-  if (!q) return { items: [], nextCursor: null };
+  if (!q) return { items: [], nextCursor: null, prevCursor: null };
   return vectorSearch(q, tagChips, cursor, pageSize, null, fetchPage);
 }
 
@@ -83,7 +83,7 @@ export async function similarSearch(
   }
 
   const q = await ml.fileVector(fileId);
-  if (!q) return { items: [], nextCursor: null };
+  if (!q) return { items: [], nextCursor: null, prevCursor: null };
   return vectorSearch(q, tagChips, cursor, pageSize, fileId);
 }
 
@@ -103,7 +103,7 @@ export async function suggestSearch(
   }
 
   const q = await ml.tagVectorByName(tagName);
-  if (!q) return { items: [], nextCursor: null };
+  if (!q) return { items: [], nextCursor: null, prevCursor: null };
   const excluded = await ml.getExclusions(tagName);
   const excludeIds = excluded.size ? [...excluded] : undefined;
   return vectorSearch(q, tagChips, cursor, pageSize, null, (vec, k, skip) =>

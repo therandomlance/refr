@@ -106,16 +106,41 @@ function existsClause(cond: Sql, negate: boolean): Sql {
 }
 
 /** `path:<dir>` keyword — files whose FilePath is <dir> or beneath it. Value-
- *  carrying, so handled before the zero-arg KEYWORDS registry. Negatable. */
+ *  carrying, so handled before the zero-arg KEYWORDS registry. Negatable.
+ *  `=path:` matches only the exact path or its direct children. Library aliases
+ *  are resolved to real roots by `resolvePathAliases` before this runs. */
 function pathClause(t: Token): Sql | null {
-  if (t.exact || t.wildcard || !t.tag.startsWith("path:")) return null;
+  if (t.wildcard || !t.tag.startsWith("path:")) return null;
   const p = t.tag.slice(5);
   if (!p) return null;
   const esc = p.replace(/[\\%_]/g, (c) => "\\" + c);
+  if (t.exact) {
+    return {
+      text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (fp.path = ?
+             OR (fp.path LIKE ? ESCAPE '\\' AND instr(substr(fp.path, ?), '/') = 0)))`,
+      params: [p, esc + "/%", p.length + 2],
+    };
+  }
   return {
     text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (fp.path = ? OR fp.path LIKE ? ESCAPE '\\'))`,
     params: [p, esc + "/%"],
   };
+}
+
+/** Rewrite `path:<alias>` tokens to their resolved library roots. Run once at
+ *  the API boundary so tag-SQL, semantic filtering, and timelines all agree. */
+export function resolvePathAliases(
+  tokens: Token[],
+  aliases: Record<string, string>,
+): Token[] {
+  return tokens.map((t) =>
+    t.kind === "tag" && t.tag.startsWith("path:")
+      ? (() => {
+          const root = aliases[t.tag.slice(5).toLowerCase()];
+          return root ? { ...t, tag: "path:" + root } : t;
+        })()
+      : t,
+  );
 }
 
 /** Metadata keywords (§9.3). Extensible: add a name to KEYWORD_NAMES (lib)
@@ -195,7 +220,12 @@ export type ListInput = {
   limit?: number;
 };
 
-export type ListResult = { items: FileSummary[]; nextCursor: string | null };
+export type ListResult = {
+  items: FileSummary[];
+  nextCursor: string | null;
+  /** Set only on a seek/backward page: cursor for the page immediately newer. */
+  prevCursor?: string | null;
+};
 
 const SUMMARY_COLS = `f.id, f.mediaType, f.width, f.height, f.duration, f.mtime`;
 
@@ -209,14 +239,22 @@ export function buildListQuery(input: ListInput): Sql {
   const params: unknown[] = [...(input.where?.params ?? [])];
 
   if (input.sort === "date" || input.sort === "similarity") {
+    // cursor prefixes: plain = older (forward page), "!" = seek anchor,
+    // "^" = newer (backward page, used when scrolling up)
+    const cursor = input.cursor ?? null;
+    const backward = cursor?.startsWith("^") ?? false;
+    const raw = cursor ? cursor.replace(/^[!^]/, "") : null;
     let text = `SELECT ${SUMMARY_COLS} FROM File f WHERE ${where}`;
-    if (input.cursor) {
-      const [mtime, id] = input.cursor.split("|");
-      // Prisma stores SQLite DateTime as integer ms — numeric comparison
-      text += ` AND (f.mtime < ? OR (f.mtime = ? AND f.id < ?))`;
+    if (raw) {
+      const [mtime, id] = raw.split("|");
+      text += backward
+        ? ` AND (f.mtime > ? OR (f.mtime = ? AND f.id > ?))`
+        : ` AND (f.mtime < ? OR (f.mtime = ? AND f.id < ?))`;
       params.push(Number(mtime), Number(mtime), id);
     }
-    text += ` ORDER BY f.mtime DESC, f.id DESC LIMIT ?`;
+    text += backward
+      ? ` ORDER BY f.mtime ASC, f.id ASC LIMIT ?`
+      : ` ORDER BY f.mtime DESC, f.id DESC LIMIT ?`;
     params.push(limit + 1);
     return { text, params };
   }

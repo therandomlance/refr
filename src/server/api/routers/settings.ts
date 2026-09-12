@@ -16,7 +16,13 @@ export const settingsRouter = createTRPCRouter({
     .input(
       z
         .object({
-          libraries: z.array(z.string()),
+          libraries: z.array(
+            z.object({
+              path: z.string(),
+              alias: z.string().optional(),
+              timeline: z.boolean().optional(),
+            }),
+          ),
           scanTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
           defaultThumbnailSize: z.enum(["small", "medium", "large"]),
           skipTagRemoveConfirm: z.boolean(),

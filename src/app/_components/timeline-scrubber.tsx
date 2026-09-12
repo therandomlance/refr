@@ -27,7 +27,7 @@ export function TimelineScrubber({
 }: {
   buckets: TimelineBucket[]; // newest first
   active: { year: number; month: number; fraction: number } | null;
-  onSeek: (bucket: TimelineBucket) => void;
+  onSeek: (bucket: TimelineBucket, fraction: number) => void;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -36,6 +36,7 @@ export function TimelineScrubber({
   const [dragging, setDragging] = useState(false);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
+  const [dragFrac, setDragFrac] = useState(0);
 
   useEffect(() => {
     const el = outerRef.current;
@@ -96,34 +97,40 @@ export function TimelineScrubber({
     return buckets.findIndex((b) => b.year === active.year && b.month === active.month);
   }, [buckets, active]);
 
-  const segIdxAt = (clientY: number): number | null => {
+  const segIdxAt = (clientY: number): { idx: number; frac: number } | null => {
     const rect = trackRef.current?.getBoundingClientRect();
     if (!rect) return null;
     const y = Math.max(0, Math.min(avail, clientY - rect.top));
     let acc = 0;
     for (let i = 0; i < segments.length; i++) {
-      acc += segments[i]!.height;
-      if (y < acc) return i;
+      const h = segments[i]!.height;
+      if (y < acc + h) return { idx: i, frac: h > 0 ? (y - acc) / h : 0 };
+      acc += h;
     }
-    return segments.length - 1;
+    const last = segments.length - 1;
+    return last >= 0 ? { idx: last, frac: 1 } : null;
   };
 
   const onPointerDown = (e: React.PointerEvent) => {
-    const i = segIdxAt(e.clientY);
-    if (i === null) return;
+    const hit = segIdxAt(e.clientY);
+    if (!hit) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     setDragging(true);
-    setDragIdx(i);
+    setDragIdx(hit.idx);
+    setDragFrac(hit.frac);
   };
   const onPointerMove = (e: React.PointerEvent) => {
-    const i = segIdxAt(e.clientY);
-    setHoverIdx(i);
-    if (dragging && i !== null) setDragIdx(i);
+    const hit = segIdxAt(e.clientY);
+    setHoverIdx(hit?.idx ?? null);
+    if (dragging && hit) {
+      setDragIdx(hit.idx);
+      setDragFrac(hit.frac);
+    }
   };
   const endDrag = (e: React.PointerEvent) => {
     if (dragging && dragIdx !== null) {
       const b = buckets[dragIdx];
-      if (b) onSeek(b);
+      if (b) onSeek(b, dragFrac);
     }
     setDragging(false);
     setDragIdx(null);
@@ -137,7 +144,7 @@ export function TimelineScrubber({
     e.preventDefault();
     const from = activeIdx >= 0 ? activeIdx : 0;
     const b = buckets[e.key === "ArrowUp" ? from - 1 : from + 1];
-    if (b) onSeek(b);
+    if (b) onSeek(b, 0);
   };
 
   const idx = dragging ? dragIdx : hovering ? hoverIdx : null;
@@ -146,7 +153,7 @@ export function TimelineScrubber({
     !dragging && !hovering && activeIdx >= 0 ? segments[activeIdx]?.bucket : undefined;
   const thumbTop =
     dragging && dragIdx !== null
-      ? (segments[dragIdx]?.top ?? 0)
+      ? (segments[dragIdx]?.top ?? 0) + dragFrac * (segments[dragIdx]?.height ?? 0)
       : activeIdx >= 0
         ? (segments[activeIdx]?.top ?? 0) + active!.fraction * (segments[activeIdx]?.height ?? 0)
         : 0;

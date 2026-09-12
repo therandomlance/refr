@@ -22,13 +22,11 @@ export default function SettingsPage() {
       <h1 className="mb-6 text-lg font-semibold">Settings</h1>
       <div className="flex max-w-2xl flex-col gap-8">
         <Section title="Libraries">
-          <PathList
-            values={s.libraries}
-            onChange={(libraries) => save({ libraries })}
-            addLabel="Add library path"
-          />
+          <LibraryList values={s.libraries} onChange={(libraries) => save({ libraries })} />
           <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
             Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.
+            The alias names a library for <code>path:&lt;alias&gt;</code> search; unchecking Timeline keeps a
+            library out of the timeline scrubber.
           </p>
         </Section>
 
@@ -142,6 +140,52 @@ function PathList({ values, onChange, addLabel }: { values: string[]; onChange: 
       >
         <input className="input flex-1" placeholder="/absolute/path" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <button className="btn" type="submit">{addLabel}</button>
+      </form>
+    </div>
+  );
+}
+
+function LibraryList({
+  values,
+  onChange,
+}: {
+  values: { path: string; alias?: string; timeline: boolean }[];
+  onChange: (v: { path: string; alias?: string; timeline: boolean }[]) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const update = (i: number, patch: Partial<{ path: string; alias?: string; timeline: boolean }>) =>
+    onChange(values.map((v, j) => (j === i ? { ...v, ...patch } : v)));
+  return (
+    <div className="flex flex-col gap-2">
+      {values.map((v, i) => (
+        <div key={i} className="flex flex-wrap items-center gap-2">
+          <code className="min-w-40 flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs" style={{ background: "var(--hover)" }}>{v.path}</code>
+          <input
+            className="input"
+            style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
+            placeholder="alias"
+            defaultValue={v.alias ?? ""}
+            onBlur={(e) => {
+              const next = e.target.value.trim() || undefined;
+              if (next !== v.alias) update(i, { alias: next });
+            }}
+          />
+          <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include in the timeline scrubber">
+            <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
+            Timeline
+          </label>
+          <button className="btn" style={{ padding: "3px 8px" }} onClick={() => onChange(values.filter((_, j) => j !== i))}>✕</button>
+        </div>
+      ))}
+      <form
+        className="flex gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (draft.trim()) { onChange([...values, { path: draft.trim(), timeline: true }]); setDraft(""); }
+        }}
+      >
+        <input className="input flex-1" placeholder="/absolute/path" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn" type="submit">Add library path</button>
       </form>
     </div>
   );
