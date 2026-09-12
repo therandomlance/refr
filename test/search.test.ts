@@ -4,6 +4,7 @@ import {
   parseQuery,
   serializeQuery,
   tokensToWhere,
+  resolvePathAliases,
   makeToken,
   type Token,
 } from "refr/server/services/search";
@@ -112,6 +113,22 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await idsOf(parseQuery("path:/refrtest/lib/sub"))).toEqual(["f1"]);
     expect(await idsOf(parseQuery("path:/refrtest/lib/b.png"))).toEqual(["f2"]);
     expect(await idsOf(parseQuery("-path:/refrtest/other"))).toEqual(["f1", "f2"]);
+  });
+
+  it("=path: matches direct children only", async () => {
+    expect(await idsOf(parseQuery("=path:/refrtest/lib"))).toEqual(["f2"]);
+  });
+
+  it("path:<alias> resolves to the library root", async () => {
+    const aliases = { lib: "/refrtest/lib" };
+    const run = async (q: string) => {
+      const where = tokensToWhere(resolvePathAliases(parseQuery(q), aliases));
+      const res = await executeList({ where, sort: "date" });
+      return res.items.map((i) => i.id).filter((id) => /^f\d$/.test(id)).sort();
+    };
+    expect(await run("path:lib")).toEqual(["f1", "f2"]);
+    expect(await run("=path:lib")).toEqual(["f2"]);
+    expect(await run("-path:lib")).toEqual(["f3", "f4"]);
   });
 
   it("multi-word tag with spaces", async () => {
