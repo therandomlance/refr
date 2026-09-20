@@ -35,6 +35,8 @@ export function MediaGrid({
   onSortChange,
   emptyState,
   header,
+  hiddenIds,
+  tileActions,
 }: {
   source: GridSource;
   selection: Set<string>;
@@ -46,6 +48,10 @@ export function MediaGrid({
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
   header?: React.ReactNode;
+  /** ids to omit from the grid (e.g. suggestion tiles just accepted/denied) */
+  hiddenIds?: ReadonlySet<string>;
+  /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
+  tileActions?: (f: FileSummary) => React.ReactNode;
 }) {
   const [internalSort, setInternalSort] = useState<Sort>("date");
   const sort = controlledSort ?? internalSort;
@@ -177,10 +183,12 @@ export function MediaGrid({
   const filesData = filesQ.data;
   const searchData = searchQ.data;
   const items: FileSummary[] = useMemo(() => {
-    if (source.kind === "ids") return idsQ.data?.items ?? [];
-    const q = source.kind === "files" ? filesData : searchData;
-    return q?.pages.flatMap((p) => p.items) ?? [];
-  }, [source.kind, idsQ.data, filesData, searchData]);
+    const base =
+      source.kind === "ids"
+        ? (idsQ.data?.items ?? [])
+        : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? []);
+    return hiddenIds?.size ? base.filter((f) => !hiddenIds.has(f.id)) : base;
+  }, [source.kind, idsQ.data, filesData, searchData, hiddenIds]);
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
   const hasNextPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasNextPage;
@@ -598,16 +606,20 @@ export function MediaGrid({
       >
         <ThumbImg id={f.id} />
         <div className="ovl" />
-        <div
-          className="check"
-          onClick={(e) => {
-            e.stopPropagation();
-            anchor.current = index;
-            toggle(f.id);
-          }}
-        >
-          {selection.has(f.id) ? "✓" : ""}
-        </div>
+        {tileActions ? (
+          tileActions(f)
+        ) : (
+          <div
+            className="check"
+            onClick={(e) => {
+              e.stopPropagation();
+              anchor.current = index;
+              toggle(f.id);
+            }}
+          >
+            {selection.has(f.id) ? "✓" : ""}
+          </div>
+        )}
         {f.mediaType === "video" && (
           <div className="badge">{formatDuration(f.duration)}</div>
         )}

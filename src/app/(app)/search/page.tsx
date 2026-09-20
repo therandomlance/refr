@@ -29,6 +29,24 @@ export default function SearchPage() {
   const saved = api.searches.list.useQuery();
   const utils = api.useUtils();
   const saveM = api.searches.save.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
+  const setTags = api.tags.setTags.useMutation();
+  const excludeSuggestion = api.ml.excludeSuggestion.useMutation();
+
+  // suggest:<tag> chip → tiles get the same accept/deny actions as the browse
+  // suggestion strips, scoped to that tag.
+  const suggestTag = tokens.find((t) => t.kind === "tag" && t.tag.startsWith("suggest:"))?.tag.slice("suggest:".length);
+  const [resolved, setResolved] = useState<Set<string>>(new Set());
+  useEffect(() => setResolved(new Set()), [suggestTag]);
+  const acceptTile = (id: string) => {
+    if (!suggestTag) return;
+    setTags.mutate({ fileIds: [id], add: [suggestTag], remove: [] });
+    setResolved((p) => new Set(p).add(id));
+  };
+  const denyTile = (id: string) => {
+    if (!suggestTag) return;
+    excludeSuggestion.mutate({ tag: suggestTag, fileId: id });
+    setResolved((p) => new Set(p).add(id));
+  };
   const deleteM = api.searches.delete.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
   const renameM = api.searches.rename.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
 
@@ -176,6 +194,31 @@ export default function SearchPage() {
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
+          hiddenIds={resolved}
+          tileActions={
+            suggestTag
+              ? (f) => (
+                  <>
+                    <button
+                      className="check"
+                      style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                      title="Accept tag"
+                      onClick={(e) => { e.stopPropagation(); acceptTile(f.id); }}
+                    >
+                      ✓
+                    </button>
+                    <button
+                      className="deny"
+                      style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
+                      title="Exclude from suggestions"
+                      onClick={(e) => { e.stopPropagation(); denyTile(f.id); }}
+                    >
+                      ✕
+                    </button>
+                  </>
+                )
+              : undefined
+          }
         />
       </main>
 
