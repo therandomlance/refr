@@ -7,8 +7,8 @@ import { MediaGrid } from "refr/app/_components/media-grid";
 import { SidePanel } from "refr/app/_components/side-panel";
 import { TagInput } from "refr/app/_components/tag-input";
 import { useFileContextMenu } from "refr/app/_components/file-menu";
-import { ContextMenu } from "refr/app/_components/context-menu";
-import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
+import { SavedSearches } from "refr/app/_components/saved-searches";
+import { PromptDialog } from "refr/app/_components/dialog";
 import { commitToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
 import { KEYWORD_NAMES } from "refr/lib/keywords";
 
@@ -21,9 +21,6 @@ export default function SearchPage() {
   const [sort, setSort] = useState<Sort>("date");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [savePrompt, setSavePrompt] = useState(false);
-  const [savedMenu, setSavedMenu] = useState<{ name: string; x: number; y: number } | null>(null);
-  const [renameOf, setRenameOf] = useState<string | null>(null);
-  const [deleteOf, setDeleteOf] = useState<string | null>(null);
   const fileMenu = useFileContextMenu(selection, setSelection);
 
   const saved = api.searches.list.useQuery();
@@ -47,9 +44,6 @@ export default function SearchPage() {
     excludeSuggestion.mutate({ tag: suggestTag, fileId: id });
     setResolved((p) => new Set(p).add(id));
   };
-  const deleteM = api.searches.delete.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
-  const renameM = api.searches.rename.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
-
   // keep ?q= in sync (JSON form — shareable)
   useEffect(() => {
     const p = new URLSearchParams(params.toString());
@@ -123,27 +117,13 @@ export default function SearchPage() {
           </>
         }
       >
-        <div className="flex-1 px-2 pb-4">
-          {(saved.data ?? []).map((s) => (
-            <div
-              key={s.name}
-              className="trow"
-              onClick={() => {
-                setTokens(s.tokens);
-                if (s.sort) setSort(s.sort);
-              }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setSavedMenu({ name: s.name, x: e.clientX, y: e.clientY });
-              }}
-            >
-              <span className="overflow-hidden text-ellipsis">{s.name}</span>
-            </div>
-          ))}
-          {saved.data?.length === 0 && (
-            <p className="px-2 text-xs" style={{ color: "var(--text-faint)" }}>No saved searches yet.</p>
-          )}
-        </div>
+        <SavedSearches
+          nodes={saved.data ?? []}
+          onOpen={(s) => {
+            setTokens(s.tokens);
+            if (s.sort) setSort(s.sort);
+          }}
+        />
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -229,36 +209,6 @@ export default function SearchPage() {
           label={`Name for: ${serializeQuery(tokens)}`}
           onSubmit={(name) => saveM.mutate({ name, tokens, sort })}
           onClose={() => setSavePrompt(false)}
-        />
-      )}
-      {savedMenu && (
-        <ContextMenu
-          x={savedMenu.x}
-          y={savedMenu.y}
-          onClose={() => setSavedMenu(null)}
-          items={[
-            { label: "Rename…", onClick: () => setRenameOf(savedMenu.name) },
-            { label: "Delete…", onClick: () => setDeleteOf(savedMenu.name), danger: true },
-          ]}
-        />
-      )}
-      {renameOf && (
-        <PromptDialog
-          title="Rename search"
-          label="New name"
-          initial={renameOf}
-          onSubmit={(v) => renameM.mutate({ oldName: renameOf, newName: v })}
-          onClose={() => setRenameOf(null)}
-        />
-      )}
-      {deleteOf && (
-        <ConfirmDialog
-          title="Delete saved search"
-          body={<>Delete <b>{deleteOf}</b>?</>}
-          confirmLabel="Delete"
-          danger
-          onConfirm={() => deleteM.mutate({ name: deleteOf })}
-          onClose={() => setDeleteOf(null)}
         />
       )}
     </div>

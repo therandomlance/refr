@@ -25,6 +25,7 @@ export const paths = {
   queues: path.join(DATA_DIR, "queues"),
   sessions: path.join(DATA_DIR, "sessions"),
   searches: path.join(DATA_DIR, "searches"),
+  searchesIndex: path.join(DATA_DIR, "searches.json"),
   palettes: path.join(DATA_DIR, "palettes"),
   mlVenv: path.join(DATA_DIR, "ml-venv"),
 };
