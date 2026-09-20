@@ -13,7 +13,7 @@ Self-hosted single-user reference-image manager. T3 stack: Next.js (App Router) 
 
 ## Data directory (not the repo)
 
-Runtime state lives outside the repo: `--data <dir>` flag > `DATA_DIR` env > `./data`. It holds `config.yaml` (all settings), `refr.db`, `thumbnails/`, `queues/`, `sessions/`, `searches/`, `palettes/` (plain JSON), `.secret`. Migrations auto-apply at server boot via `src/instrumentation.ts`.
+Runtime state lives outside the repo: `--data <dir>` flag > `DATA_DIR` env > `./data`. It holds `config.yaml` (all settings), `refr.db`, `thumbnails/` (2-hex sharded `<id[0..2]>/<id>.webp`), `queues/`, `sessions/`, `searches/`, `palettes/` (plain JSON), `.secret`. Migrations auto-apply at server boot via `src/instrumentation.ts`.
 
 ## Prisma quirks
 

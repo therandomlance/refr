@@ -30,7 +30,7 @@ data/
   config.yaml
   refr.db            # Prisma SQLite
   .secret            # 32-byte random hex, created on first boot (chmod 600)
-  thumbnails/        # <file-id>.webp
+  thumbnails/        # <file-id[0..2]>/<file-id>.webp (2-hex sharded)
   queues/
     active.json      # the single live queue (hidden from "saved queues" UI)
     <name>.json      # saved queues
@@ -175,7 +175,7 @@ request path.
    - hash known but the walked file's *old* row had a different hash → move path: detach from
      old `File`, attach to the hash's `File`. (Content changed in place.)
 5. **Update mtime** on `File` to the max mtime across its current paths after each scan.
-6. Enqueue thumbnail jobs (§6) for any `File` lacking `thumbnails/<id>.webp`, then
+6. Enqueue thumbnail jobs (§6) for any `File` lacking its thumbnail file, then
    embedding jobs (§13.2) for any `File` lacking a current-model embedding (skipped
    entirely when `ml.enabled` is false or the sidecar isn't ready).
 7. After all libraries: delete `FilePath` rows whose path no longer stats, for paths outside
@@ -203,7 +203,7 @@ Depends on: §5.
 hand-rolled loop, no dep), drained after scans and at boot (catch-up for missing thumbs).
 
 - Image: `sharp(path).resize(512, 512, {fit: 'inside', withoutEnlargement: true}).webp({quality: 80})`
-  → `thumbnails/<id>.webp`.
+  → `thumbnails/<id[0..2]>/<id>.webp` (2-hex shard dir, created on demand).
 - Video: `ffmpeg -ss 10%*duration -i <path> -frames:v 1` to a tmp png → same sharp pipeline.
   Fallback to `-ss 0` if the seek yields nothing.
 - Serving: `GET /api/thumb/[id]` streams the webp, `Cache-Control: immutable`. Missing thumb →
@@ -554,8 +554,8 @@ Form bound to `settings.get`/`settings.patch` (every field from §2.2), plus:
 - Background activity: one compact card listing whatever is running (scan, thumbnails, ML
   embeddings/sidecar); "Idle" otherwise.
 - Purge orphans: button + count preview + confirm. Remove images outside all libraries:
-  button + count preview + confirm. Clear orphaned thumbnails (cached `<id>.webp` with no
-  File row): button + confirm.
+  button + count preview + confirm. Clear orphaned thumbnails (cached thumbnail files with
+  no File row): button + confirm.
 - Password: set/change/clear (three fields, current-password check when one is set).
 - Libraries: path list editor (add/remove; remove warns that files stay in DB until purge
   or vanish-prune).

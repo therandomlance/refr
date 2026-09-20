@@ -37,8 +37,11 @@ export async function register() {
   const { watch } = await import("./server/services/config");
   watch();
 
-  // thumbnail catch-up for any files missing thumbs
-  const { hasThumb, enqueueThumbs } = await import("./server/services/thumbs");
+  // thumbnail catch-up for any files missing thumbs. Migrate the flat layout
+  // first so hasThumb() sees existing files instead of re-encoding everything.
+  const { hasThumb, enqueueThumbs, migrateThumbLayout } = await import("./server/services/thumbs");
+  const moved = await migrateThumbLayout();
+  if (moved > 0) console.log(`[thumbs] migrated ${moved} thumbnails into sharded subdirs`);
   const files = await db.file.findMany({
     select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
   });

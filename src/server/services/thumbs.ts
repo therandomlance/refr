@@ -28,8 +28,13 @@ export function thumbStatus() {
   return { running: queue.length > 0 || workers > 0, pending: queue.length + workers, processed, total };
 }
 
+/** 2-hex shard: keeps any one directory to a manageable size. */
+function shardDir(fileId: string): string {
+  return path.join(paths.thumbnails, fileId.slice(0, 2));
+}
+
 export function thumbPath(fileId: string): string {
-  return path.join(paths.thumbnails, `${fileId}.webp`);
+  return path.join(shardDir(fileId), `${fileId}.webp`);
 }
 
 export function hasThumb(fileId: string): boolean {
@@ -38,6 +43,21 @@ export function hasThumb(fileId: string): boolean {
 
 export function deleteThumb(fileId: string) {
   fs.rmSync(thumbPath(fileId), { force: true });
+}
+
+/** One-time boot migration: move flat `thumbnails/<id>.webp` into 2-hex
+ *  subdirs. Idempotent (skips anything already sharded). */
+export async function migrateThumbLayout(): Promise<number> {
+  const names = await fsp.readdir(paths.thumbnails).catch(() => [] as string[]);
+  let moved = 0;
+  for (const name of names) {
+    if (!/^[0-9a-f]{64}\.webp$/.test(name)) continue;
+    const fileId = name.slice(0, -5);
+    await fsp.mkdir(shardDir(fileId), { recursive: true });
+    await fsp.rename(path.join(paths.thumbnails, name), thumbPath(fileId)).catch(() => undefined);
+    moved++;
+  }
+  return moved;
 }
 
 /** In-process FIFO queue, concurrency 2, drained after scans and at boot. */
@@ -69,16 +89,32 @@ function pump() {
   }
 }
 
-/** Delete thumbnails/<id>.webp files with no matching File row. Returns count removed. */
+/** Every cached thumbnail on disk (sharded, plus any legacy flat leftovers). */
+async function listThumbs(): Promise<{ id: string; file: string }[]> {
+  const out: { id: string; file: string }[] = [];
+  const entries = await fsp.readdir(paths.thumbnails, { withFileTypes: true }).catch(() => []);
+  for (const e of entries) {
+    if (e.isFile() && /^[0-9a-f]{64}\.webp$/.test(e.name)) {
+      out.push({ id: e.name.slice(0, -5), file: path.join(paths.thumbnails, e.name) });
+    } else if (e.isDirectory() && /^[0-9a-f]{2}$/.test(e.name)) {
+      const dir = path.join(paths.thumbnails, e.name);
+      for (const n of await fsp.readdir(dir).catch(() => [] as string[])) {
+        if (/^[0-9a-f]{64}\.webp$/.test(n)) out.push({ id: n.slice(0, -5), file: path.join(dir, n) });
+      }
+    }
+  }
+  return out;
+}
+
+/** Delete cached thumbnails with no matching File row. Returns count removed. */
 export async function purgeOrphanThumbs(): Promise<number> {
-  const names = await fsp.readdir(paths.thumbnails).catch(() => [] as string[]);
-  const stems = names.filter((n) => /^[0-9a-f]{64}\.webp$/.test(n)).map((n) => n.slice(0, -5));
-  if (stems.length === 0) return 0;
+  const thumbs = await listThumbs();
+  if (thumbs.length === 0) return 0;
   const keep = new Set((await db.file.findMany({ select: { id: true } })).map((f) => f.id));
   let n = 0;
-  for (const s of stems) {
-    if (!keep.has(s)) {
-      await fsp.rm(thumbPath(s), { force: true });
+  for (const t of thumbs) {
+    if (!keep.has(t.id)) {
+      await fsp.rm(t.file, { force: true });
       n++;
     }
   }
@@ -96,6 +132,7 @@ async function makeThumb(job: ThumbJob) {
     input = tmp;
   }
   try {
+    await fsp.mkdir(shardDir(job.fileId), { recursive: true });
     await sharp(input)
       .resize(512, 512, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: 80 })
