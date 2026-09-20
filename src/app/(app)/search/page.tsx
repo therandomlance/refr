@@ -9,7 +9,7 @@ import { TagInput } from "refr/app/_components/tag-input";
 import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
-import { parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
+import { commitToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
 import { KEYWORD_NAMES } from "refr/lib/keywords";
 
 export default function SearchPage() {
@@ -69,7 +69,7 @@ export default function SearchPage() {
   }, [hasVectorChip]);
 
   const addChip = useCallback(
-    (raw: string) => {
+    (raw: string, suggestion?: string) => {
       // quote-prefixed = semantic text chip from the autocomplete fallback row
       const isVector = (t: Token) =>
         t.kind === "text" || t.kind === "similar" || (t.kind === "tag" && t.tag.startsWith("suggest:"));
@@ -80,7 +80,7 @@ export default function SearchPage() {
         );
         return;
       }
-      const [token] = parseQuery(raw);
+      const token = commitToken(raw, suggestion);
       if (!token) return;
       if (isVector(token)) {
         setTokens((ts) => (ts.some(isVector) ? ts : [...ts, token]));

@@ -71,6 +71,22 @@ export function parseQuery(input: string): Token[] {
   return tokens;
 }
 
+/** Build one token from a chip-input commit. When the commit came from an
+ *  autocomplete row, `suggestion` is the atomic tag name — tag names may
+ *  contain spaces, which the pretty parser would split, so build directly. */
+export function commitToken(raw: string, suggestion?: string): Token | null {
+  if (suggestion) {
+    const mods = /^[-~=]*/.exec(raw)?.[0] ?? "";
+    return makeToken({
+      tag: suggestion,
+      negate: mods.includes("-"),
+      or: mods.includes("~"),
+      exact: mods.includes("="),
+    });
+  }
+  return parseQuery(raw)[0] ?? null;
+}
+
 // ---------------------------------------------------------------- SQL
 
 export const PAGE_SIZE = 200;

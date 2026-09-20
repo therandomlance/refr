@@ -95,8 +95,8 @@ export function TagInput({
     return () => window.removeEventListener("mousedown", onClick);
   }, []);
 
-  const commit = (value: string) => {
-    onCommit(value);
+  const commit = (value: string, suggestion?: string) => {
+    onCommit(value, suggestion);
     setRaw("");
     setOpen(false);
     onRawChange?.("");
@@ -159,7 +159,7 @@ export function TagInput({
             } else if (pick?.name === "suggest:" || pick?.name === "path:") {
               fillKeyword(pick.name);
             } else if (pick) {
-              commit(applyModifiers(raw, pick.name));
+              commit(applyModifiers(raw, pick.name), pick.name);
             } else if (raw.trim()) {
               commit(raw.trim());
             }
@@ -173,7 +173,7 @@ export function TagInput({
               key={r.name}
               style={i === highlight ? { background: "var(--hover)" } : undefined}
               onMouseEnter={() => setHighlight(i)}
-              onClick={() => (r.name === "suggest:" || r.name === "path:" ? fillKeyword(r.name) : commit(r.name))}
+              onClick={() => (r.name === "suggest:" || r.name === "path:" ? fillKeyword(r.name) : commit(r.name, r.name))}
             >
               {r.name} {r.count != null && <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>}
             </button>

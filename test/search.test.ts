@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
 import {
+  commitToken,
   parseQuery,
   serializeQuery,
   tokensToWhere,
@@ -26,6 +27,13 @@ describe("query grammar", () => {
     for (const c of cases) {
       expect(serializeQuery(parseQuery(c))).toBe(c);
     }
+  });
+
+  it("autocomplete suggestions keep spaces in multi-word tags", () => {
+    const tag = "artwork/fanart/fortnite/meow skulls";
+    expect(commitToken(tag, tag)).toMatchObject({ tag, negate: false, exact: false, or: false });
+    expect(commitToken("-" + tag, tag)).toMatchObject({ tag, negate: true });
+    expect(commitToken("=suggest:" + tag, "suggest:" + tag)).toMatchObject({ tag: "suggest:" + tag, exact: true });
   });
 
   it("quoted text chips survive parse/serialize", () => {
