@@ -13,7 +13,7 @@ Self-hosted single-user reference-image manager. T3 stack: Next.js (App Router) 
 
 ## Data directory (not the repo)
 
-Runtime state lives outside the repo: `--data <dir>` flag > `DATA_DIR` env > `./data`. It holds `config.yaml` (all settings), `refr.db`, `thumbnails/`, `queues/`, `sessions/`, `searches/`, `palettes/` (plain JSON), `.secret`, `ml-venv/`. Migrations auto-apply at server boot via `src/instrumentation.ts`.
+Runtime state lives outside the repo: `--data <dir>` flag > `DATA_DIR` env > `./data`. It holds `config.yaml` (all settings), `refr.db`, `thumbnails/`, `queues/`, `sessions/`, `searches/`, `palettes/` (plain JSON), `.secret`. Migrations auto-apply at server boot via `src/instrumentation.ts`.
 
 ## Prisma quirks
 
@@ -36,7 +36,7 @@ All suites share ONE sqlite db (`/tmp/refr-vitest-data`, recreated by `test/glob
 
 ## Optional system deps
 
-`ffmpeg`/`ffprobe` on PATH for video thumbs/probing (absence degrades gracefully). Python ≥ 3.10 for the CLIP sidecar (`ml/`, off by default; venv auto-created at `data/ml-venv/` on first enable).
+`ffmpeg`/`ffprobe` on PATH for video thumbs/probing (absence degrades gracefully). Python ≥ 3.10 for the CLIP sidecar (`ml/`, off by default; venv auto-created at `ml/.venv/` on first enable).
 
 ## Conventions
 

@@ -12,6 +12,7 @@ import { thumbPath, hasThumb } from "./thumbs";
 const execFileP = promisify(execFile);
 
 const ML_DIR = path.resolve(process.cwd(), "ml");
+const ML_VENV = path.join(ML_DIR, ".venv");
 const DIM = 768;
 
 /** Float32Array → owned bytes for Prisma Bytes columns. */
@@ -89,7 +90,7 @@ export async function status(): Promise<MlStatus> {
 }
 
 async function pythonBin(): Promise<string> {
-  return path.join(paths.mlVenv, "bin", "python");
+  return path.join(ML_VENV, "bin", "python");
 }
 
 async function validatePython(): Promise<string> {
@@ -108,11 +109,23 @@ async function validatePython(): Promise<string> {
 async function ensureVenv(onProgress?: () => void) {
   const py = await pythonBin();
   if (fs.existsSync(py)) return;
+  // one-time: relocate a legacy data-dir venv instead of re-downloading GBs.
+  // bin/python is a symlink to the system interpreter, so it survives the move.
+  const legacy = path.join(paths.root, "ml-venv");
+  if (!fs.existsSync(ML_VENV) && fs.existsSync(legacy)) {
+    try {
+      fs.renameSync(legacy, ML_VENV);
+      log("relocated legacy venv to ml/.venv");
+      if (fs.existsSync(py)) return;
+    } catch {
+      // cross-device or partial move — fall through and recreate
+    }
+  }
   const sysPython = await validatePython();
   log("creating venv…");
-  await execFileP(sysPython, ["-m", "venv", paths.mlVenv]);
+  await execFileP(sysPython, ["-m", "venv", ML_VENV]);
   log("installing dependencies (this downloads several GB on first run)…");
-  const pip = path.join(paths.mlVenv, "bin", "pip");
+  const pip = path.join(ML_VENV, "bin", "pip");
   const install = spawn(pip, ["install", "-r", path.join(ML_DIR, "requirements.txt")]);
   install.stdout.on("data", (d: Buffer) => log(d.toString().trim()));
   install.stderr.on("data", (d: Buffer) => log(d.toString().trim()));

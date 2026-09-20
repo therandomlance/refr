@@ -28,7 +28,7 @@ Video thumbnails/probing require system `ffmpeg`/`ffprobe` on PATH (optional —
 them videos still index, just without thumbs/dimensions).
 
 Semantic (CLIP) features are off by default; enable in Settings. Requires system
-python ≥ 3.10 — first enable creates `data/ml-venv/` and downloads several GB
+python ≥ 3.10 — first enable creates `ml/.venv/` and downloads several GB
 (torch + model weights).
 
 ## Test

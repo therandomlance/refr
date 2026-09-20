@@ -20,5 +20,8 @@ generated
 .env.*
 !.env.example
 
-# runtime data directory (DB, thumbnails, venv, config, sessions, etc.)
+# runtime data directory (DB, thumbnails, config, sessions, etc.)
 data
+
+# python venv for the CLIP sidecar (auto-created on first enable)
+ml/.venv

@@ -27,7 +27,6 @@ export const paths = {
   searches: path.join(DATA_DIR, "searches"),
   searchesIndex: path.join(DATA_DIR, "searches.json"),
   palettes: path.join(DATA_DIR, "palettes"),
-  mlVenv: path.join(DATA_DIR, "ml-venv"),
 };
 
 export function getSecret(): string {

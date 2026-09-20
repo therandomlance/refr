@@ -40,7 +40,6 @@ data/
   searches/          # saved searches, one JSON file each: <name>.json
   palettes/
     <folder>/<name>.json   # subfolders = palette folders
-  ml-venv/           # python venv for the CLIP sidecar, auto-created on first enable (§13)
 ```
 
 - Location resolved at server boot: CLI flag `--data <dir>` > env `DATA_DIR` > `./data`.
@@ -599,9 +598,10 @@ app is unaffected.
   cosine similarity = dot product.
 - Runtime: Python sidecar living in `ml/` at repo root (`server.py`, `requirements.txt`:
   torch, open_clip_torch, fastapi, uvicorn, pillow, numpy). FastAPI, one process, model
-  loaded once at startup; device auto (CUDA if present, else CPU).
+  loaded once at startup; device auto (CUDA if present, else CPU). The auto-created venv
+  lives alongside it at `ml/.venv/` (gitignored), not in the data directory.
 - **App-managed, not user-managed.** When `ml.enabled`, the Next server
-  (instrumentation.ts) ensures a venv at `data/ml-venv/` (create + pip install on first
+  (instrumentation.ts) ensures a venv at `ml/.venv/` (create + pip install on first
   run), spawns the sidecar as a child process, restarts on crash (3 tries, backoff), and
   polls `/health`. Requires system python ≥ 3.10 with venv+pip — validated when the user
   flips the toggle, with a clear error if missing. First enable downloads several GB
