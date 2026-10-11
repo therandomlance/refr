@@ -543,6 +543,13 @@ select.input { cursor: pointer; }
   background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius);
   padding: 20px; min-width: 320px; max-width: 480px; box-shadow: 0 20px 60px rgba(0,0,0,.5);
 }
+.palette-editor-body { height: min(90dvh, 780px, calc(100dvh - 210px)); }
+@media (max-width: 900px) {
+  .palette-editor-body { flex-direction: column; height: auto; }
+  .palette-editor-body > div { max-width: 100% !important; height: auto; }
+  .palette-editor-body > div:first-child { flex: none; }
+  .palette-editor-body img { max-height: min(780px, calc(100dvh - 210px)); margin-inline: auto; }
+}
 .ctxmenu {
   position: fixed; z-index: 100; min-width: 180px; background: var(--panel);
   border: 1px solid var(--border); border-radius: var(--radius); padding: 4px;
@@ -575,8 +582,6 @@ select.input { cursor: pointer; }
   .sidepanel-collapsed {
     position: fixed; top: 8px; left: 8px; z-index: 46; height: auto;
   }
-  .palette-editor-body { flex-direction: column; height: auto; }
-  .palette-editor-body > div { max-width: 100% !important; height: auto; }
 }
 
 /* ---------- palette cards ---------- */

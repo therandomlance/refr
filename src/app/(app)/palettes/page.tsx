@@ -6,6 +6,7 @@ import { api } from "refr/trpc/react";
 import { ConfirmDialog, Dialog, PromptDialog } from "refr/app/_components/dialog";
 import { SidePanel } from "refr/app/_components/side-panel";
 import { ContextMenu } from "refr/app/_components/context-menu";
+import { reorderColor } from "refr/lib/palette-colors";
 
 type Editing = {
   name: string;
@@ -290,6 +291,13 @@ function PaletteEditor({
   const [editHex, setEditHex] = useState<number | null>(null);
   const [hexDraft, setHexDraft] = useState("");
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const dragColor = useRef<number | null>(null);
+
+  const reorder = (from: number, to: number) => {
+    setE((s) => ({ ...s, colors: reorderColor(s.colors, from, to) }));
+    setEditHex(null);
+    setPicking(null);
+  };
 
   // draw source image for eyedropper fallback (canvas overlays the thumb, so no swap/flicker)
   useEffect(() => {
@@ -343,7 +351,7 @@ function PaletteEditor({
   };
 
   return (
-    <Dialog title="Palette" onClose={onClose} wide dismissOnBackdrop={false}>
+    <Dialog title="Palette" onClose={onClose} wide={1620} dismissOnBackdrop={false}>
       <div className="mb-3 flex gap-2">
         <input className="input flex-1" value={e.name} onChange={(ev) => setE({ ...e, name: ev.target.value })} />
         <select className="input" value={e.folder} onChange={(ev) => setE({ ...e, folder: ev.target.value })}>
@@ -352,13 +360,24 @@ function PaletteEditor({
         </select>
       </div>
 
-      <div className="palette-editor-body mb-4 flex gap-4" style={{ height: "min(60vh, 520px)" }}>
+      <div className="palette-editor-body mb-4 flex gap-4">
         {/* full-height preview stripes; rows compress as colors are added */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded">
+        <div className="flex min-w-0 flex-1 flex-col overflow-y-auto rounded">
           {e.colors.map((c, i) => (
             <div
               key={i}
-              className="flex min-h-7 flex-1 items-center gap-1 px-2"
+              className="flex min-h-10 flex-1 items-center gap-2 px-2"
+              onDragOver={(ev) => {
+                if (dragColor.current !== null) {
+                  ev.preventDefault();
+                  ev.dataTransfer.dropEffect = "move";
+                }
+              }}
+              onDrop={(ev) => {
+                ev.preventDefault();
+                if (dragColor.current !== null) reorder(dragColor.current, i);
+                dragColor.current = null;
+              }}
               style={{
                 background: c,
                 color: contrast(c),
@@ -366,6 +385,34 @@ function PaletteEditor({
                 outlineOffset: -2,
               }}
             >
+              <button
+                type="button"
+                className="grid h-8 w-8 shrink-0 cursor-grab place-items-center rounded opacity-70 hover:opacity-100 active:cursor-grabbing"
+                aria-label={`Reorder color ${i + 1}`}
+                title="Drag to reorder, or use Arrow Up / Down"
+                draggable
+                onDragStart={(ev) => {
+                  dragColor.current = i;
+                  ev.dataTransfer.effectAllowed = "move";
+                  ev.dataTransfer.setData("text/plain", String(i));
+                  ev.dataTransfer.setDragImage(ev.currentTarget.parentElement!, 16, 16);
+                }}
+                onDragEnd={() => { dragColor.current = null; }}
+                onKeyDown={(ev) => {
+                  if (ev.key === "ArrowUp" || ev.key === "ArrowDown") {
+                    ev.preventDefault();
+                    const to = i + (ev.key === "ArrowUp" ? -1 : 1);
+                    reorder(i, to);
+                    if (to >= 0 && to < e.colors.length) {
+                      ev.currentTarget.closest(".palette-editor-body")?.querySelector<HTMLButtonElement>(`[aria-label="Reorder color ${to + 1}"]`)?.focus();
+                    }
+                  }
+                }}
+              >
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                  {[5, 12, 19].map((y) => <g key={y}><circle cx="9" cy={y} r="1.5" /><circle cx="15" cy={y} r="1.5" /></g>)}
+                </svg>
+              </button>
               {editHex === i ? (
                 <input
                   className="w-20 bg-transparent font-mono text-[11px] outline-none"
@@ -407,7 +454,7 @@ function PaletteEditor({
         )}
       </div>
 
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           className="btn"
           disabled={e.colors.length >= 10}
@@ -424,7 +471,7 @@ function PaletteEditor({
   );
 }
 
-/** Small icon button inline on a preview stripe (inherits the stripe's contrast color). */
+/** Icon button inline on a preview stripe (inherits the stripe's contrast color). */
 function StripeBtn({
   label,
   onClick,
@@ -439,12 +486,13 @@ function StripeBtn({
   return (
     <button
       title={label}
+      aria-label={label}
       disabled={disabled}
       onClick={(ev) => {
         ev.stopPropagation();
         onClick();
       }}
-      className="grid h-5 w-5 cursor-pointer place-items-center rounded opacity-70 hover:opacity-100 disabled:opacity-30"
+      className="grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded opacity-70 hover:opacity-100 disabled:opacity-30 [&>svg]:h-4 [&>svg]:w-4"
       style={{ color: "inherit", background: "rgba(0,0,0,.25)", border: 0, padding: 0 }}
     >
       {children}

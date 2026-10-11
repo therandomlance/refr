@@ -14,7 +14,7 @@ export function Dialog({
   title: string;
   children: React.ReactNode;
   onClose: () => void;
-  wide?: boolean;
+  wide?: boolean | number;
   dismissOnBackdrop?: boolean;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -26,7 +26,7 @@ export function Dialog({
   }, []);
   return (
     <div className="dialog-bg" onClick={dismissOnBackdrop ? onClose : undefined}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dialog" style={wide ? { maxWidth: 1080, width: "100%" } : undefined} onClick={(e) => e.stopPropagation()}
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dialog" style={wide ? { maxWidth: typeof wide === "number" ? wide : 1080, width: "calc(100vw - 32px)", maxHeight: "calc(100dvh - 32px)", overflowY: "auto" } : undefined} onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") { e.stopPropagation(); onClose(); }
           if (e.key !== "Tab") return;
