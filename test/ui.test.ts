@@ -39,6 +39,7 @@ import { Tree } from "refr/app/_components/tree";
 it("renders separate keyboard controls and distinguishes failed queries from empty lists", () => {
   const props = { source: { kind: "ids" as const, ids: ["ui1"] }, selection: new Set<string>(), onSelectionChange: vi.fn(), onContextMenu: vi.fn() };
   const grid = renderToStaticMarkup(createElement(MediaGrid, props));
+  expect(grid).toContain("padding:3px 0 7px"); // 10px between images, matching horizontal padding + gap
   for (const name of ["Open image 1", "Select image 1", "Actions for image 1"]) expect(grid).toContain(`aria-label="${name}"`);
   expect(grid).not.toMatch(/<button[^>]*>(?:(?!<\/button>)[\s\S])*<button/);
   const tree = renderToStaticMarkup(createElement(Tree, {

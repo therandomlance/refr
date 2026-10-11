@@ -267,7 +267,7 @@ export function MediaGrid({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     getItemKey: rowKey,
-    estimateSize: (i) => (rows[i]!.type === "header" ? 46 : (rows[i] as { height: number }).height + 2 * PAD),
+    estimateSize: (i) => (rows[i]!.type === "header" ? 46 : (rows[i] as { height: number }).height + 2 * PAD + gap),
     overscan: 4,
   });
 
@@ -778,7 +778,7 @@ export function MediaGrid({
                     left: 0,
                     width: "100%",
                     transform: `translateY(${vr.start}px)`,
-                    padding: row.type === "tiles" ? `${PAD}px 0` : undefined,
+                    padding: row.type === "tiles" ? `${PAD}px 0 ${PAD + gap}px` : undefined,
                   }}
                 >
                   {row.type === "header" ? (
