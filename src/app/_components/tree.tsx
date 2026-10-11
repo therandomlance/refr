@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { Icon } from "./icon";
 
 export type TreeNodeData = {
   name: string; // display label
@@ -120,7 +121,7 @@ function TreeNode({
             if (expandable) void toggle();
           }}
         >
-          {expandable ? (open ? "▾" : "▸") : ""}
+          {expandable ? <Icon name={open ? "down" : "right"} /> : null}
         </button>
         <button type="button" className="tree-select" onClick={() => onSelect(node.key)} aria-current={selected === node.key ? "true" : undefined}>
           {node.name}
@@ -129,7 +130,7 @@ function TreeNode({
         {onContext && <button type="button" className="tree-actions" aria-label={`Actions for ${node.name}`} onClick={(e) => {
           const r = e.currentTarget.getBoundingClientRect();
           onContext(node.key, r.left, r.bottom);
-        }}>⋮</button>}
+        }}><Icon name="more" /></button>}
       </div>
       {open && children && children.length > 0 && (
         <div className="tkids">

@@ -8,6 +8,7 @@ import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { moveQueueItems } from "refr/lib/queue-order";
+import { Icon } from "refr/app/_components/icon";
 
 export default function QueuePage() {
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -65,7 +66,7 @@ export default function QueuePage() {
               <button type="button" className="tree-actions" aria-label={`Actions for ${name}`} onClick={(e) => {
                 const r = e.currentTarget.getBoundingClientRect();
                 setSavedMenu({ name, x: r.left, y: r.bottom });
-              }}>⋮</button>
+              }}><Icon name="more" /></button>
             </div>
           ))}
           {saved.data?.length === 0 && (
@@ -75,6 +76,7 @@ export default function QueuePage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
+        <header className="page-header"><div><h1>Queue</h1><p>{ids.length} images ready for review.</p></div></header>
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs" style={{ color: "var(--text-dim)" }}>
           <span>Select images to reorder. Drag or use:</span>
           <button className="btn" disabled={setQueue.isPending || up.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: up })}>↑ Move up</button>
@@ -86,7 +88,7 @@ export default function QueuePage() {
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           onReorder={(next) => setQueue.mutate({ fileIds: next })}
-          emptyState="Queue is empty. Open an image’s ⋮ actions elsewhere to add it."
+            emptyState="Queue is empty. Open an image’s actions menu elsewhere to add it."
         />
       </main>
 

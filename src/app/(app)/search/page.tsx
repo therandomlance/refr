@@ -12,6 +12,7 @@ import { PromptDialog } from "refr/app/_components/dialog";
 import { commitToken, isVectorToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
 import { KEYWORD_NAMES } from "refr/lib/keywords";
 import { useSuggestionActions } from "refr/app/_components/tag-actions";
+import { Icon } from "refr/app/_components/icon";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -112,7 +113,10 @@ export default function SearchPage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex flex-none flex-wrap items-center gap-2 px-4 py-3" style={{ borderBottom: "1px solid var(--border)" }}>
+        <header className="page-header"><div><h1>Search</h1><p>Find references by tag, path, or similarity.</p></div></header>
+        <MediaGrid
+          toolbarSearch={
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
           {tokens.map((t, i) => (
             <span key={i} className="chip">
               {t.kind === "similar" ? (
@@ -136,10 +140,10 @@ export default function SearchPage() {
                   {t.tag}
                 </>
               )}
-              <button className="x" onClick={() => removeChip(i)}>✕</button>
+              <button className="x" aria-label={`Remove ${t.tag} filter`} onClick={() => removeChip(i)}><Icon name="close" /></button>
             </span>
           ))}
-          <div className="min-w-48 flex-1">
+          <div className="min-w-0 basis-48 flex-1">
             <TagInput
               placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard, path:<folder|alias> (= exact), suggest: for-tag)" : ""}
               onCommit={addChip}
@@ -150,10 +154,8 @@ export default function SearchPage() {
             />
           </div>
         </div>
-
-        {hasVectorChip && mlStatus.data?.state !== "ready" && <p role="status" className="state-message">Semantic search is unavailable. Tag filters still work.</p>}
-
-        <MediaGrid
+          }
+          header={hasVectorChip && mlStatus.data?.state !== "ready" ? <p role="status" className="state-message">Semantic search is unavailable. Tag filters still work.</p> : undefined}
           source={{ kind: "search", tokens }}
           sort={sort}
           onSortChange={setSort}
@@ -177,12 +179,12 @@ export default function SearchPage() {
                   <>
                     <button
                       className="check"
-                      style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                      style={{ opacity: 1, background: "var(--accent)", color: "var(--accent-fg)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
                       title="Accept tag"
                       disabled={decisions.isPending(f.id)}
                       onClick={(e) => { e.stopPropagation(); decisions.accept(f.id); }}
                     >
-                      ✓
+                      <Icon name="check" />
                     </button>
                     <button
                       className="deny"
@@ -191,7 +193,7 @@ export default function SearchPage() {
                       disabled={decisions.isPending(f.id)}
                       onClick={(e) => { e.stopPropagation(); decisions.deny(f.id); }}
                     >
-                      ✕
+                      <Icon name="close" />
                     </button>
                   </>
                   )

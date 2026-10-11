@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "./icon";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
@@ -155,10 +156,10 @@ export function Viewer({
         }}
       >
         {overlayTop}
-        <button className="vbtn" aria-label="Close viewer" style={{ top: 14, right: 14 }} onClick={onClose}>✕</button>
-        <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info">ⓘ</button>
-        <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags">🏷</button>
-        <button className="nav prev" aria-label="Previous image" style={{ left: 18 }} onClick={() => nav(-1)}>‹</button>
+        <button className="vbtn" aria-label="Close viewer" style={{ top: 14, right: 14 }} onClick={onClose}><Icon name="close" /></button>
+        <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info" aria-label="Toggle file information" aria-expanded={leftOpen}><Icon name="info" /></button>
+        <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags" aria-label="Toggle tags" aria-expanded={rightOpen}><Icon name="tag" /></button>
+        <button className="nav prev" aria-label="Previous image" style={{ left: 18 }} onClick={() => nav(-1)}><Icon name="left" /></button>
         {file.isLoading ? <p role="status" className="state-message">Loading image…</p> : file.isError ? (
           <div role="alert" className="state-message">Could not load this file. <button className="btn" onClick={() => void file.refetch()}>Try again</button></div>
         ) : isVideo ? (
@@ -167,7 +168,7 @@ export function Viewer({
           // eslint-disable-next-line @next/next/no-img-element
           <img key={currentId} src={`/api/file/${currentId}`} alt="" />
         )}
-        <button className="nav next" aria-label="Next image" style={{ right: 18 }} onClick={() => nav(1)}>›</button>
+        <button className="nav next" aria-label="Next image" style={{ right: 18 }} onClick={() => nav(1)}><Icon name="right" /></button>
         {carouselOpen && items.length > 1 && (
           <div className="carousel" onClick={(e) => e.stopPropagation()}>
             {carouselItems.map((it) => (
@@ -191,8 +192,10 @@ export function Viewer({
           className="vbtn"
           style={{ bottom: carouselOpen ? 100 : 14, left: "50%", transform: "translateX(-50%)", width: 30, height: 20, borderRadius: 4, fontSize: 11 }}
           onClick={() => setCarouselOpen(!carouselOpen)}
+          aria-label="Toggle image strip"
+          aria-expanded={carouselOpen}
         >
-          {carouselOpen ? "▾" : "▴"}
+          <Icon name={carouselOpen ? "down" : "up"} />
         </button>
       </div>
 
@@ -210,7 +213,7 @@ export function Viewer({
             {(tagsQ.data ?? []).map((t) => (
               <span key={t} className="chip">
                 {t}
-                <button className="x" onClick={() => removeTag(t)}>✕</button>
+                <button className="x" aria-label={`Remove tag ${t}`} onClick={() => removeTag(t)}><Icon name="close" /></button>
               </span>
             ))}
           </div>

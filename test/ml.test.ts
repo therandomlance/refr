@@ -1,11 +1,14 @@
 import { describe, expect, it, afterAll } from "vitest";
 import http from "node:http";
+import fs from "node:fs";
+import path from "node:path";
 import { db } from "refr/server/db";
 import * as config from "refr/server/services/config";
 import * as ml from "refr/server/services/ml";
 import { semanticSearch, vectorSearch } from "refr/server/services/semantic";
 import { setTags } from "refr/server/services/tags";
 import { makeToken } from "refr/server/services/search";
+import { thumbPath } from "refr/server/services/thumbs";
 
 // deterministic test vectors
 function vec(seed: number): number[] {
@@ -14,6 +17,8 @@ function vec(seed: number): number[] {
   return v.map((x) => x / norm);
 }
 
+let holdImages = false;
+let releaseImages: (() => void) | undefined;
 const stub = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
@@ -25,7 +30,9 @@ const stub = http.createServer((req, res) => {
       res.end(JSON.stringify({ vectors: (parsed.texts ?? []).map((t) => vec(t.length % 97)) }));
     } else if (req.url === "/embed/image") {
       const paths = parsed.paths ?? [];
-      res.end(JSON.stringify({ vectors: paths.map((p) => vec(p.length % 97)), kept: paths.map((_, i) => i) }));
+      const reply = () => res.end(JSON.stringify({ vectors: paths.map((p) => vec(p.length % 97)), kept: paths.map((_, i) => i) }));
+      if (holdImages) releaseImages = reply;
+      else reply();
     } else if (req.url === "/knn") {
       res.end(JSON.stringify([]));
     } else {
@@ -49,6 +56,37 @@ describe("ml (stub sidecar)", () => {
     await setTags(["ml1"], ["mltag"], []);
   });
   afterAll(() => stub.close());
+
+  it("reports actual embedding activity, not incomplete coverage", async () => {
+    const ids = ["ml-progress-ready", "ml-progress-no-thumb", "ml-progress-old-model"];
+    await db.file.createMany({ data: ids.map((id) => ({ id, size: 1, mtime: new Date(), mediaType: "image" })) });
+    await db.fileEmbedding.create({ data: { fileId: ids[2]!, vector: Buffer.from(new Float32Array(vec(1)).buffer), model: "old-model" } });
+    const before = await ml.status();
+    expect(before.embeddingRunning).toBe(false);
+    expect(before.embedded).toBe(await db.fileEmbedding.count({ where: { model: mlModel() } }));
+
+    const thumb = thumbPath(ids[0]!);
+    fs.mkdirSync(path.dirname(thumb), { recursive: true });
+    fs.writeFileSync(thumb, "stub thumbnail");
+    holdImages = true;
+    const run = ml.enqueueEmbeddings();
+    try {
+      await expect.poll(() => !!releaseImages).toBe(true);
+      expect((await ml.status()).embeddingRunning).toBe(true);
+      await ml.enqueueEmbeddings(); // already running: must not start a second worker
+    } finally {
+      holdImages = false;
+      releaseImages?.();
+      releaseImages = undefined;
+      await run;
+      fs.rmSync(thumb, { force: true });
+    }
+    const after = await ml.status();
+    expect(after.embeddingRunning).toBe(false);
+    expect(after.embedded).toBe(before.embedded + 1);
+    expect(after.embedded).toBeLessThan(after.total);
+    expect(await db.fileEmbedding.findUnique({ where: { fileId: ids[1]! } })).toBeNull();
+  });
 
   it("combined tag vector: cold start = text embedding; cache invalidated by deletion", async () => {
     const tag = await db.tag.findUnique({ where: { name: "mltag" } });

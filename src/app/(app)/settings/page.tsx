@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
-import { THEMES } from "refr/lib/themes";
+import { PALETTES, LEGACY_THEMES } from "refr/lib/themes";
+import { Icon } from "refr/app/_components/icon";
 
 export default function SettingsPage() {
   const settings = api.settings.get.useQuery();
@@ -19,9 +20,14 @@ export default function SettingsPage() {
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
-      <h1 className="mb-6 text-lg font-semibold">Settings</h1>
-      <div className="flex max-w-2xl flex-col gap-8">
-        <Section title="Libraries">
+      <header className="page-header page-header-inset"><div><h1>Settings</h1><p>Your workspace, libraries, and background services.</p></div></header>
+      <div className="settings-layout">
+      <nav className="settings-nav" aria-label="Settings sections">
+        <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#maintenance">Maintenance</a>
+      </nav>
+      <div className="flex min-w-0 flex-col gap-6">
+        <div className="settings-group" id="libraries"><h2>Libraries</h2>
+        <Section title="Library paths">
           <LibraryList values={s.libraries} onChange={(libraries) => save({ libraries })} />
           <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
             Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.
@@ -37,27 +43,41 @@ export default function SettingsPage() {
         <Section title="Background activity">
           <BackgroundStatus />
         </Section>
+        </div>
 
+        <div className="settings-group" id="workspace"><h2>Workspace</h2>
         <Section title="Appearance">
-          <div className="flex gap-2">
-            {THEMES.map((t) => (
+          <p className="mb-3 text-xs" style={{ color: "var(--text-dim)" }}>Muted surfaces, coordinated accents. New palettes keep gallery sizing consistent.</p>
+          {[{ label: "Color palettes", themes: PALETTES }, { label: "Original themes", themes: LEGACY_THEMES }].map(({ label, themes }) => (
+          <fieldset key={label} className="mb-4">
+            <legend className="mb-2 text-xs" style={{ color: "var(--text-dim)" }}>{label}</legend>
+            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            {themes.map((t) => (
               <button
                 key={t}
-                className="rounded-lg p-1"
-                style={{ outline: s.theme === t ? "2px solid var(--accent)" : "1px solid var(--border)", width: 84 }}
+                className="theme-choice"
+                aria-pressed={s.theme === t}
+                disabled={patch.isPending}
                 onClick={() => {
-                  save({ theme: t });
                   document.documentElement.dataset.theme = t;
+                  patch.mutate({ theme: t }, { onError: () => { document.documentElement.dataset.theme = s.theme; } });
                 }}
               >
-                <div data-theme={t} style={{ background: "var(--bg)", borderRadius: 6, padding: 6, border: "1px solid var(--border)" }}>
-                  <div style={{ background: "var(--accent)", height: 8, borderRadius: 3, marginBottom: 4 }} />
-                  <div style={{ background: "var(--panel)", height: 14, borderRadius: 3 }} />
+                <div data-theme={t} className="theme-preview" aria-hidden="true">
+                  <div className="theme-preview-rail"><i /><i /><i /></div>
+                  <div className="theme-preview-content">
+                    <strong>Reference library</strong>
+                    <span>Images & collections</span>
+                    <div className="theme-preview-tiles"><i /><i /><i /></div>
+                    <div className="theme-preview-footer"><span>24 images</span><b>Open</b></div>
+                  </div>
                 </div>
-                <div className="mt-1 text-center text-xs capitalize">{t}</div>
+                <div className="mt-2 flex justify-between text-xs capitalize"><span>{t}</span><span aria-hidden="true">{s.theme === t ? "✓" : ""}</span></div>
               </button>
             ))}
-          </div>
+            </div>
+          </fieldset>
+          ))}
           <label className="mt-3 flex items-center gap-2 text-sm">
             Default thumbnail size
             <select
@@ -98,6 +118,8 @@ export default function SettingsPage() {
           </label>
         </Section>
 
+        </div>
+        <div className="settings-group" id="services"><h2>Services & security</h2>
         <Section title="Password">
           <PasswordControls hasPassword={s.hasPassword} />
         </Section>
@@ -105,6 +127,12 @@ export default function SettingsPage() {
         <Section title="Semantic search (CLIP)">
           <MlControls ml={s.ml} />
         </Section>
+        </div>
+        <div className="settings-group" id="maintenance"><h2>Maintenance</h2>
+          <p className="text-sm" style={{ color: "var(--text-dim)" }}>Cleanup changes the catalog or thumbnail cache. Original library files are never deleted.</p>
+          <MaintenanceControls />
+        </div>
+      </div>
       </div>
     </div>
   );
@@ -113,9 +141,9 @@ export default function SettingsPage() {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h2 className="mb-3 text-[13px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
+      <h3 className="mb-3 text-[13px] font-semibold" style={{ color: "var(--text-dim)" }}>
         {title}
-      </h2>
+      </h3>
       {children}
     </section>
   );
@@ -128,7 +156,7 @@ function PathList({ values, onChange, addLabel }: { values: string[]; onChange: 
       {values.map((v, i) => (
         <div key={i} className="flex items-center gap-2">
           <code className="flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs" style={{ background: "var(--hover)" }}>{v}</code>
-          <button className="btn" style={{ padding: "3px 8px" }} onClick={() => onChange(values.filter((_, j) => j !== i))}>✕</button>
+          <button className="btn" aria-label={`Remove destination ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))}><Icon name="close" /></button>
         </div>
       ))}
       <form
@@ -174,7 +202,7 @@ function LibraryList({
             <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
             Timeline
           </label>
-          <button className="btn" style={{ padding: "3px 8px" }} onClick={() => onChange(values.filter((_, j) => j !== i))}>✕</button>
+          <button className="btn" aria-label={`Remove library ${v.path}`} onClick={() => onChange(values.filter((_, j) => j !== i))}><Icon name="close" /></button>
         </div>
       ))}
       <form
@@ -192,7 +220,6 @@ function LibraryList({
 }
 
 function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onTimeChange: (t: string | null) => void }) {
-  const utils = api.useUtils();
   const scanNow = api.settings.scanNow.useMutation();
   const status = api.settings.scanStatus.useQuery(undefined, {
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
@@ -200,16 +227,6 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
   const thumbs = api.settings.thumbStatus.useQuery(undefined, {
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   });
-  const orphans = api.files.countOrphans.useQuery();
-  const purge = api.files.purgeOrphans.useMutation({ onSuccess: () => void utils.files.countOrphans.invalidate() });
-  const [purgeConfirm, setPurgeConfirm] = useState(false);
-  const external = api.files.countExternal.useQuery();
-  const purgeExternal = api.files.purgeExternal.useMutation({
-    onSuccess: () => void utils.files.countExternal.invalidate(),
-  });
-  const [externalConfirm, setExternalConfirm] = useState(false);
-  const purgeThumbs = api.files.purgeOrphanThumbs.useMutation();
-  const [thumbsConfirm, setThumbsConfirm] = useState(false);
 
   return (
     <div className="flex flex-col gap-3">
@@ -265,7 +282,25 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
           </div>
         </div>
       )}
-      <div className="flex items-center gap-3">
+    </div>
+  );
+}
+
+function MaintenanceControls() {
+  const utils = api.useUtils();
+  const orphans = api.files.countOrphans.useQuery();
+  const purge = api.files.purgeOrphans.useMutation({ onSuccess: () => void utils.files.countOrphans.invalidate() });
+  const [purgeConfirm, setPurgeConfirm] = useState(false);
+  const external = api.files.countExternal.useQuery();
+  const purgeExternal = api.files.purgeExternal.useMutation({ onSuccess: () => void utils.files.countExternal.invalidate() });
+  const [externalConfirm, setExternalConfirm] = useState(false);
+  const purgeThumbs = api.files.purgeOrphanThumbs.useMutation();
+  const [thumbsConfirm, setThumbsConfirm] = useState(false);
+  return (
+    <div className="maintenance-panel">
+      <h3>Catalog cleanup</h3>
+      <p>Removing catalog entries also removes their tags. Each action requires confirmation.</p>
+      <div>
         <button className="btn" onClick={() => setPurgeConfirm(true)} disabled={!orphans.data}>
           Purge vanished files
         </button>
@@ -273,7 +308,7 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
           {orphans.data ?? 0} files have no existing paths
         </span>
       </div>
-      <div className="flex items-center gap-3">
+      <div>
         <button className="btn" onClick={() => setExternalConfirm(true)} disabled={!external.data}>
           Remove images outside libraries
         </button>
@@ -281,7 +316,7 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
           {external.data ?? 0} images have no path in a current library
         </span>
       </div>
-      <div className="flex items-center gap-3">
+      <div>
         <button className="btn" onClick={() => setThumbsConfirm(true)}>Clear orphaned thumbnails</button>
         <span className="text-xs" style={{ color: "var(--text-faint)" }}>
           {purgeThumbs.data !== undefined ? `Removed ${purgeThumbs.data} cached thumbnails` : "Deletes cached thumbnails with no matching image"}
@@ -330,17 +365,14 @@ function BackgroundStatus() {
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   });
   const ml = api.ml.status.useQuery(undefined, {
-    refetchInterval: (q) =>
-      q.state.data && (q.state.data.embedded < q.state.data.total || q.state.data.state === "bootstrapping" || q.state.data.state === "starting")
-        ? 3000
-        : false,
+    refetchInterval: (q) => (q.state.data?.enabled ? 3000 : false),
   });
   const rows: { label: string; detail: string }[] = [];
   if (scan.data?.running) rows.push({ label: "Scan", detail: `${scan.data.phase} — ${scan.data.processed}/${scan.data.total || "?"}` });
   if (thumbs.data?.running) rows.push({ label: "Thumbnails", detail: `${thumbs.data.processed}/${thumbs.data.total || "?"} generated` });
   if (ml.data?.enabled && (ml.data.state === "bootstrapping" || ml.data.state === "starting")) {
     rows.push({ label: "ML sidecar", detail: ml.data.state });
-  } else if (ml.data?.enabled && ml.data.embedded < ml.data.total) {
+  } else if (ml.data?.embeddingRunning) {
     rows.push({ label: "Embeddings", detail: `${ml.data.embedded}/${ml.data.total}` });
   }
   return (

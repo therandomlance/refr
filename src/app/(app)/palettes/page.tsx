@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog, Dialog, PromptDialog } from "refr/app/_components/dialog";
+import { SidePanel } from "refr/app/_components/side-panel";
 import { ContextMenu } from "refr/app/_components/context-menu";
 
 type Editing = {
@@ -66,16 +67,12 @@ export default function PalettesPage() {
 
   return (
     <div className="flex min-h-0 flex-1">
-      <aside
-        className="scroll-thin flex w-60 flex-none flex-col overflow-y-auto"
-        style={{ background: "var(--panel)", borderRight: "1px solid var(--border)" }}
-      >
-        <div className="flex items-center justify-between px-4 pt-4 pb-2">
-          <h2 className="text-[13px] font-semibold">Palettes</h2>
+      <SidePanel head={<>
+          <h2 className="text-[13px] font-semibold">Folders</h2>
           <button className="btn" style={{ padding: "3px 8px", fontSize: 12 }} title="New folder" onClick={() => setNewFolder(true)}>
             + Folder
           </button>
-        </div>
+        </>}>
         <div className="flex-1 px-2 pb-4">
           <div
             className={`trow ${folder === "" ? "sel" : ""}`}
@@ -101,11 +98,13 @@ export default function PalettesPage() {
             </div>
           ))}
         </div>
-      </aside>
+      </SidePanel>
 
-      <main className="scroll-thin flex-1 overflow-y-auto p-6">
-        <div className="mb-4 flex items-center gap-3">
-          <select className="input" value={sort} onChange={(e) => setSort(e.target.value as "name" | "date")}>
+      <main className="scroll-thin min-w-0 flex-1 overflow-y-auto p-6">
+        <header className="page-header page-header-inset">
+          <div><h1>Palettes</h1><p>{folder || "Unfiled"} · {shown.length} palettes</p></div>
+          <div className="flex flex-wrap items-center gap-3">
+          <select className="input" aria-label="Sort palettes" value={sort} onChange={(e) => setSort(e.target.value as "name" | "date")}>
             <option value="name">Name</option>
             <option value="date">Date</option>
           </select>
@@ -115,7 +114,8 @@ export default function PalettesPage() {
           >
             New palette
           </button>
-        </div>
+          </div>
+        </header>
         <div className="grid gap-4" style={{ gridTemplateColumns: "repeat(auto-fill, minmax(180px, 1fr))" }}>
           {shown.map((p) => (
             <div

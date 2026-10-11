@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "refr/app/_components/icon";
 
 import { useCallback, useMemo, useState, useEffect, useRef } from "react";
 import { usePathname, useRouter, useParams, useSearchParams } from "next/navigation";
@@ -189,7 +190,8 @@ export default function BrowsePage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <div className="flex flex-none items-center gap-1 px-4 py-3 text-sm" style={{ color: "var(--text-dim)" }}>
+        <header className="page-header"><div><h1>Browse</h1>
+        <nav className="page-breadcrumbs" aria-label="Breadcrumb">
           <button className="hover:underline" onClick={() => selectNode(null)} style={{ color: selected ? undefined : "var(--text)", fontWeight: selected ? 400 : 600 }}>
             {mode === "folders" ? "Libraries" : "Tags"}
           </button>
@@ -205,7 +207,8 @@ export default function BrowsePage() {
               </button>
             </span>
           ))}
-        </div>
+        </nav>
+        </div></header>
 
         {selected === null ? (
           <div className="scroll-thin flex-1 overflow-y-auto p-4">
@@ -227,8 +230,8 @@ export default function BrowsePage() {
             {mode === "tags" && anySuggestionData && (
               <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
                 <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
-                  <button className="hover:underline" onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
-                    {suggestionsOpen ? "▾" : "▸"} Image suggestions
+                  <button className="hover:underline" aria-expanded={suggestionsOpen} onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
+                    <Icon name={suggestionsOpen ? "down" : "right"} /> Image suggestions
                   </button>
                   <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{totalSuggestions}</span>
                 </div>
@@ -394,8 +397,8 @@ function SuggestionStrip({
   return (
     <div className="mx-1 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
       <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
-        <button className="hover:underline" onClick={() => setOpen(!open)}>
-          {open ? "▾" : "▸"} {title}
+        <button className="hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
+          <Icon name={open ? "down" : "right"} /> {title}
         </button>
         <button title="Refresh suggestions" onClick={onRefresh} style={{ color: "var(--text-dim)" }}>↻</button>
         <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{items.length}</span>
@@ -411,12 +414,12 @@ function SuggestionStrip({
                  </button>
                 <button
                   className="check"
-                  style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                  style={{ opacity: 1, background: "var(--accent)", color: "var(--accent-fg)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
                    title="Accept tag"
                    disabled={isPending(s.fileId)}
                   onClick={() => onAccept(s.fileId)}
                 >
-                  ✓
+                  <Icon name="check" />
                 </button>
                 <button
                   className="deny"
@@ -425,7 +428,7 @@ function SuggestionStrip({
                    disabled={isPending(s.fileId)}
                   onClick={() => onDeny(s.fileId)}
                 >
-                  ✕
+                  <Icon name="close" />
                 </button>
               </div>
             ))}

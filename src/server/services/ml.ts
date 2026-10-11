@@ -29,6 +29,7 @@ export type MlStatus = {
   model?: string;
   embedded: number;
   total: number;
+  embeddingRunning: boolean;
   log: string[];
   error?: string;
 };
@@ -62,9 +63,10 @@ function log(line: string) {
 export async function status(): Promise<MlStatus> {
   const cfg = config.get().ml;
   const total = await db.file.count();
-  const embedded = await db.fileEmbedding.count();
+  const embedded = await db.fileEmbedding.count({ where: { model: currentModelId() } });
+  const embeddingRunning = cfg.enabled && embedJob.running;
   if (!cfg.enabled) {
-    return { enabled: false, state: "disabled", embedded, total, log: bootLog.slice(-50) };
+    return { enabled: false, state: "disabled", embedded, total, embeddingRunning, log: bootLog.slice(-50) };
   }
   // The sidecar may have been started by another module graph (boot via
   // instrumentation), so trust the live /health over this graph's local state;
@@ -84,6 +86,7 @@ export async function status(): Promise<MlStatus> {
     model: h?.model ?? healthInfo.model,
     embedded,
     total,
+    embeddingRunning,
     log: bootLog.slice(-50),
     error: live === "error" ? lastError : undefined,
   };
@@ -314,12 +317,15 @@ export async function bootMl() {
 
 // ---------------------------------------------------------------- embeddings
 
-let embedRunning = false;
+// Instrumentation and route handlers have separate module graphs, but share
+// this process-wide worker flag (including the single-flight guard).
+const globalForMl = globalThis as typeof globalThis & { refrEmbedJob?: { running: boolean } };
+const embedJob = globalForMl.refrEmbedJob ??= { running: false };
 
 /** Background: embed files lacking a current-model embedding, batches of 8 thumbnails. */
 export async function enqueueEmbeddings() {
-  if (!config.get().ml.enabled || !(await isReady()) || embedRunning || thumbStatus().running) return;
-  embedRunning = true;
+  if (!config.get().ml.enabled || !(await isReady()) || embedJob.running || thumbStatus().running) return;
+  embedJob.running = true;
   try {
     const modelId = currentModelId();
     // ponytail: keyset-page by f.id so a run of thumbless files can't stall the
@@ -356,7 +362,7 @@ export async function enqueueEmbeddings() {
       }
     }
   } finally {
-    embedRunning = false;
+    embedJob.running = false;
   }
 }
 

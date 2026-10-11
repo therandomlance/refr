@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "./icon";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
 import { ConfirmDialog, PromptDialog } from "./dialog";
@@ -121,7 +122,7 @@ export function SavedSearches({
             <button type="button" className="tree-actions" aria-label={`Actions for ${n.name}`} onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setMenu({ x: r.left, y: r.bottom, items: searchMenu(n) });
-            }}>⋮</button>
+            }}><Icon name="more" /></button>
           </div>
         );
       }
@@ -157,7 +158,7 @@ export function SavedSearches({
             <button type="button" className="tree-actions" aria-label={`Actions for ${n.name}`} onClick={(e) => {
               const r = e.currentTarget.getBoundingClientRect();
               setMenu({ x: r.left, y: r.bottom, items: folderMenu(path) });
-            }}>⋮</button>
+            }}><Icon name="more" /></button>
           </div>
           {open && (
             <div className="tkids">

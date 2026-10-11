@@ -41,10 +41,10 @@ export default function SessionsPage() {
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
-      <div className="mb-4 flex items-center justify-between">
-        <h1 className="text-lg font-semibold">Sessions</h1>
+      <header className="page-header page-header-inset">
+        <div><h1>Sessions</h1><p>Build and revisit your reference studies.</p></div>
         <button className="btn primary" onClick={() => setNewPrompt(true)}>New session</button>
-      </div>
+      </header>
 
       <div className="flex flex-col gap-3">
         {(templates.data ?? []).map((name) => (

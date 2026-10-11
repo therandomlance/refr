@@ -40,7 +40,7 @@ const configSchema = z.object({
   skipTagRemoveConfirm: z.boolean().default(false),
   sendToPaths: z.array(z.string()).default([]),
   sessionHistoryCap: z.number().int().min(1).default(1000),
-  theme: z.enum(THEMES).default("slate"),
+  theme: z.enum(THEMES).default("graphite"),
   ml: z
     .object({
       enabled: z.boolean().default(false),

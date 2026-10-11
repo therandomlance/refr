@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "./icon";
 
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import { useIsMutating, useQueryClient } from "@tanstack/react-query";
@@ -47,7 +48,7 @@ export function ActionFeedback({ children }: { children: React.ReactNode }) {
         <div className="action-feedback" aria-busy={pending}>
           <span role={notice?.error ? "alert" : "status"}>{pending ? "Working…" : notice?.message}</span>
           {notice?.undo && <button className="btn" disabled={pending} onClick={() => void undo()}>Undo</button>}
-          <button className="btn" aria-label="Dismiss notification" disabled={pending} onClick={() => setNotice(null)}>✕</button>
+          <button className="btn" aria-label="Dismiss notification" disabled={pending} onClick={() => setNotice(null)}><Icon name="close" /></button>
         </div>
       )}
     </FeedbackContext.Provider>

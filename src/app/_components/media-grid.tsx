@@ -14,6 +14,7 @@ import { ContextMenu } from "./context-menu";
 import { TagPromptDialog } from "./dialog";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { staticSuggestionOptions, useTagEdit } from "./tag-actions";
+import { Icon } from "./icon";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -32,6 +33,7 @@ export function MediaGrid({
   onReorder,
   toolbar = true,
   toolbarActions,
+  toolbarSearch,
   sort: controlledSort,
   onSortChange,
   emptyState,
@@ -46,6 +48,7 @@ export function MediaGrid({
   onReorder?: (ids: string[]) => void;
   toolbar?: boolean;
   toolbarActions?: React.ReactNode;
+  toolbarSearch?: React.ReactNode;
   sort?: Sort;
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
@@ -645,7 +648,7 @@ export function MediaGrid({
               toggle(f.id);
             }}
           >
-            {selection.has(f.id) ? "✓" : ""}
+            {selection.has(f.id) ? <Icon name="check" /> : null}
           </button>
         )}
         {onContextMenu && (
@@ -658,7 +661,7 @@ export function MediaGrid({
               const r = e.currentTarget.getBoundingClientRect();
               onContextMenu({ ...e, clientX: r.left, clientY: r.bottom }, f.id);
             }}
-          >⋮</button>
+          ><Icon name="more" /></button>
         )}
         {f.mediaType === "video" && (
           <div className="badge">{formatDuration(f.duration)}</div>
@@ -667,84 +670,75 @@ export function MediaGrid({
     );
   };
 
+  const viewControls = (
+    <div className="gallery-view-controls">
+      {suggestionMode && <button className="btn" disabled={searchQ.isFetching} onClick={() => void searchQ.refetch()}>Refresh suggestions</button>}
+      <div className="seg">
+        {(["horizontal", "vertical"] as const).map((l) => (
+          <button key={l} className={layout === l ? "on" : ""} aria-pressed={layout === l} onClick={() => setLayout(l)}>
+            {l === "horizontal" ? "Rows" : "Columns"}
+          </button>
+        ))}
+      </div>
+      {source.kind !== "ids" && (
+        <>
+          <select aria-label="Sort images" title={vectorMode ? "Semantic searches are ranked by similarity" : undefined} disabled={vectorMode} className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+            <option value="date">Date</option>
+            <option value="similarity">Similarity</option>
+            <option value="name">Name</option>
+            <option value="size">Size</option>
+            <option value="random">Random</option>
+          </select>
+          {sort === "date" && (
+            <select aria-label="Group images" className="input" value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
+              <option value="day">Day</option>
+              <option value="month">Month</option>
+              <option value="year">Year</option>
+            </select>
+          )}
+        </>
+      )}
+      {toolbarActions}
+      {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
+        <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include files from subfolders/subtags">
+          <input type="checkbox" checked={includeKids} onChange={(e) => setIncludeKids(e.target.checked)} />
+          {source.pathPrefix ? "Subfolders" : "Subtags"}
+        </label>
+      )}
+    </div>
+  );
+  const selectionControls = (
+    <div className="gallery-toolbar-end">
+      {selection.size > 0 && (
+        <>
+          <span className="text-xs" style={{ color: "var(--text-faint)" }}>{selection.size} selected</span>
+          <button className="btn" onClick={() => onSelectionChange(new Set(visibleItems.map((f) => f.id)))}>Select all</button>
+          <button className="btn" title="Clear selection" aria-label="Clear selection" onClick={() => onSelectionChange(new Set())}>
+            <Icon name="close" />
+          </button>
+          <button className="btn" title="Selection actions" aria-label="Selection actions" onClick={(e) => {
+            const rect = e.currentTarget.getBoundingClientRect();
+            setSelMenu({ x: rect.left, y: rect.bottom + 8 });
+          }}>
+            <Icon name="more" />
+          </button>
+        </>
+      )}
+      <div className="seg">
+        {(["small", "medium", "large"] as const).map((s) => (
+          <button key={s} className={size === s ? "on" : ""} aria-label={`${s} thumbnails`} aria-pressed={size === s} onClick={() => changeSize(s)}>
+            {s[0]!.toUpperCase()}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {toolbar && (
-        <div className="flex flex-wrap flex-none items-center gap-2 px-4 py-2" style={{ borderBottom: "1px solid var(--border)" }}>
-          {suggestionMode && <button className="btn" disabled={searchQ.isFetching} onClick={() => void searchQ.refetch()}>Refresh suggestions</button>}
-          <div className="seg hidden sm:flex">
-            {(["horizontal", "vertical"] as const).map((l) => (
-              <button key={l} className={layout === l ? "on" : ""} onClick={() => setLayout(l)}>
-                {l === "horizontal" ? "Rows" : "Columns"}
-              </button>
-            ))}
-          </div>
-          {source.kind !== "ids" && (
-            <>
-              <select aria-label="Sort images" title={vectorMode ? "Semantic searches are ranked by similarity" : undefined} disabled={vectorMode} className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
-                <option value="date">Date</option>
-                <option value="similarity">Similarity</option>
-                <option value="name">Name</option>
-                <option value="size">Size</option>
-                <option value="random">Random</option>
-              </select>
-              {sort === "date" && (
-                <select aria-label="Group images" className="input" value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
-                  <option value="day">Day</option>
-                  <option value="month">Month</option>
-                  <option value="year">Year</option>
-                </select>
-              )}
-            </>
-          )}
-          {toolbarActions}
-          {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
-            <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include files from subfolders/subtags">
-              <input
-                type="checkbox"
-                checked={includeKids}
-                onChange={(e) => setIncludeKids(e.target.checked)}
-              />
-              {source.pathPrefix ? "Subfolders" : "Subtags"}
-            </label>
-          )}
-          <div className="ml-auto flex items-center gap-2">
-            {selection.size > 0 && (
-              <>
-                <span className="text-xs" style={{ color: "var(--text-faint)" }}>{selection.size} selected</span>
-                <button
-                  className="btn"
-                  style={{ padding: "3px 10px", fontSize: 12 }}
-                  onClick={() => onSelectionChange(new Set(visibleItems.map((f) => f.id)))}
-                >
-                  Select all
-                </button>
-                <button
-                  className="btn"
-                  style={{ padding: "3px 8px", fontSize: 12 }}
-                  title="Clear selection"
-                  onClick={() => onSelectionChange(new Set())}
-                >
-                  ✕
-                </button>
-                <button
-                  className="btn"
-                  style={{ padding: "3px 8px", fontSize: 12 }}
-                  title="Selection actions"
-                  onClick={(e) => setSelMenu({ x: e.clientX, y: e.clientY + 8 })}
-                >
-                  ⋮
-                </button>
-              </>
-            )}
-            <div className="seg">
-              {(["small", "medium", "large"] as const).map((s) => (
-                <button key={s} className={size === s ? "on" : ""} onClick={() => changeSize(s)}>
-                  {s[0]!.toUpperCase()}
-                </button>
-              ))}
-            </div>
-          </div>
+        <div className="gallery-toolbar">
+          {toolbarSearch ? <><div className="gallery-search">{toolbarSearch}</div>{selectionControls}{viewControls}</> : <>{viewControls}{selectionControls}</>}
         </div>
       )}
       <div className="flex min-h-0 flex-1">

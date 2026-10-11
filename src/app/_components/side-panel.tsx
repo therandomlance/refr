@@ -1,6 +1,7 @@
 "use client";
 
 import { usePersistentBoolean } from "refr/lib/persistent-state";
+import { Icon } from "./icon";
 
 /** Collapsible left sidebar (browse/search/queue). Collapsed = slim expand strip.
  *  ponytail: on phones (<640px) the open state is a fixed drawer with a backdrop;
@@ -18,10 +19,11 @@ export function SidePanel({ head, children }: { head: React.ReactNode; children:
         <button
           className="rail-btn"
           style={{ width: 24, height: 24, fontSize: 12 }}
-          title="Show sidebar"
+           title="Show sidebar"
+            aria-label="Show sidebar"
           onClick={() => setOpen(true)}
         >
-          »
+            <Icon name="right" />
         </button>
       </div>
     );
@@ -38,10 +40,11 @@ export function SidePanel({ head, children }: { head: React.ReactNode; children:
           <button
             className="rail-btn flex-none"
             style={{ width: 22, height: 22, fontSize: 12 }}
-            title="Hide sidebar"
+           title="Hide sidebar"
+            aria-label="Hide sidebar"
             onClick={() => setOpen(false)}
           >
-            «
+            <Icon name="left" />
           </button>
         </div>
         {children}

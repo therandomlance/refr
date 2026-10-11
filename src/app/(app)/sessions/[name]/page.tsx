@@ -1,4 +1,5 @@
 "use client";
+import { Icon } from "refr/app/_components/icon";
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -69,9 +70,11 @@ export default function SessionEditPage() {
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
-      <div className="mb-5 flex flex-wrap items-center gap-3">
-        <button className="btn" aria-label="Back to sessions" onClick={() => router.push("/sessions")}>←</button>
-        <h1 className="text-lg font-semibold">{name}</h1>
+      <header className="page-header page-header-inset">
+        <div className="flex items-center gap-3">
+          <button className="btn" aria-label="Back to sessions" onClick={() => router.push("/sessions")}><Icon name="left" /></button>
+          <div><h1>{name}</h1><p>{blocks.length} study blocks</p></div>
+        </div>
         <div className="ml-auto flex gap-2">
           <button className="btn" onClick={() => void doSave()} disabled={!dirty || save.isPending}>
             {save.isPending ? "Saving…" : dirty ? "Save" : "Saved"}
@@ -80,7 +83,7 @@ export default function SessionEditPage() {
             {generate.isPending ? "Starting…" : "Start session"}
           </button>
         </div>
-      </div>
+      </header>
 
       <div className="flex flex-col gap-2" style={{ maxWidth: 760 }}>
         <p id="duration-help" className="text-xs" style={{ color: "var(--text-dim)" }}>Time: mm:ss or seconds; leave blank for an untimed block.</p>
@@ -144,7 +147,7 @@ export default function SessionEditPage() {
               Auto-scroll
             </label>
             <button className="btn" aria-label={`Remove block ${i + 1}`} style={{ padding: "4px 8px" }} onClick={() => { setBlocks((bs) => bs.filter((_, j) => j !== i)); setDirty(true); }}>
-              ✕
+              <Icon name="close" />
             </button>
             <div className="col-span-2 sm:col-span-5 -mt-1 pl-1 text-xs" style={{ color: "var(--text-dim)" }}>{b.tag}</div>
           </div>
