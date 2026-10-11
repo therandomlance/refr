@@ -52,7 +52,7 @@ export function MediaGrid({
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
   header?: React.ReactNode;
-  /** Hide these tiles but retain their slots so review actions never repack rows. */
+  /** Remove reviewed tiles and shift later ones through the existing fixed-size slots. */
   hiddenIds?: ReadonlySet<string>;
   /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
   tileActions?: (f: FileSummary) => React.ReactNode;
@@ -544,7 +544,6 @@ export function MediaGrid({
   };
 
   const renderTile = (f: FileSummary) => {
-    if (hiddenIds?.has(f.id)) return <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />;
     const index = indexOf.get(f.id) ?? -1;
     return (
       <div
@@ -859,9 +858,11 @@ export function MediaGrid({
     </div>
   );
 
-  function renderTileSized(f: FileSummary) {
+  function renderTileSized(slot: FileSummary) {
+    // Keep slot geometry from the original results; only later contents shift.
+    const f = hiddenIds?.size ? visibleItems[indexOf.get(slot.id) ?? -1] : slot;
     return (
-      <div style={{ width: "100%", height: "100%" }}>{renderTile(f)}</div>
+      <div style={{ width: "100%", height: "100%" }}>{f ? renderTile(f) : <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />}</div>
     );
   }
 }

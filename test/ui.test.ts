@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ failed: false, searchOptions: {} as { staleTime?: string } }));
+const state = vi.hoisted(() => ({ failed: false, extraFiles: false, searchOptions: {} as { staleTime?: string } }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/queue", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(),
 }));
@@ -16,7 +16,10 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("refr/trpc/react", () => {
   const file = { id: "ui1", mediaType: "image", width: 100, height: 100, duration: null, mtime: 0 };
   const query = () => ({
-    data: state.failed ? undefined : { items: [file], pages: [{ items: [file] }] },
+    data: state.failed ? undefined : {
+      items: state.extraFiles ? [file, { ...file, id: "ui2", width: 200 }, { ...file, id: "ui3", width: 50 }] : [file],
+      pages: [{ items: [file] }],
+    },
     isError: state.failed, error: new Error("offline"), isLoading: false, isFetching: false,
     fetchNextPage: vi.fn(), fetchPreviousPage: vi.fn(), refetch: vi.fn(),
   });
@@ -71,4 +74,18 @@ it("hides reviewed thumbnails without removing their row or changing grid height
   expect(hidden.match(/height:[^;"]+/g)).toEqual(shown.match(/height:[^;"]+/g));
   const restored = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }));
   expect(restored).toBe(shown);
+});
+
+it("shifts only later thumbnails into fixed slots and restores their order on undo", () => {
+  state.extraFiles = true;
+  try {
+    const props = { source: { kind: "ids" as const, ids: ["ui1", "ui2", "ui3"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
+    const shown = renderToStaticMarkup(createElement(MediaGrid, props));
+    const hidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui2"]) }));
+    const ids = (markup: string) => [...markup.matchAll(/data-file-id="([^"]+)"/g)].map((match) => match[1]);
+    expect(ids(shown)).toEqual(["ui1", "ui2", "ui3"]);
+    expect(ids(hidden)).toEqual(["ui1", "ui3"]);
+    expect(hidden.match(/(?:width|height):[^;"]+/g)).toEqual(shown.match(/(?:width|height):[^;"]+/g));
+    expect(renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }))).toBe(shown);
+  } finally { state.extraFiles = false; }
 });
