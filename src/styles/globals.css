@@ -273,12 +273,13 @@ button, summary { touch-action: manipulation; }
 .ui-icon { display: inline-block; flex: none; vertical-align: middle; }
 .page-header {
   display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between;
-  flex: none; gap: 12px; padding: 18px 16px 14px;
+  flex: none; gap: 12px; padding: 10px 16px 8px;
 }
+.page-header div:has(> h1) { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; min-width: 0; }
 .page-header h1 { margin: 0; font-size: 18px; font-weight: 600; line-height: 1.4; }
-.page-header p { margin: 4px 0 0; font-size: 12px; color: var(--text-dim); }
-.page-header-inset { padding: 0 0 18px; }
-.page-breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
+.page-header p { margin: 0; font-size: 12px; color: var(--text-dim); }
+.page-header-inset { padding: 0 0 12px; }
+.page-breadcrumbs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 12px; color: var(--text-dim); overflow-wrap: anywhere; }
 .gallery-toolbar {
   display: flex; flex-wrap: wrap; align-items: center; flex: none;
   gap: 8px 12px; padding: 10px 16px; border-bottom: 1px solid var(--border);
