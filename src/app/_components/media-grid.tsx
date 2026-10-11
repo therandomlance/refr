@@ -50,7 +50,7 @@ export function MediaGrid({
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
   header?: React.ReactNode;
-  /** ids to omit from the grid (e.g. suggestion tiles just accepted/denied) */
+  /** Hide these tiles but retain their slots so review actions never repack rows. */
   hiddenIds?: ReadonlySet<string>;
   /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
   tileActions?: (f: FileSummary) => React.ReactNode;
@@ -188,12 +188,13 @@ export function MediaGrid({
   const filesData = filesQ.data;
   const searchData = searchQ.data;
   const items: FileSummary[] = useMemo(() => {
-    const base =
+    return (
       source.kind === "ids"
         ? (idsQ.data?.items ?? [])
-        : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? []);
-    return hiddenIds?.size ? base.filter((f) => !hiddenIds.has(f.id)) : base;
-  }, [source.kind, idsQ.data, filesData, searchData, hiddenIds]);
+        : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? [])
+    );
+  }, [source.kind, idsQ.data, filesData, searchData]);
+  const visibleItems = useMemo(() => hiddenIds?.size ? items.filter((f) => !hiddenIds.has(f.id)) : items, [items, hiddenIds]);
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
   const hasNextPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasNextPage;
@@ -211,11 +212,11 @@ export function MediaGrid({
 
   useEffect(() => {
     publishViewerList({
-      items,
+      items: visibleItems,
       loadMore: hasNextPage ? () => void fetchNextPage() : null,
       hasMore: !!hasNextPage,
     });
-  }, [items, hasNextPage, fetchNextPage]);
+  }, [visibleItems, hasNextPage, fetchNextPage]);
 
   // ---------------- layout math
   const gap = 4;
@@ -461,10 +462,13 @@ export function MediaGrid({
     (a: number, b: number, additive = false) => {
       const [lo, hi] = [Math.min(a, b), Math.max(a, b)];
       const next = additive ? new Set(selection) : new Set<string>();
-      for (let i = lo; i <= hi; i++) next.add(items[i]!.id);
+      for (let i = lo; i <= hi; i++) {
+        const id = items[i]!.id;
+        if (!hiddenIds?.has(id)) next.add(id);
+      }
       onSelectionChange(next);
     },
-    [items, selection, onSelectionChange],
+    [items, hiddenIds, selection, onSelectionChange],
   );
 
   // selection bulk actions (⋮ menu)
@@ -538,6 +542,7 @@ export function MediaGrid({
   };
 
   const renderTile = (f: FileSummary) => {
+    if (hiddenIds?.has(f.id)) return <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />;
     const index = indexOf.get(f.id) ?? -1;
     return (
       <div
@@ -709,7 +714,7 @@ export function MediaGrid({
                 <button
                   className="btn"
                   style={{ padding: "3px 10px", fontSize: 12 }}
-                  onClick={() => onSelectionChange(new Set(items.map((f) => f.id)))}
+                  onClick={() => onSelectionChange(new Set(visibleItems.map((f) => f.id)))}
                 >
                   Select all
                 </button>

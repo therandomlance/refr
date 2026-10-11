@@ -60,3 +60,15 @@ it("uses static candidates only for suggest searches and exposes manual refresh"
   renderToStaticMarkup(createElement(MediaGrid, { ...props, source: { kind: "search", tokens: [{ ...token, tag: "figure" }] } }));
   expect(state.searchOptions.staleTime).toBeUndefined();
 });
+
+it("hides reviewed thumbnails without removing their row or changing grid heights", () => {
+  const props = { source: { kind: "ids" as const, ids: ["ui1"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
+  const shown = renderToStaticMarkup(createElement(MediaGrid, props));
+  const hidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui1"]) }));
+  expect(hidden).toContain('aria-hidden="true"');
+  expect(hidden).toContain("visibility:hidden");
+  expect(hidden).not.toContain('aria-label="Open image 1"');
+  expect(hidden.match(/height:[^;"]+/g)).toEqual(shown.match(/height:[^;"]+/g));
+  const restored = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }));
+  expect(restored).toBe(shown);
+});

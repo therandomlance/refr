@@ -22,6 +22,7 @@ export default function SearchPage() {
   const [sort, setSort] = useState<Sort>("date");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [savePrompt, setSavePrompt] = useState(false);
+  const [hideReviewed, setHideReviewed] = useState(false);
   const fileMenu = useFileContextMenu(selection, setSelection);
 
   const saved = api.searches.list.useQuery();
@@ -151,6 +152,12 @@ export default function SearchPage() {
         </div>
 
         {hasVectorChip && mlStatus.data?.state !== "ready" && <p role="status" className="state-message">Semantic search is unavailable. Tag filters still work.</p>}
+        {suggestTag && (
+          <label className="flex items-center gap-2 px-4 py-2 text-xs" style={{ color: "var(--text-dim)" }}>
+            <input type="checkbox" checked={hideReviewed} onChange={(e) => setHideReviewed(e.target.checked)} />
+            Hide reviewed thumbnails (keep empty slots)
+          </label>
+        )}
 
         <MediaGrid
           source={{ kind: "search", tokens }}
@@ -160,6 +167,7 @@ export default function SearchPage() {
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
+          hiddenIds={suggestTag && hideReviewed ? decisions.hiddenIds : undefined}
           tileActions={
             suggestTag
               ? (f) => (
