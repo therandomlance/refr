@@ -7,6 +7,9 @@ import { useActionFeedback } from "./action-feedback";
 type TagInput = RouterInputs["tags"]["setTags"];
 type Callbacks = { onSuccess?: () => void; onUndo?: () => void };
 
+// Keep review candidates stable across edits/invalidation; explicit refetch still works.
+export const staticSuggestionOptions = { staleTime: "static" as const };
+
 /** One undoable edit path for the viewer, bulk actions, and suggestions. */
 export function useTagEdit() {
   const notify = useActionFeedback();

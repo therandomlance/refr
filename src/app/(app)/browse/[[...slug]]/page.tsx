@@ -11,7 +11,7 @@ import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { publishViewerList } from "refr/app/_components/viewer-store";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
-import { useSuggestionActions } from "refr/app/_components/tag-actions";
+import { staticSuggestionOptions, useSuggestionActions } from "refr/app/_components/tag-actions";
 
 export default function BrowsePage() {
   const router = useRouter();
@@ -118,16 +118,16 @@ export default function BrowsePage() {
   // suggested strips for tag mode.
   const suggestions = api.ml.suggestImagesForTag.useQuery(
     { tag: selected ?? "" },
-    { enabled: mode === "tags" && selected !== null && mlStatus.data?.state === "ready" },
+    { ...staticSuggestionOptions, enabled: mode === "tags" && selected !== null && mlStatus.data?.state === "ready" },
   );
   const parentTag = selected ? (selected.includes("/") ? selected.slice(0, selected.lastIndexOf("/")) : null) : null;
   const withinParent = api.ml.suggestImagesWithinParent.useQuery(
     { tag: selected ?? "" },
-    { enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
+    { ...staticSuggestionOptions, enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
   );
   const outsideRoot = api.ml.suggestImagesOutsideRoot.useQuery(
     { tag: selected ?? "" },
-    { enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
+    { ...staticSuggestionOptions, enabled: mode === "tags" && selected !== null && parentTag !== null && mlStatus.data?.state === "ready" },
   );
   const [suggestionsOpen, setSuggestionsOpen] = usePersistentBoolean("refr:browse:suggestions-open", () => true);
   const [stripOpen, setStripOpen] = usePersistentBoolean("refr:browse:strip-suggested", () => true);
