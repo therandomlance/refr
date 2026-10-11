@@ -24,7 +24,7 @@ export type Layout = "horizontal" | "vertical";
 export type Grouping = "day" | "month" | "year";
 export type TileSize = "small" | "medium" | "large";
 
-const SIZE_SCALE: Record<TileSize, number> = { small: 0.6, medium: 1, large: 1.5 };
+const SIZE_SCALE: Record<TileSize, number> = { small: 1, medium: 1.5, large: 2.25 };
 
 export function MediaGrid({
   source,
