@@ -7,6 +7,7 @@ import { TagInput } from "./tag-input";
 import { ConfirmDialog } from "./dialog";
 import { formatDuration } from "./media-grid";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
+import { useTagEdit } from "./tag-actions";
 
 /**
  * Fullscreen viewer (§10.2). Left panel: metadata + options. Right: tag manager
@@ -54,20 +55,13 @@ export function Viewer({
   const file = api.files.byId.useQuery({ id: currentId });
   const settings = api.settings.get.useQuery();
   const mlStatus = api.ml.status.useQuery();
-  const utils = api.useUtils();
 
   const tagsQ = api.tags.forFiles.useQuery({ fileIds: [currentId] });
   const suggestedQ = api.ml.suggestTagsForFile.useQuery(
     { fileId: currentId },
     { enabled: mlStatus.data?.state === "ready" },
   );
-  const setTags = api.tags.setTags.useMutation({
-    onSuccess: () => {
-      void tagsQ.refetch();
-      void suggestedQ.refetch();
-      void utils.tags.tree.invalidate();
-    },
-  });
+  const setTags = useTagEdit();
 
   // index of current file in the surrounding list
   const listIndex = items.findIndex((i) => i.id === currentId);
@@ -161,28 +155,35 @@ export function Viewer({
         }}
       >
         {overlayTop}
-        <button className="vbtn" style={{ top: 14, right: 14 }} onClick={onClose}>✕</button>
+        <button className="vbtn" aria-label="Close viewer" style={{ top: 14, right: 14 }} onClick={onClose}>✕</button>
         <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info">ⓘ</button>
         <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags">🏷</button>
-        <button className="nav prev" style={{ left: 18 }} onClick={() => nav(-1)}>‹</button>
-        {isVideo ? (
+        <button className="nav prev" aria-label="Previous image" style={{ left: 18 }} onClick={() => nav(-1)}>‹</button>
+        {file.isLoading ? <p role="status" className="state-message">Loading image…</p> : file.isError ? (
+          <div role="alert" className="state-message">Could not load this file. <button className="btn" onClick={() => void file.refetch()}>Try again</button></div>
+        ) : isVideo ? (
           <video key={currentId} src={`/api/file/${currentId}`} controls autoPlay />
         ) : (
           // eslint-disable-next-line @next/next/no-img-element
           <img key={currentId} src={`/api/file/${currentId}`} alt="" />
         )}
-        <button className="nav next" style={{ right: 18 }} onClick={() => nav(1)}>›</button>
+        <button className="nav next" aria-label="Next image" style={{ right: 18 }} onClick={() => nav(1)}>›</button>
         {carouselOpen && items.length > 1 && (
           <div className="carousel" onClick={(e) => e.stopPropagation()}>
             {carouselItems.map((it) => (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
+              <button type="button"
                 key={it.id}
+                aria-label={`Open image ${items.indexOf(it) + 1}`}
+                aria-current={it.id === currentId ? "true" : undefined}
+                onClick={() => (onNavigate ? onNavigate(items.findIndex((x) => x.id === it.id)) : setId(it.id))}
+              >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
                 src={`/api/thumb/${it.id}`}
                 className={it.id === currentId ? "cur" : ""}
-                onClick={() => (onNavigate ? onNavigate(items.findIndex((x) => x.id === it.id)) : setId(it.id))}
                 alt=""
               />
+              </button>
             ))}
           </div>
         )}
@@ -217,14 +218,15 @@ export function Viewer({
             <>
               <h3>Suggested</h3>
               {(suggestedQ.data ?? []).map((s) => (
-                <span
+                <button type="button"
                   key={s.tag}
                   className="chip"
                   style={{ cursor: "pointer", border: "1px dashed var(--border)" }}
                   onClick={() => setTags.mutate({ fileIds: [currentId], add: [s.tag], remove: [] })}
+                  disabled={setTags.isPending}
                 >
                   + {s.tag}
-                </span>
+                </button>
               ))}
             </>
           )}

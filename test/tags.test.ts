@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
-import { deleteTag, merge, normalize, rename, setTags, tree } from "refr/server/services/tags";
+import { deleteTag, merge, normalize, rename, setTags, tree, undoTags, TagUndoConflict } from "refr/server/services/tags";
 
 async function tagNamesOf(fileId: string): Promise<string[]> {
   const rows = await db.fileTag.findMany({ where: { fileId }, include: { tag: true } });
@@ -39,6 +39,17 @@ describe("tags", () => {
     expect(counts.get("a/c/d")).toBe(1);
   });
 
+  it("counts a file once across siblings and an explicit parent tag", async () => {
+    await setTags(["t1"], ["a/c"], []);
+    expect(new Map((await tree()).map((t) => [t.name, t.count])).get("a/c")).toBe(2);
+  });
+
+  it("uses production's case-insensitive tag constraint in the test database", async () => {
+    const tag = await db.tag.create({ data: { name: "case-fold-regression" } });
+    expect((await db.tag.findUnique({ where: { name: "CASE-FOLD-REGRESSION" } }))?.id).toBe(tag.id);
+    await expect(db.tag.create({ data: { name: "CASE-FOLD-REGRESSION" } })).rejects.toMatchObject({ code: "P2002" });
+  });
+
   it("delete removes descendants", async () => {
     await deleteTag("a/c");
     const names = (await tree()).map((t) => t.name);
@@ -54,5 +65,35 @@ describe("tags", () => {
     // adding the more specific child makes the parent redundant
     await setTags(["red1"], ["artwork/fanart/warframe/loki"], []);
     expect(await tagNamesOf("red1")).toEqual(["artwork/fanart/warframe/loki"]);
+  });
+
+  it("snapshots and restores mixed per-file tag changes, including removed ancestors", async () => {
+    await db.file.createMany({ data: ["undo1", "undo2"].map((id) => ({ id, size: 1, mtime: new Date(), mediaType: "image" as const })) });
+    await setTags(["undo1"], ["undo/root", "keep"], []);
+    await setTags(["undo2"], ["other"], []);
+    const { changes } = await setTags(["undo1", "undo2"], ["undo/root/child", "new"], ["other"]);
+    expect(changes).toEqual([
+      { fileId: "undo1", before: ["keep", "undo/root"], after: ["keep", "new", "undo/root/child"] },
+      { fileId: "undo2", before: ["other"], after: ["new", "undo/root/child"] },
+    ]);
+    await undoTags(changes);
+    expect(await tagNamesOf("undo1")).toEqual(["keep", "undo/root"]);
+    expect(await tagNamesOf("undo2")).toEqual(["other"]);
+  });
+
+  it("returns no changes for empty and no-op updates", async () => {
+    expect(await setTags([], ["ignored"], [])).toEqual({ changes: [] });
+    await db.file.create({ data: { id: "undo-noop", size: 1, mtime: new Date(), mediaType: "image" } });
+    await setTags(["undo-noop"], ["same"], []);
+    expect((await setTags(["undo-noop"], ["same"], [])).changes).toEqual([]);
+  });
+
+  it("rejects stale undo atomically", async () => {
+    const { changes } = await setTags(["t1", "t2"], ["undo/conflict"], []);
+    await setTags(["t2"], ["later"], []);
+    const before = await tagNamesOf("t1");
+    await expect(undoTags(changes)).rejects.toBeInstanceOf(TagUndoConflict);
+    expect(await tagNamesOf("t1")).toEqual(before);
+    expect(await tagNamesOf("t2")).toContain("later");
   });
 });

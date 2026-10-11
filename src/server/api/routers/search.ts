@@ -2,7 +2,7 @@ import path from "node:path";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
-import { tokenSchema, tokensToWhere, resolvePathAliases } from "refr/server/services/search";
+import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases } from "refr/server/services/search";
 import { executeList, timelineBuckets } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
 import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
@@ -23,7 +23,10 @@ export const searchRouter = createTRPCRouter({
   query: protectedProcedure
     .input(
       z.object({
-        tokens: z.array(tokenSchema),
+        tokens: z.array(tokenSchema).refine(
+          (tokens) => tokens.filter(isVectorToken).length <= 1,
+          "Only one semantic search chip is allowed",
+        ),
         sort: sortEnum.default("date"),
         cursor: z.string().nullish(),
         // timeline scrubber seek: used only for the first page (when no page cursor yet)
@@ -43,16 +46,16 @@ export const searchRouter = createTRPCRouter({
         (t) => t.kind === "tag" && !t.tag.startsWith("suggest:"),
       );
       if (textChip) {
-        return semanticSearch(textChip, tagChips, cursor, input.limit ?? 200);
+        return semanticSearch(textChip, tagChips, input.cursor, input.limit ?? 200);
       }
       if (similarChip) {
-        return similarSearch(similarChip.tag, tagChips, cursor, input.limit ?? 200);
+        return similarSearch(similarChip.tag, tagChips, input.cursor, input.limit ?? 200);
       }
       if (suggestChip) {
         return suggestSearch(
           suggestChip.tag.slice("suggest:".length),
           tagChips,
-          cursor,
+          input.cursor,
           input.limit ?? 200,
         );
       }

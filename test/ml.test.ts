@@ -102,6 +102,32 @@ describe("ml (stub sidecar)", () => {
     expect(res.items).toHaveLength(5);
     expect(res.items.every((i) => Number(i.id.slice(3)) % 2 === 0)).toBe(true);
     expect(res.nextCursor).not.toBeNull();
+    const second = await semanticSearch(makeToken({ kind: "text", tag: "hello" }), [makeToken({ tag: "evenonly" })], res.nextCursor, 5, stubKnn);
+    expect(second.items.map((i) => i.id)).toEqual(["mlf10", "mlf12", "mlf14", "mlf16", "mlf18"]);
+  });
+
+  it("sidecar failure falls back to tag-only paging without reusing a vector cursor", async () => {
+    const fail = async () => { throw new ml.SidecarError("unavailable"); };
+    const text = makeToken({ kind: "text", tag: "hello" });
+    const tags = [makeToken({ tag: "evenonly" })];
+    const restart = await semanticSearch(text, tags, "4000", 5, fail);
+    expect(restart.items).toEqual([]);
+    expect("restart" in restart && restart.restart).toBe(true);
+    const first = await semanticSearch(text, tags, null, 5, fail);
+    expect(first.items.map((i) => i.id)).toEqual(["mlf598", "mlf596", "mlf594", "mlf592", "mlf590"]);
+    expect(first.nextCursor).toMatch(/^tag:/);
+    expect("notice" in first && first.notice).toContain("unavailable");
+    const second = await semanticSearch(text, tags, first.nextCursor, 5, fail);
+    expect(second.items.map((i) => i.id)).toEqual(["mlf588", "mlf586", "mlf584", "mlf582", "mlf580"]);
+    await expect(semanticSearch(text, tags, null, 5, async () => { throw new Error("not a sidecar failure"); })).rejects.toThrow("not a sidecar failure");
+  });
+
+  it("suggestion rejection can be undone without confusing an existing denial", async () => {
+    expect(await ml.excludeSuggestion("denial-test", "ml1")).toEqual({ alreadyExcluded: false });
+    expect(await ml.excludeSuggestion("denial-test", "ml1")).toEqual({ alreadyExcluded: true });
+    expect((await ml.getExclusions("denial-test")).has("ml1")).toBe(true);
+    await ml.restoreSuggestion("denial-test", "ml1");
+    expect((await ml.getExclusions("denial-test")).has("ml1")).toBe(false);
   });
 
   it("tag vector uses image centroid when images are embedded (§13.4)", async () => {
@@ -129,6 +155,9 @@ describe("ml (stub sidecar)", () => {
     const res = await vectorSearch(new Float32Array(768), [], null, 5, "vs0", stubKnn);
     expect(res.items.map((i) => i.id)).toEqual(["vs1", "vs2", "vs3", "vs4", "vs5"]);
     expect(res.nextCursor).not.toBeNull();
+    const second = await vectorSearch(new Float32Array(768), [], res.nextCursor, 5, "vs0", stubKnn);
+    expect(second.items.map((i) => i.id)).toEqual(["vs6", "vs7", "vs8", "vs9"]);
+    expect(second.nextCursor).toBeNull();
   });
 
   it("suggestTagsForFiles scores the selection centroid, excludes selection-wide tags", async () => {

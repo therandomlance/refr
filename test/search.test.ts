@@ -88,6 +88,7 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await idsOf(parseQuery("~reference ~artwork"))).toEqual(["f1", "f2", "f3"]);
   });
 
+
   it("exact match excludes descendants", async () => {
     expect(await idsOf(parseQuery("=reference"))).toEqual(["f3"]);
     expect(await idsOf(parseQuery("-=reference"))).toEqual(["f1", "f2", "f4"]);
@@ -121,6 +122,10 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await idsOf(parseQuery("path:/refrtest/lib/sub"))).toEqual(["f1"]);
     expect(await idsOf(parseQuery("path:/refrtest/lib/b.png"))).toEqual(["f2"]);
     expect(await idsOf(parseQuery("-path:/refrtest/other"))).toEqual(["f1", "f2"]);
+  });
+
+  it("OR group accepts path and metadata clauses", async () => {
+    expect(await idsOf(parseQuery("~path:/refrtest/lib ~untagged"))).toEqual(["f1", "f2", "f4"]);
   });
 
   it("=path: matches direct children only", async () => {

@@ -1,8 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { initDataDir, paths } from "refr/server/services/dataDir";
-import { migrateThumbLayout, thumbPath } from "refr/server/services/thumbs";
+import { catchUpMissingThumbs, enqueueThumbs, migrateThumbLayout, setOnThumbDrain, thumbPath, thumbStatus } from "refr/server/services/thumbs";
+import { db } from "refr/server/db";
 
 const idA = "ab" + "0".repeat(62);
 const idB = "cd" + "1".repeat(62);
@@ -34,5 +35,40 @@ describe("thumbnail storage layout", () => {
     fs.writeFileSync(thumbPath(idA), "a");
     expect(await migrateThumbLayout()).toBe(0);
     expect(fs.existsSync(thumbPath(idA))).toBe(true);
+  });
+
+  it("deduplicates jobs while queued and active", async () => {
+    const before = thumbStatus().processed;
+    const drained = new Promise<void>((resolve) => setOnThumbDrain(resolve));
+    const job = { fileId: idA, mediaType: "image", path: "/missing" };
+    enqueueThumbs([job]);
+    enqueueThumbs([job]);
+    await drained;
+    setOnThumbDrain(null);
+    expect(thumbStatus().processed - before).toBe(1);
+  });
+
+  it("pages catch-up and coalesces producers until the bounded queue drains", async () => {
+    const files = Array.from({ length: 310 }, (_, i) => ({
+      id: i.toString(16).padStart(64, "0"), size: 1n, mtime: new Date(0), addedAt: new Date(0),
+      mediaType: "image", width: null, height: null, duration: null, paths: [{ path: "/missing" }],
+    }));
+    const read = vi.spyOn(db.file, "findMany");
+    for (let i = 0; i < files.length; i += 100) read.mockResolvedValueOnce(files.slice(i, i + 100));
+    const before = thumbStatus().processed;
+    const drained = new Promise<void>((resolve) => setOnThumbDrain(resolve));
+    try {
+      const run = catchUpMissingThumbs();
+      expect(catchUpMissingThumbs()).toBe(run);
+      expect(thumbStatus().running).toBe(true);
+      await run;
+      expect(thumbStatus().pending).toBeLessThanOrEqual(256);
+      await drained;
+      expect(thumbStatus().running).toBe(false);
+      expect(thumbStatus().processed - before).toBe(310);
+      expect(read).toHaveBeenCalledTimes(4);
+      expect(read.mock.calls.every(([args]) => args?.take === 100)).toBe(true);
+      expect(read.mock.calls[1]?.[0]?.where?.id).toEqual({ gt: files[99]!.id });
+    } finally { read.mockRestore(); setOnThumbDrain(null); }
   });
 });

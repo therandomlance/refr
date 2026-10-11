@@ -5,6 +5,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import type { FileSummary, Sort, Token } from "refr/server/services/search";
+import { isVectorToken } from "refr/server/services/search";
 import type { TimelineBucket } from "refr/lib/timeline";
 import { buildRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
@@ -12,6 +13,7 @@ import { Viewer } from "./viewer";
 import { ContextMenu } from "./context-menu";
 import { TagPromptDialog } from "./dialog";
 import { TimelineScrubber } from "./timeline-scrubber";
+import { useTagEdit } from "./tag-actions";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -54,7 +56,8 @@ export function MediaGrid({
   tileActions?: (f: FileSummary) => React.ReactNode;
 }) {
   const [internalSort, setInternalSort] = useState<Sort>("date");
-  const sort = controlledSort ?? internalSort;
+  const vectorMode = source.kind === "search" && source.tokens.some(isVectorToken);
+  const sort = vectorMode ? "similarity" : controlledSort ?? internalSort;
   const setSort = onSortChange ?? setInternalSort;
   const [grouping, setGrouping] = useState<Grouping>("day");
   const [layout, setLayout] = useState<Layout>("horizontal");
@@ -195,6 +198,14 @@ export function MediaGrid({
   const fetchPreviousPage = source.kind === "files" ? filesQ.fetchPreviousPage : searchQ.fetchPreviousPage;
   const hasPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasPreviousPage;
   const isFetchingPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).isFetchingPreviousPage;
+  const activeQuery = source.kind === "ids" ? idsQ : source.kind === "files" ? filesQ : searchQ;
+  const firstSearchPage = searchData?.pages[0];
+  const searchNotice = source.kind === "search" && firstSearchPage && "notice" in firstSearchPage && typeof firstSearchPage.notice === "string" ? firstSearchPage.notice : undefined;
+  useEffect(() => {
+    if (source.kind !== "search" || !searchData?.pages.some((page) => "restart" in page && page.restart)) return;
+    void utils.search.query.reset({ tokens: source.tokens, sort, seek: seekCursor });
+    scrollRef.current?.scrollTo({ top: 0 });
+  }, [searchData, source, sort, seekCursor, utils]);
 
   useEffect(() => {
     publishViewerList({
@@ -457,7 +468,7 @@ export function MediaGrid({
   // selection bulk actions (⋮ menu)
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
   const [tagPrompt, setTagPrompt] = useState<"add" | "remove" | null>(null);
-  const setTags = api.tags.setTags.useMutation({ onSuccess: () => void utils.tags.invalidate() });
+  const setTags = useTagEdit();
 
   const router = useRouter();
   const pathname = usePathname();
@@ -492,7 +503,7 @@ export function MediaGrid({
     }
     // touch: tap always opens the viewer — selection is via long-press, not tap.
     // (a long-press sets suppressClick, so we never reach here after one.)
-    if (lastPointerType.current === "touch") {
+    if (e.detail !== 0 && lastPointerType.current === "touch") {
       anchor.current = index;
       openViewer(f.id);
       return;
@@ -535,9 +546,9 @@ export function MediaGrid({
         onDragStart={() => (dragId.current = f.id)}
         onDragOver={(e) => onReorder && e.preventDefault()}
         onDrop={() => drop(f.id)}
-        onClick={(e) => onTileClick(e, f, index)}
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id))}
         onPointerDown={(e) => {
+          if (!(e.target as HTMLElement).closest(".tile-open")) return;
           suppressClick.current = false;
           lastPointerType.current = e.pointerType;
           if (e.button === 0 && !e.shiftKey && !e.ctrlKey && !e.metaKey) {
@@ -604,13 +615,23 @@ export function MediaGrid({
           }
         }}
       >
-        <ThumbImg id={f.id} />
-        <div className="ovl" />
+        <button
+          type="button"
+          className="tile-open"
+          aria-label={`Open ${f.mediaType} ${index + 1}`}
+          onClick={(e) => onTileClick(e, f, index)}
+        >
+          <ThumbImg id={f.id} />
+          <span className="ovl" />
+        </button>
         {tileActions ? (
           tileActions(f)
         ) : (
-          <div
+          <button
+            type="button"
             className="check"
+            aria-label={`Select ${f.mediaType} ${index + 1}`}
+            aria-pressed={selection.has(f.id)}
             onClick={(e) => {
               e.stopPropagation();
               anchor.current = index;
@@ -618,7 +639,19 @@ export function MediaGrid({
             }}
           >
             {selection.has(f.id) ? "✓" : ""}
-          </div>
+          </button>
+        )}
+        {onContextMenu && (
+          <button
+            type="button"
+            className="tile-menu"
+            aria-label={`Actions for ${f.mediaType} ${index + 1}`}
+            onClick={(e) => {
+              e.stopPropagation();
+              const r = e.currentTarget.getBoundingClientRect();
+              onContextMenu({ ...e, clientX: r.left, clientY: r.bottom }, f.id);
+            }}
+          >⋮</button>
         )}
         {f.mediaType === "video" && (
           <div className="badge">{formatDuration(f.duration)}</div>
@@ -640,7 +673,7 @@ export function MediaGrid({
           </div>
           {source.kind !== "ids" && (
             <>
-              <select className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
+              <select aria-label="Sort images" title={vectorMode ? "Semantic searches are ranked by similarity" : undefined} disabled={vectorMode} className="input" value={sort} onChange={(e) => setSort(e.target.value as Sort)}>
                 <option value="date">Date</option>
                 <option value="similarity">Similarity</option>
                 <option value="name">Name</option>
@@ -648,7 +681,7 @@ export function MediaGrid({
                 <option value="random">Random</option>
               </select>
               {sort === "date" && (
-                <select className="input" value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
+                <select aria-label="Group images" className="input" value={grouping} onChange={(e) => setGrouping(e.target.value as Grouping)}>
                   <option value="day">Day</option>
                   <option value="month">Month</option>
                   <option value="year">Year</option>
@@ -708,11 +741,18 @@ export function MediaGrid({
       <div className="flex min-h-0 flex-1">
         <div ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
         {header}
-        {items.length === 0 && (filesQ.isLoading || searchQ.isLoading || idsQ.isLoading) && (
-          <p className="p-8 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>
+        {searchNotice && <p role="status" className="state-message">{searchNotice}</p>}
+        {activeQuery.isError && (
+          <div role="alert" className="state-message">
+            <p>Could not load images. {activeQuery.error.message}</p>
+            <button className="btn mt-2" onClick={() => void activeQuery.refetch()}>Try again</button>
+          </div>
         )}
-        {items.length === 0 && !(filesQ.isLoading || searchQ.isLoading || idsQ.isLoading) && (
-          <div className="p-8 text-sm" style={{ color: "var(--text-faint)" }}>{emptyState ?? "Nothing here yet."}</div>
+        {items.length === 0 && activeQuery.isLoading && (
+          <p role="status" className="state-message">Loading images…</p>
+        )}
+        {items.length === 0 && !activeQuery.isLoading && !activeQuery.isError && (
+          <div className="state-message">{emptyState ?? "Nothing here yet."}</div>
         )}
         {layout === "horizontal" && rows.length > 0 && (
           <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
@@ -772,6 +812,7 @@ export function MediaGrid({
             ))}
           </div>
         )}
+        {items.length > 0 && activeQuery.isFetching && <p role="status" className="state-message">Loading images…</p>}
         </div>
         {showTimeline && (
           <TimelineScrubber buckets={buckets ?? []} active={activeMonth} onSeek={seekToBucket} />

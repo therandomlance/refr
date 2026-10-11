@@ -110,7 +110,6 @@ export function SavedSearches({
             onDragOver={edgeDrop(parent, key, next)}
             onDrop={dropRow}
             style={dropStyle(parent, key, next)}
-            onClick={() => onOpen(n)}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
@@ -118,7 +117,11 @@ export function SavedSearches({
             }}
           >
             <span className="caret" />
-            <span className="overflow-hidden text-ellipsis">{n.name}</span>
+            <button type="button" className="tree-select" onClick={() => onOpen(n)}>{n.name}</button>
+            <button type="button" className="tree-actions" aria-label={`Actions for ${n.name}`} onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.left, y: r.bottom, items: searchMenu(n) });
+            }}>⋮</button>
           </div>
         );
       }
@@ -142,16 +145,19 @@ export function SavedSearches({
             }}
             onDrop={dropRow}
             style={{ ...dropStyle(parent, key, next), ...insideStyle(path) }}
-            onClick={() => toggleFolder(path)}
             onContextMenu={(e) => {
               e.preventDefault();
               e.stopPropagation();
               setMenu({ x: e.clientX, y: e.clientY, items: folderMenu(path) });
             }}
           >
-            <span className="caret">{open ? "▾" : "▸"}</span>
-            <span className="overflow-hidden text-ellipsis">{n.name}</span>
+            <button type="button" className="caret" aria-label={`${open ? "Collapse" : "Expand"} ${n.name}`} aria-expanded={open} onClick={() => toggleFolder(path)}>{open ? "▾" : "▸"}</button>
+            <button type="button" className="tree-select" onClick={() => toggleFolder(path)}>{n.name}</button>
             <span className="count">{n.children.length}</span>
+            <button type="button" className="tree-actions" aria-label={`Actions for ${n.name}`} onClick={(e) => {
+              const r = e.currentTarget.getBoundingClientRect();
+              setMenu({ x: r.left, y: r.bottom, items: folderMenu(path) });
+            }}>⋮</button>
           </div>
           {open && (
             <div className="tkids">
@@ -196,9 +202,10 @@ export function SavedSearches({
       }}
     >
       {renderNodes(nodes, null)}
+      <button type="button" className="btn mt-2" onClick={() => setPrompt({ kind: "newFolder", parent: null })}>+ New folder</button>
       {nodes.length === 0 && (
         <p className="px-2 text-xs" style={{ color: "var(--text-faint)" }}>
-          No saved searches yet. Right-click for a folder.
+          No saved searches yet. Save a search or create a folder.
         </p>
       )}
 

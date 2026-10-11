@@ -7,7 +7,7 @@ import { db } from "refr/server/db";
 import { forFiles } from "./tags";
 import * as config from "./config";
 import { paths } from "./dataDir";
-import { thumbPath, hasThumb } from "./thumbs";
+import { thumbPath, hasThumb, thumbStatus } from "./thumbs";
 
 const execFileP = promisify(execFile);
 
@@ -318,7 +318,7 @@ let embedRunning = false;
 
 /** Background: embed files lacking a current-model embedding, batches of 8 thumbnails. */
 export async function enqueueEmbeddings() {
-  if (!config.get().ml.enabled || !(await isReady()) || embedRunning) return;
+  if (!config.get().ml.enabled || !(await isReady()) || embedRunning || thumbStatus().running) return;
   embedRunning = true;
   try {
     const modelId = currentModelId();
@@ -328,7 +328,7 @@ export async function enqueueEmbeddings() {
     // interleave with embedding batches at the sidecar.
     let cursor = "";
     for (;;) {
-      if (!(await isReady())) return;
+      if (!(await isReady()) || thumbStatus().running) return;
       const batch = await db.$queryRawUnsafe<{ fileId: string }[]>(
         `SELECT f.id AS fileId FROM File f
          LEFT JOIN FileEmbedding fe ON fe.fileId = f.id AND fe.model = ?
@@ -370,15 +370,21 @@ export function _setStateForTest(s: MlStatus["state"]) {
   state = s;
 }
 
+export class SidecarError extends Error {}
+
 async function post<T>(endpoint: string, body: unknown): Promise<T> {
-  const res = await fetch(`http://127.0.0.1:${config.get().ml.port}${endpoint}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-    signal: AbortSignal.timeout(120_000),
-  });
-  if (!res.ok) throw new Error(`sidecar ${endpoint}: ${res.status}`);
-  return (await res.json()) as T;
+  try {
+    const res = await fetch(`http://127.0.0.1:${config.get().ml.port}${endpoint}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(120_000),
+    });
+    if (!res.ok) throw new Error(`sidecar ${endpoint}: ${res.status}`);
+    return (await res.json()) as T;
+  } catch (cause) {
+    throw new SidecarError("Semantic search is unavailable. Please try again.", { cause });
+  }
 }
 
 export async function embedText(texts: string[]): Promise<Float32Array[]> {
@@ -445,11 +451,19 @@ export async function getExclusions(tagName: string): Promise<Set<string>> {
 }
 
 export async function excludeSuggestion(tagName: string, fileId: string) {
-  await db.suggestionDenial.upsert({
-    where: { tagName_fileId: { tagName, fileId } },
-    create: { tagName, fileId },
-    update: {},
+  return db.$transaction(async (tx) => {
+    const previous = await tx.suggestionDenial.findUnique({ where: { tagName_fileId: { tagName, fileId } } });
+    await tx.suggestionDenial.upsert({
+      where: { tagName_fileId: { tagName, fileId } },
+      create: { tagName, fileId },
+      update: {},
+    });
+    return { alreadyExcluded: !!previous };
   });
+}
+
+export async function restoreSuggestion(tagName: string, fileId: string) {
+  await db.suggestionDenial.deleteMany({ where: { tagName, fileId } });
 }
 
 // ---------------------------------------------------------------- tag vectors

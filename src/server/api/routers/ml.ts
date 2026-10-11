@@ -37,5 +37,9 @@ export const mlRouter = createTRPCRouter({
     .input(z.object({ tag: z.string(), fileId: z.string() }))
     .mutation(({ input }) => ml.excludeSuggestion(input.tag, input.fileId)),
 
+  restoreSuggestion: protectedProcedure
+    .input(z.object({ tag: z.string(), fileId: z.string() }))
+    .mutation(({ input }) => ml.restoreSuggestion(input.tag, input.fileId)),
+
   reembedAll: protectedProcedure.mutation(() => ml.reembedAll()),
 });

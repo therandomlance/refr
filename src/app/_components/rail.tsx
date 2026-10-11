@@ -22,14 +22,13 @@ export function Rail() {
     <nav className="rail">
       <div className="logo">r</div>
       {items.map((it) => (
-        <Link key={it.href} href={it.href} legacyBehavior={false}>
-          <button
-            className={`rail-btn ${pathname.startsWith(it.href) ? "active" : ""}`}
-            title={it.label}
-            onClick={() => router.push(it.href)}
-          >
-            {it.icon}
-          </button>
+        <Link key={it.href} href={it.href}
+          className={`rail-btn ${pathname.startsWith(it.href) ? "active" : ""}`}
+          title={it.label}
+          aria-label={it.label}
+          aria-current={pathname.startsWith(it.href) ? "page" : undefined}
+        >
+          {it.icon}
         </Link>
       ))}
       <div className="flex-1" />

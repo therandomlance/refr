@@ -103,24 +103,33 @@ function TreeNode({
       <div
         ref={rowRef}
         className={`trow ${selected === node.key ? "sel" : ""}`}
-        onClick={() => onSelect(node.key)}
         onContextMenu={(e) => {
           if (!onContext) return;
           e.preventDefault();
           onContext(node.key, e.clientX, e.clientY);
         }}
       >
-        <span
+        <button
+          type="button"
           className="caret"
+          aria-label={`${open ? "Collapse" : "Expand"} ${node.name}`}
+          aria-expanded={expandable ? open : undefined}
+          disabled={!expandable}
           onClick={(e) => {
             e.stopPropagation();
             if (expandable) void toggle();
           }}
         >
           {expandable ? (open ? "▾" : "▸") : ""}
-        </span>
-        <span className="overflow-hidden text-ellipsis">{node.name}</span>
+        </button>
+        <button type="button" className="tree-select" onClick={() => onSelect(node.key)} aria-current={selected === node.key ? "true" : undefined}>
+          {node.name}
+        </button>
         {node.count !== undefined && <span className="count">{node.count}</span>}
+        {onContext && <button type="button" className="tree-actions" aria-label={`Actions for ${node.name}`} onClick={(e) => {
+          const r = e.currentTarget.getBoundingClientRect();
+          onContext(node.key, r.left, r.bottom);
+        }}>⋮</button>}
       </div>
       {open && children && children.length > 0 && (
         <div className="tkids">

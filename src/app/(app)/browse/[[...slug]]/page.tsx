@@ -11,6 +11,7 @@ import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { publishViewerList } from "refr/app/_components/viewer-store";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
+import { useSuggestionActions } from "refr/app/_components/tag-actions";
 
 export default function BrowsePage() {
   const router = useRouter();
@@ -77,13 +78,7 @@ export default function BrowsePage() {
   const renameM = api.tags.rename.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
   const mergeM = api.tags.merge.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
   const deleteM = api.tags.delete.useMutation({ onSuccess: () => void utils.browse.tagTree.invalidate() });
-  const setTags = api.tags.setTags.useMutation({
-    onSuccess: () => {
-      void utils.browse.tagTree.invalidate();
-      void utils.files.list.invalidate();
-    },
-  });
-  const excludeSuggestion = api.ml.excludeSuggestion.useMutation();
+  const decisions = useSuggestionActions(mode === "tags" ? selected : null);
 
   const tagNames = useMemo(() => (tags.data ?? []).filter((t) => t.count > 0).map((t) => t.name), [tags.data]);
   const tagCounts = useMemo(() => new Map((tags.data ?? []).map((t) => [t.name, t.count])), [tags.data]);
@@ -138,19 +133,6 @@ export default function BrowsePage() {
   const [stripOpen, setStripOpen] = usePersistentBoolean("refr:browse:strip-suggested", () => true);
   const [parentStripOpen, setParentStripOpen] = usePersistentBoolean("refr:browse:strip-parent", () => true);
   const [outsideStripOpen, setOutsideStripOpen] = usePersistentBoolean("refr:browse:strip-outside", () => true);
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  useEffect(() => { setRemoved(new Set()); }, [selected]);
-
-  const acceptTile = useCallback((id: string) => {
-    if (!selected) return;
-    setTags.mutate({ fileIds: [id], add: [selected], remove: [] });
-    setRemoved((p) => new Set(p).add(id));
-  }, [selected, setTags]);
-  const denyTile = useCallback((id: string) => {
-    if (!selected) return;
-    excludeSuggestion.mutate({ tag: selected, fileId: id });
-    setRemoved((p) => new Set(p).add(id));
-  }, [selected, excludeSuggestion]);
   const openWith = useCallback((items: { fileId: string }[], id: string) => {
     publishViewerList({ items: items.map((s) => ({ id: s.fileId, mediaType: "image", width: null, height: null, duration: null, mtime: 0 })), loadMore: null, hasMore: false });
     const p = new URLSearchParams(window.location.search);
@@ -158,9 +140,9 @@ export default function BrowsePage() {
     router.push(`${pathname}?${p.toString()}`);
   }, [router, pathname]);
 
-  const suggestedItems = (suggestions.data ?? []).filter((s) => !removed.has(s.fileId));
-  const parentItems = (withinParent.data ?? []).filter((s) => !removed.has(s.fileId));
-  const outsideItems = (outsideRoot.data ?? []).filter((s) => !removed.has(s.fileId));
+  const suggestedItems = (suggestions.data ?? []).filter((s) => !decisions.hiddenIds.has(s.fileId));
+  const parentItems = (withinParent.data ?? []).filter((s) => !decisions.hiddenIds.has(s.fileId));
+  const outsideItems = (outsideRoot.data ?? []).filter((s) => !decisions.hiddenIds.has(s.fileId));
   const anySuggestionData =
     (suggestions.data?.length ?? 0) > 0 || (withinParent.data?.length ?? 0) > 0 || (outsideRoot.data?.length ?? 0) > 0;
   const totalSuggestions = suggestedItems.length + parentItems.length + outsideItems.length;
@@ -260,8 +242,9 @@ export default function BrowsePage() {
                       setOpen={setStripOpen}
                       onRefresh={() => void suggestions.refetch()}
                       onOpen={(id) => openWith(suggestedItems, id)}
-                      onAccept={acceptTile}
-                      onDeny={denyTile}
+                       onAccept={decisions.accept}
+                       onDeny={decisions.deny}
+                       isPending={decisions.isPending}
                     />
                     {parentTag !== null && (
                       <SuggestionStrip
@@ -273,8 +256,9 @@ export default function BrowsePage() {
                         setOpen={setParentStripOpen}
                         onRefresh={() => void withinParent.refetch()}
                         onOpen={(id) => openWith(parentItems, id)}
-                        onAccept={acceptTile}
-                        onDeny={denyTile}
+                         onAccept={decisions.accept}
+                         onDeny={decisions.deny}
+                         isPending={decisions.isPending}
                       />
                     )}
                     {parentTag !== null && (
@@ -287,8 +271,9 @@ export default function BrowsePage() {
                         setOpen={setOutsideStripOpen}
                         onRefresh={() => void outsideRoot.refetch()}
                         onOpen={(id) => openWith(outsideItems, id)}
-                        onAccept={acceptTile}
-                        onDeny={denyTile}
+                         onAccept={decisions.accept}
+                         onDeny={decisions.deny}
+                         isPending={decisions.isPending}
                       />
                     )}
                   </div>
@@ -369,6 +354,7 @@ function SuggestionStrip({
   onOpen,
   onAccept,
   onDeny,
+  isPending,
 }: {
   title: string;
   items: { fileId: string; score: number }[];
@@ -380,6 +366,7 @@ function SuggestionStrip({
   onOpen: (id: string) => void;
   onAccept: (id: string) => void;
   onDeny: (id: string) => void;
+  isPending: (id: string) => boolean;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const tilesMounted = open && items.length > 0;
@@ -415,20 +402,24 @@ function SuggestionStrip({
           <div ref={scrollRef} className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
             {items.map((s) => (
               <div key={s.fileId} className="tile" style={{ width: 220, height: 222 }}>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={`/api/thumb/${s.fileId}`} alt="" onClick={() => onOpen(s.fileId)} />
+                 <button type="button" className="tile-open" aria-label="Open suggested image" onClick={() => onOpen(s.fileId)}>
+                   {/* eslint-disable-next-line @next/next/no-img-element */}
+                   <img src={`/api/thumb/${s.fileId}`} alt="" />
+                 </button>
                 <button
                   className="check"
                   style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
-                  title="Accept tag"
+                   title="Accept tag"
+                   disabled={isPending(s.fileId)}
                   onClick={() => onAccept(s.fileId)}
                 >
                   ✓
                 </button>
                 <button
                   className="deny"
-                  style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
-                  title="Exclude from suggestions"
+                   style={{ opacity: 1, background: "var(--danger)", borderColor: "var(--danger)", width: 32, height: 32, fontSize: 18 }}
+                   title="Exclude from suggestions"
+                   disabled={isPending(s.fileId)}
                   onClick={() => onDeny(s.fileId)}
                 >
                   ✕
@@ -446,7 +437,7 @@ function SuggestionStrip({
 
 function Card({ node, onOpen }: { node: TreeNodeData; onOpen: () => void }) {
   return (
-    <div
+    <button type="button"
       className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg p-4 text-center"
       style={{ width: 120, height: 96, background: "var(--panel)", border: "1px solid var(--border)" }}
       onClick={onOpen}
@@ -456,6 +447,6 @@ function Card({ node, onOpen }: { node: TreeNodeData; onOpen: () => void }) {
       </svg>
       <div className="w-full truncate text-xs">{node.name}</div>
       {node.count !== undefined && <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>{node.count}</div>}
-    </div>
+    </button>
   );
 }

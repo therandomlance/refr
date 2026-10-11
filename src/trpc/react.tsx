@@ -9,6 +9,7 @@ import SuperJSON from "superjson";
 
 import { type AppRouter } from "refr/server/api/root";
 import { createQueryClient } from "./query-client";
+import { ActionFeedback } from "refr/app/_components/action-feedback";
 
 let clientQueryClientSingleton: QueryClient | undefined = undefined;
 const getQueryClient = () => {
@@ -65,7 +66,7 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
   return (
     <QueryClientProvider client={queryClient}>
       <api.Provider client={trpcClient} queryClient={queryClient}>
-        {props.children}
+        <ActionFeedback>{props.children}</ActionFeedback>
       </api.Provider>
     </QueryClientProvider>
   );

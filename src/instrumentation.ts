@@ -39,21 +39,15 @@ export async function register() {
 
   // thumbnail catch-up for any files missing thumbs. Migrate the flat layout
   // first so hasThumb() sees existing files instead of re-encoding everything.
-  const { hasThumb, enqueueThumbs, migrateThumbLayout } = await import("./server/services/thumbs");
+  const { catchUpMissingThumbs, migrateThumbLayout, setOnThumbDrain } = await import("./server/services/thumbs");
+  const { bootMl, enqueueEmbeddings } = await import("./server/services/ml");
+  setOnThumbDrain(() => void enqueueEmbeddings());
   const moved = await migrateThumbLayout();
   if (moved > 0) console.log(`[thumbs] migrated ${moved} thumbnails into sharded subdirs`);
-  const files = await db.file.findMany({
-    select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
-  });
-  enqueueThumbs(
-    files
-      .filter((f) => f.paths[0] && !hasThumb(f.id))
-      .map((f) => ({ fileId: f.id, mediaType: f.mediaType, path: f.paths[0]!.path })),
-  );
+  void catchUpMissingThumbs().catch((e) => console.error("[thumbs] catch-up failed:", e));
 
   const { startScheduler } = await import("./server/services/scheduler");
   startScheduler();
 
-  const { bootMl } = await import("./server/services/ml");
   await bootMl();
 }

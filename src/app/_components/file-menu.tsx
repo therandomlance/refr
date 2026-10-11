@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
 import { TagPromptDialog } from "./dialog";
+import { useTagEdit } from "./tag-actions";
+import { moveQueueItems } from "refr/lib/queue-order";
 
 /**
  * Shared context actions (§10.2) for grid tiles + viewer: queue, palette,
@@ -32,12 +34,10 @@ export function useFileContextMenu(
 
   const setQueue = api.queue.set.useMutation({ onSuccess: () => void utils.queue.get.invalidate() });
   const sendTo = api.files.sendTo.useMutation();
-  const setTags = api.tags.setTags.useMutation({
-    onSuccess: () => void utils.tags.invalidate(),
-  });
+  const setTags = useTagEdit();
 
   const open = (e: React.MouseEvent, fileId: string) => {
-    // right-click on an unselected tile → act on it alone; on a selected tile → act on selection
+    // Actions on an unselected tile act on it alone; selected tiles act on the selection.
     const fileIds = selection.has(fileId) ? [...selection] : [fileId];
     if (!selection.has(fileId) && selection.size > 0) onSelectionChange?.(new Set([fileId]));
     setMenu({ x: e.clientX, y: e.clientY, fileIds });
@@ -128,6 +128,8 @@ export function useFileContextMenu(
         reorder.onReorder(fn(all.filter((id) => !fileIds.includes(id)), all.filter((id) => fileIds.includes(id))));
       items.push(
         "sep",
+        { label: "Move up", onClick: () => reorder.onReorder(moveQueueItems(all, new Set(fileIds), -1)) },
+        { label: "Move down", onClick: () => reorder.onReorder(moveQueueItems(all, new Set(fileIds), 1)) },
         { label: "Move to start", onClick: () => move((rest, sel) => [...sel, ...rest]) },
         { label: "Move to end", onClick: () => move((rest, sel) => [...rest, ...sel]) },
       );

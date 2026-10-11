@@ -153,9 +153,31 @@
 /* ---------- base ---------- */
 * { box-sizing: border-box; }
 html, body { height: 100%; }
+:root { --danger: #a33; --danger-fg: #fff; }
 body {
   background: var(--bg); color: var(--text);
   font-size: 14px; margin: 0;
+}
+
+:where(button, a, input, select, textarea, summary):focus-visible {
+  outline: 2px solid var(--accent); outline-offset: 3px;
+}
+button:disabled { cursor: not-allowed; opacity: .5; }
+button, summary { touch-action: manipulation; }
+.input[aria-invalid="true"] { border-color: var(--danger); }
+.state-message { padding: 16px; font-size: 13px; color: var(--text-dim); }
+.search-help { color: var(--text-dim); border-bottom: 1px solid var(--border); }
+.search-help p { max-width: 80ch; line-height: 1.6; }
+.action-feedback {
+  position: fixed; z-index: 120; bottom: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 12px; max-width: calc(100vw - 32px);
+  padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--panel); color: var(--text); box-shadow: var(--shadow-sm);
+}
+.action-feedback span { overflow-wrap: anywhere; }
+.action-feedback .btn { flex: none; }
+@media (max-width: 640px) {
+  .action-feedback { bottom: calc(76px + env(safe-area-inset-bottom)); width: calc(100vw - 32px); }
 }
 
 /* ---------- icon rail ---------- */
@@ -212,6 +234,8 @@ body {
 .trow.sel { background: var(--active); color: var(--accent); font-weight: 500; }
 .trow .caret { width: 24px; flex: none; text-align: center; font-size: 10px; opacity: .7; padding: 4px 0; }
 .trow .count { margin-left: auto; font-size: 11px; color: var(--text-faint); }
+.tree-select { flex: 1; min-width: 0; text-align: left; overflow: hidden; text-overflow: ellipsis; }
+.tree-actions { width: 28px; flex: none; }
 .tkids { margin-left: 17px; border-left: 1px solid var(--border); padding-left: 4px; }
 
 @media (hover: hover) {
@@ -244,8 +268,21 @@ body {
 .ghead .gseg { display: flex; align-items: center; gap: 8px; flex: 1 1 auto; min-width: 0; }
 .ghead .gseg-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tile {
-  position: relative; border-radius: var(--tile-radius); overflow: hidden;
+  position: relative; width: 100%; height: 100%; border-radius: var(--tile-radius); overflow: hidden;
   cursor: pointer; background: var(--hover); flex: none;
+}
+.tile-open { position: absolute; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: pointer; }
+.tile:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.tile-open:focus-visible { outline-offset: -3px; }
+.tile:focus-within .check, .tile:focus-within .deny { opacity: 1; }
+.tile-menu {
+  position: absolute; bottom: 8px; right: 8px; width: 32px; height: 32px;
+  border-radius: var(--radius); border: 1px solid var(--border); background: var(--panel); color: var(--text);
+  font-size: 20px; opacity: 0; cursor: pointer;
+}
+.tile:hover .tile-menu, .tile:focus-within .tile-menu { opacity: 1; }
+@media (hover: none) {
+  .tile .tile-menu, .tile .check, .tile .deny { opacity: 1; min-width: 44px; min-height: 44px; }
 }
 .tile img { width: 100%; height: 100%; object-fit: cover; transition: transform .18s ease; display: block; }
 .tile .ovl {
@@ -272,7 +309,7 @@ body {
   position: absolute; bottom: 6px; right: 6px; font-size: 10px; padding: 2px 6px;
   background: rgba(0,0,0,.55); color: #fff; border-radius: 4px; opacity: 0; transition: opacity .15s;
 }
-.tile.vid .badge { opacity: 1; }
+.tile.vid .badge { opacity: 1; left: 8px; right: auto; pointer-events: none; }
 
 /* ponytail: hover-only states gated to hover-capable devices; :hover sticks after tap on touch */
 @media (hover: hover) {
@@ -356,7 +393,7 @@ body {
   border-radius: calc(var(--radius) - 2px); padding: 9px 16px; font-size: 13px; cursor: pointer;
 }
 .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
-.btn.danger { background: #a33; border-color: #a33; color: #fff; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: var(--danger-fg); }
 select.input { cursor: pointer; }
 
 @media (hover: hover) {

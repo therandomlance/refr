@@ -1,5 +1,6 @@
 import "server-only";
 import { db } from "refr/server/db";
+import type { Prisma } from "../../../generated/prisma";
 import { invalidateTagVectors, invalidateAllTagVectors } from "./ml";
 
 /** trim, collapse repeated '/', strip leading/trailing '/', lowercase. */
@@ -12,6 +13,23 @@ export function ancestors(name: string): string[] {
   return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
 }
 
+export type TagChange = { fileId: string; before: string[]; after: string[] };
+export class TagUndoConflict extends Error {}
+
+function invalidateTags(names: string[]) {
+  invalidateTreeCache();
+  const affected = new Set(names.flatMap((name) => ancestors(name)));
+  return invalidateTagVectors([...affected]);
+}
+
+async function namesFor(tx: Prisma.TransactionClient, fileIds: string[]) {
+  const links = await tx.fileTag.findMany({ where: { fileId: { in: fileIds } }, include: { tag: true } });
+  const names = new Map(fileIds.map((id) => [id, [] as string[]]));
+  for (const { fileId, tag } of links) names.get(fileId)?.push(tag.name);
+  for (const values of names.values()) values.sort();
+  return names;
+}
+
 async function getOrCreateTag(name: string): Promise<number> {
   const n = normalize(name);
   const row = await db.tag.upsert({ where: { name: n }, create: { name: n }, update: {} });
@@ -21,8 +39,9 @@ async function getOrCreateTag(name: string): Promise<number> {
 /** Bulk add/remove tags on files. Adding a tag also removes its now-redundant
  *  ancestor tags from the affected files (a child implies its parents). */
 export async function setTags(fileIds: string[], add: string[], remove: string[]) {
-  if (fileIds.length === 0) return;
-  await db.$transaction(async (tx) => {
+  if (fileIds.length === 0) return { changes: [] as TagChange[] };
+  const changes = await db.$transaction(async (tx) => {
+    const before = await namesFor(tx, [...new Set(fileIds)]);
     for (const name of add) {
       const n = normalize(name);
       if (!n) continue;
@@ -47,17 +66,34 @@ export async function setTags(fileIds: string[], add: string[], remove: string[]
         where: { fileId: { in: fileIds }, tag: { name: n } },
       });
     }
+    const after = await namesFor(tx, [...new Set(fileIds)]);
+    return [...before].flatMap(([fileId, tags]) => {
+      const next = after.get(fileId)!;
+      return JSON.stringify(tags) === JSON.stringify(next) ? [] : [{ fileId, before: tags, after: next }];
+    });
   });
-  if (add.length || remove.length) {
-    invalidateTreeCache();
-    // invalidate vectors for the touched tags + their ancestors (whose centroids
-    // also shift when a descendant file set changes) — precise, not global
-    const affected = new Set<string>();
-    for (const n of [...add, ...remove]) {
-      for (const a of ancestors(normalize(n))) affected.add(a);
+  if (changes.length) await invalidateTags(changes.flatMap((c) => [...c.before, ...c.after]));
+  return { changes };
+}
+
+export async function undoTags(changes: TagChange[]): Promise<void> {
+  if (!changes.length) return;
+  await db.$transaction(async (tx) => {
+    const current = await namesFor(tx, [...new Set(changes.map((c) => c.fileId))]);
+    for (const change of changes) {
+      if (JSON.stringify(current.get(change.fileId)) !== JSON.stringify([...change.after].sort())) {
+        throw new TagUndoConflict(`Cannot undo tag change for ${change.fileId}: its tags have changed since the operation.`);
+      }
     }
-    await invalidateTagVectors([...affected]);
-  }
+    for (const change of changes) {
+      await tx.fileTag.deleteMany({ where: { fileId: change.fileId } });
+      for (const name of change.before) {
+        const tag = await tx.tag.upsert({ where: { name }, create: { name }, update: {} });
+        await tx.fileTag.create({ data: { fileId: change.fileId, tagId: tag.id } });
+      }
+    }
+  });
+  await invalidateTags(changes.flatMap((c) => [...c.before, ...c.after]));
 }
 
 /** Rename a tag and rewrite every descendant. Merges collisions. */
@@ -134,20 +170,20 @@ const TREE_TTL = 5000;
 /** Full tag list with counts including descendants, deduped per file. */
 export async function tree(): Promise<TreeNode[]> {
   if (treeCache && Date.now() - treeCache.at < TREE_TTL) return treeCache.data;
-  const links = await db.fileTag.findMany({
-    select: { fileId: true, tag: { select: { name: true } } },
-  });
-  const counts = new Map<string, Set<string>>();
-  for (const l of links) {
-    for (const prefix of ancestors(l.tag.name)) {
-      let set = counts.get(prefix);
-      if (!set) counts.set(prefix, (set = new Set()));
-      set.add(l.fileId);
-    }
-  }
-  const data = [...counts.entries()]
-    .map(([name, set]) => ({ name, count: set.size }))
-    .sort((a, b) => a.name.localeCompare(b.name));
+  const rows = await db.$queryRaw<{ name: string; count: bigint }[]>`
+    WITH RECURSIVE prefixes(tagId, name, prefix, rest) AS (
+      SELECT id, name, '', name FROM Tag
+      UNION ALL
+      SELECT tagId, name,
+        CASE WHEN prefix = '' THEN substr(rest, 1, instr(rest || '/', '/') - 1)
+             ELSE prefix || '/' || substr(rest, 1, instr(rest || '/', '/') - 1) END,
+        CASE WHEN instr(rest, '/') = 0 THEN '' ELSE substr(rest, instr(rest, '/') + 1) END
+      FROM prefixes WHERE rest <> ''
+    )
+    SELECT p.prefix AS name, COUNT(DISTINCT ft.fileId) AS count
+    FROM prefixes p JOIN FileTag ft ON ft.tagId = p.tagId
+    WHERE p.prefix <> '' GROUP BY p.prefix ORDER BY p.prefix`;
+  const data = rows.map(({ name, count }) => ({ name, count: Number(count) }));
   treeCache = { at: Date.now(), data };
   return data;
 }

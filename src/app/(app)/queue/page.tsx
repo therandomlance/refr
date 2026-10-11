@@ -7,6 +7,7 @@ import { SidePanel } from "refr/app/_components/side-panel";
 import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
+import { moveQueueItems } from "refr/lib/queue-order";
 
 export default function QueuePage() {
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -26,6 +27,8 @@ export default function QueuePage() {
   const deleteSaved = api.queue.deleteSaved.useMutation({ onSuccess: () => void utils.queue.listSaved.invalidate() });
 
   const ids = queue.data ?? [];
+  const up = moveQueueItems(ids, selection, -1);
+  const down = moveQueueItems(ids, selection, 1);
   const fileMenu = useFileContextMenu(selection, setSelection, {
     allIds: ids,
     onReorder: (next) => setQueue.mutate({ fileIds: next }),
@@ -53,13 +56,16 @@ export default function QueuePage() {
             <div
               key={name}
               className="trow"
-              onClick={() => (ids.length > 0 ? setLoadOf(name) : load.mutate({ name }))}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setSavedMenu({ name, x: e.clientX, y: e.clientY });
               }}
             >
-              <span className="overflow-hidden text-ellipsis">{name}</span>
+              <button type="button" className="tree-select" onClick={() => (ids.length > 0 ? setLoadOf(name) : load.mutate({ name }))}>{name}</button>
+              <button type="button" className="tree-actions" aria-label={`Actions for ${name}`} onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setSavedMenu({ name, x: r.left, y: r.bottom });
+              }}>⋮</button>
             </div>
           ))}
           {saved.data?.length === 0 && (
@@ -69,13 +75,18 @@ export default function QueuePage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs" style={{ color: "var(--text-dim)" }}>
+          <span>Select images to reorder. Drag or use:</span>
+          <button className="btn" disabled={setQueue.isPending || up.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: up })}>↑ Move up</button>
+          <button className="btn" disabled={setQueue.isPending || down.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: down })}>↓ Move down</button>
+        </div>
         <MediaGrid
           source={{ kind: "ids", ids }}
           selection={selection}
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           onReorder={(next) => setQueue.mutate({ fileIds: next })}
-          emptyState="Queue is empty. Right-click images elsewhere to add them."
+          emptyState="Queue is empty. Open an image’s ⋮ actions elsewhere to add it."
         />
       </main>
 

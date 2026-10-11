@@ -151,10 +151,10 @@ function SessionCard({
             History
           </div>
           {(history.data ?? []).map((h, i) => (
-            <div key={i} className="trow mt-1" onClick={() => onReplay(i)}>
+            <button type="button" key={i} className="trow mt-1 w-full text-left" onClick={() => onReplay(i)}>
               <span>{new Date(h.date).toLocaleString()}</span>
               <span className="count">{h.blocks.reduce((n, b) => n + b.fileIds.length, 0)} images</span>
-            </div>
+            </button>
           ))}
           {history.data?.length === 0 && (
             <p className="py-2 text-xs" style={{ color: "var(--text-faint)" }}>No runs yet.</p>

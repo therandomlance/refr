@@ -9,8 +9,9 @@ import { TagInput } from "refr/app/_components/tag-input";
 import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { SavedSearches } from "refr/app/_components/saved-searches";
 import { PromptDialog } from "refr/app/_components/dialog";
-import { commitToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
+import { commitToken, isVectorToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
 import { KEYWORD_NAMES } from "refr/lib/keywords";
+import { useSuggestionActions } from "refr/app/_components/tag-actions";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -26,24 +27,11 @@ export default function SearchPage() {
   const saved = api.searches.list.useQuery();
   const utils = api.useUtils();
   const saveM = api.searches.save.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
-  const setTags = api.tags.setTags.useMutation();
-  const excludeSuggestion = api.ml.excludeSuggestion.useMutation();
 
   // suggest:<tag> chip → tiles get the same accept/deny actions as the browse
   // suggestion strips, scoped to that tag.
   const suggestTag = tokens.find((t) => t.kind === "tag" && t.tag.startsWith("suggest:"))?.tag.slice("suggest:".length);
-  const [resolved, setResolved] = useState<Set<string>>(new Set());
-  useEffect(() => setResolved(new Set()), [suggestTag]);
-  const acceptTile = (id: string) => {
-    if (!suggestTag) return;
-    setTags.mutate({ fileIds: [id], add: [suggestTag], remove: [] });
-    setResolved((p) => new Set(p).add(id));
-  };
-  const denyTile = (id: string) => {
-    if (!suggestTag) return;
-    excludeSuggestion.mutate({ tag: suggestTag, fileId: id });
-    setResolved((p) => new Set(p).add(id));
-  };
+  const decisions = useSuggestionActions(suggestTag ?? null);
   // keep ?q= in sync (JSON form — shareable)
   useEffect(() => {
     const p = new URLSearchParams(params.toString());
@@ -64,9 +52,7 @@ export default function SearchPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [params]);
 
-  const hasVectorChip = tokens.some(
-    (t) => t.kind === "text" || t.kind === "similar" || (t.kind === "tag" && t.tag.startsWith("suggest:")),
-  );
+  const hasVectorChip = tokens.some(isVectorToken);
   const mlStatus = api.ml.status.useQuery();
 
   // similarity is the natural ordering for semantic/similar search; revert to
@@ -83,19 +69,17 @@ export default function SearchPage() {
   const addChip = useCallback(
     (raw: string, suggestion?: string) => {
       // quote-prefixed = semantic text chip from the autocomplete fallback row
-      const isVector = (t: Token) =>
-        t.kind === "text" || t.kind === "similar" || (t.kind === "tag" && t.tag.startsWith("suggest:"));
       if (raw.startsWith('"')) {
         const value = raw.slice(1);
         setTokens((ts) =>
-          ts.some(isVector) ? ts : [...ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }],
+          ts.some(isVectorToken) ? ts : [...ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }],
         );
         return;
       }
       const token = commitToken(raw, suggestion);
       if (!token) return;
-      if (isVector(token)) {
-        setTokens((ts) => (ts.some(isVector) ? ts : [...ts, token]));
+      if (isVectorToken(token)) {
+        setTokens((ts) => (ts.some(isVectorToken) ? ts : [...ts, token]));
         return;
       }
       setTokens((ts) => [...ts, token]);
@@ -166,6 +150,13 @@ export default function SearchPage() {
           </div>
         </div>
 
+        <details className="search-help px-4 py-2 text-xs">
+          <summary className="cursor-pointer">Search tips</summary>
+          <p className="mt-2">Plain chips use AND and include descendants. <code>~figure ~gesture</code> means either; <code>-nsfw</code> excludes; <code>=figure</code> matches only that tag. <code>figure/*</code> is a wildcard. <code>path:library</code> filters folders; <code>=path:library</code> keeps direct children.</p>
+          <p className="mt-1">Use autocomplete for multi-word tags. One text, similar-image, or <code>suggest:tag</code> chip can be combined with tag filters.</p>
+        </details>
+        {hasVectorChip && mlStatus.data?.state !== "ready" && <p role="status" className="state-message">Semantic search is unavailable. Tag filters still work.</p>}
+
         <MediaGrid
           source={{ kind: "search", tokens }}
           sort={sort}
@@ -174,7 +165,7 @@ export default function SearchPage() {
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
-          hiddenIds={resolved}
+          hiddenIds={decisions.hiddenIds}
           tileActions={
             suggestTag
               ? (f) => (
@@ -183,15 +174,17 @@ export default function SearchPage() {
                       className="check"
                       style={{ opacity: 1, background: "var(--accent)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
                       title="Accept tag"
-                      onClick={(e) => { e.stopPropagation(); acceptTile(f.id); }}
+                      disabled={decisions.isPending(f.id)}
+                      onClick={(e) => { e.stopPropagation(); decisions.accept(f.id); }}
                     >
                       ✓
                     </button>
                     <button
                       className="deny"
-                      style={{ opacity: 1, background: "#a33", borderColor: "#a33", width: 32, height: 32, fontSize: 18 }}
+                      style={{ opacity: 1, background: "var(--danger)", borderColor: "var(--danger)", width: 32, height: 32, fontSize: 18 }}
                       title="Exclude from suggestions"
-                      onClick={(e) => { e.stopPropagation(); denyTile(f.id); }}
+                      disabled={decisions.isPending(f.id)}
+                      onClick={(e) => { e.stopPropagation(); decisions.deny(f.id); }}
                     >
                       ✕
                     </button>

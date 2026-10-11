@@ -7,7 +7,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "refr/server/db";
 import * as config from "./config";
-import { deleteThumb, enqueueThumbs, hasThumb, setOnThumbDrain } from "./thumbs";
+import { catchUpMissingThumbs, deleteThumb, setOnThumbDrain } from "./thumbs";
 import { enqueueEmbeddings } from "./ml";
 
 const execFileP = promisify(execFile);
@@ -178,6 +178,7 @@ async function runScan() {
       const p = f.paths[0]?.path;
       if (!p) continue;
       const probed = await probe(p, f.mediaType as "image" | "video");
+      if (probed.width == null && probed.height == null && !("duration" in probed)) continue;
       await db.file.update({
         where: { id: f.id },
         data: {
@@ -197,7 +198,7 @@ async function runScan() {
       await db.file.update({ where: { id: fileId }, data: { mtime: max } });
     }
 
-    await enqueueMissingThumbs();
+    enqueueMissingThumbs();
     await enqueueEmbeddings(); // no-op when ML disabled
   } finally {
     progress.running = false;
@@ -254,20 +255,13 @@ async function hashAndAttach(
   }
 }
 
-async function enqueueMissingThumbs() {
+function enqueueMissingThumbs() {
   progress.phase = "thumbnails";
-  const files = await db.file.findMany({
-    select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
-  });
-  const want = files.filter((f) => f.paths[0] && !hasThumb(f.id));
-  progress.total = want.length;
   progress.processed = 0;
-  enqueueThumbs(
-    want.map((f) => ({ fileId: f.id, mediaType: f.mediaType, path: f.paths[0]!.path })),
-  );
   // New files get thumbs asynchronously; once the FIFO drains, retry embeddings
   // for any that were skipped for lack of a thumbnail.
   setOnThumbDrain(() => void enqueueEmbeddings());
+  void catchUpMissingThumbs().catch((e) => console.error("[thumbs] catch-up failed:", e));
 }
 
 /** Purge: delete File rows with zero paths (+ their thumbnails). Returns count deleted. */

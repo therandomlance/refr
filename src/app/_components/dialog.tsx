@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { TagInput } from "./tag-input";
 
@@ -17,15 +17,26 @@ export function Dialog({
   wide?: boolean;
   dismissOnBackdrop?: boolean;
 }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const titleId = useId();
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector<HTMLElement>("input, button, [tabindex='0']")?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
   return (
     <div className="dialog-bg" onClick={dismissOnBackdrop ? onClose : undefined}>
-      <div className="dialog" style={wide ? { maxWidth: 1080, width: "100%" } : undefined} onClick={(e) => e.stopPropagation()}>
-        <h2 className="mb-3 text-base font-semibold">{title}</h2>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dialog" style={wide ? { maxWidth: 1080, width: "100%" } : undefined} onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") { e.stopPropagation(); onClose(); }
+          if (e.key !== "Tab") return;
+          const controls = [...e.currentTarget.querySelectorAll<HTMLElement>("button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex='0']")];
+          const first = controls[0];
+          const last = controls[controls.length - 1];
+          if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last?.focus(); }
+          else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first?.focus(); }
+        }}>
+        <h2 id={titleId} className="mb-3 text-base font-semibold">{title}</h2>
         {children}
       </div>
     </div>
@@ -119,7 +130,7 @@ export function TagPromptDialog({
       {suggestedQ.data && suggestedQ.data.length > 0 && (
         <div className="mb-3 flex flex-wrap gap-1">
           {suggestedQ.data.map((s) => (
-            <span
+            <button type="button"
               key={s.tag}
               className="chip"
               style={{ cursor: "pointer", border: "1px dashed var(--border)" }}
@@ -129,7 +140,7 @@ export function TagPromptDialog({
               }}
             >
               + {s.tag}
-            </span>
+            </button>
           ))}
         </div>
       )}

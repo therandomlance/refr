@@ -13,9 +13,14 @@ const execFileP = promisify(execFile);
 export type ThumbJob = { fileId: string; mediaType: string; path: string };
 
 const queue: ThumbJob[] = [];
-const queued = new Set<string>();
+const active = new Set<string>();
 let workers = 0;
 const CONCURRENCY = 2;
+const MAX_PENDING = 256;
+const PAGE_SIZE = 100;
+let catchup: Promise<void> | null = null;
+let producers = 0;
+const capacityWaiters: (() => void)[] = [];
 let total = 0;
 let processed = 0;
 let onDrain: (() => void) | null = null;
@@ -25,7 +30,48 @@ export function setOnThumbDrain(cb: (() => void) | null) {
 
 /** Queue progress since boot (per module instance, like scan progress). */
 export function thumbStatus() {
-  return { running: queue.length > 0 || workers > 0, pending: queue.length + workers, processed, total };
+  return { running: producers > 0 || queue.length > 0 || workers > 0, pending: queue.length + workers, processed, total };
+}
+
+/** Single-flight, keyset-paged sweep; disk checks and production stay off request paths. */
+export function catchUpMissingThumbs(): Promise<void> {
+  if (catchup) return catchup;
+  producers++;
+  catchup = (async () => {
+    let cursor: string | undefined;
+    for (;;) {
+      const files = await db.file.findMany({
+        ...(cursor ? { where: { id: { gt: cursor } } } : {}),
+        orderBy: { id: "asc" },
+        take: PAGE_SIZE,
+        select: { id: true, mediaType: true, paths: { select: { path: true }, take: 1 } },
+      });
+      if (files.length === 0) break;
+      cursor = files[files.length - 1]!.id;
+      const missing = await Promise.all(files.map(async (f) =>
+        f.paths[0] && !(await fsp.access(thumbPath(f.id)).then(() => true, () => false))
+          ? { fileId: f.id, mediaType: f.mediaType, path: f.paths[0].path }
+          : null));
+      for (const job of missing) {
+        if (!job) continue;
+        while (queue.length + workers >= MAX_PENDING) await new Promise<void>((resolve) => capacityWaiters.push(resolve));
+        enqueueThumbs([job]);
+      }
+      if (files.length < PAGE_SIZE) break;
+    }
+  })().finally(() => {
+    catchup = null;
+    producers--;
+    notifyDrain();
+  });
+  return catchup;
+}
+
+function notifyDrain() {
+  if (!queue.length && !workers) {
+    if (producers === 0) onDrain?.();
+    for (const resolve of capacityWaiters.splice(0)) resolve();
+  }
 }
 
 /** 2-hex shard: keeps any one directory to a manageable size. */
@@ -64,8 +110,8 @@ export async function migrateThumbLayout(): Promise<number> {
 export function enqueueThumbs(jobs: ThumbJob[]) {
   let added = 0;
   for (const j of jobs) {
-    if (queued.has(j.fileId)) continue;
-    queued.add(j.fileId);
+    if (active.has(j.fileId)) continue;
+    active.add(j.fileId);
     queue.push(j);
     added++;
   }
@@ -76,15 +122,16 @@ export function enqueueThumbs(jobs: ThumbJob[]) {
 function pump() {
   while (workers < CONCURRENCY && queue.length > 0) {
     const job = queue.shift()!;
-    queued.delete(job.fileId);
     workers++;
     void makeThumb(job)
       .catch(() => undefined)
       .finally(() => {
         workers--;
+        active.delete(job.fileId);
         processed++;
         pump();
-        if (queue.length === 0 && workers === 0) onDrain?.();
+        for (const resolve of capacityWaiters.splice(0)) resolve();
+        notifyDrain();
       });
   }
 }

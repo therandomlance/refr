@@ -17,6 +17,10 @@ export const tokenSchema = z.object({
 
 export type Token = z.infer<typeof tokenSchema>;
 
+export function isVectorToken(token: Token): boolean {
+  return token.kind === "text" || token.kind === "similar" || (token.kind === "tag" && token.tag.startsWith("suggest:"));
+}
+
 export function makeToken(partial: Partial<Token> & { tag: string }): Token {
   return tokenSchema.parse({ wildcard: partial.tag.includes("*"), ...partial });
 }
@@ -168,6 +172,17 @@ const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
 
 export const KEYWORDS: Record<string, () => Sql> = KEYWORD_SQL;
 
+function tokenClause(t: Token): Sql {
+  const pc = pathClause(t);
+  if (pc) return t.negate ? { text: `NOT (${pc.text})`, params: pc.params } : pc;
+  const kw = KEYWORDS[t.tag];
+  if (kw && !t.exact && !t.wildcard) {
+    const k = kw();
+    return { text: t.negate ? `NOT (${k.text})` : k.text, params: k.params };
+  }
+  return existsClause(tagCond(t), t.negate);
+}
+
 /**
  * Translate tag tokens to a WHERE clause (without leading WHERE).
  * AND for plain terms, one OR group for all ~terms, NOT for -terms.
@@ -181,36 +196,13 @@ export function tokensToWhere(tokens: Token[]): Sql {
   const negated = tagTokens.filter((t) => t.negate);
   const ors = tagTokens.filter((t) => !t.negate && t.or);
 
-  for (const t of positive) {
-    const pc = pathClause(t);
-    if (pc) { clauses.push(pc.text); params.push(...pc.params); continue; }
-    const kw = KEYWORDS[t.tag];
-    if (kw && !t.exact && !t.wildcard) {
-      const k = kw();
-      clauses.push(t.negate ? `NOT (${k.text})` : k.text);
-      params.push(...k.params);
-      continue;
-    }
-    const c = existsClause(tagCond(t), false);
-    clauses.push(c.text);
-    params.push(...c.params);
-  }
-  for (const t of negated) {
-    const pc = pathClause(t);
-    if (pc) { clauses.push(`NOT (${pc.text})`); params.push(...pc.params); continue; }
-    const kw = KEYWORDS[t.tag];
-    if (kw && !t.exact && !t.wildcard) {
-      const k = kw();
-      clauses.push(`NOT (${k.text})`);
-      params.push(...k.params);
-      continue;
-    }
-    const c = existsClause(tagCond(t), true);
+  for (const t of [...positive, ...negated]) {
+    const c = tokenClause(t);
     clauses.push(c.text);
     params.push(...c.params);
   }
   if (ors.length > 0) {
-    const parts = ors.map((t) => existsClause(tagCond(t), false));
+    const parts = ors.map(tokenClause);
     clauses.push("(" + parts.map((p) => p.text).join(" OR ") + ")");
     params.push(...parts.flatMap((p) => p.params));
   }

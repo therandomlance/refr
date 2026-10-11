@@ -27,10 +27,16 @@ export function ContextMenu({
     if (!el) return;
     const r = el.getBoundingClientRect();
     setPos({
-      x: Math.min(x, window.innerWidth - r.width - 8),
-      y: Math.min(y, window.innerHeight - r.height - 8),
+      x: Math.max(8, Math.min(x, window.innerWidth - r.width - 8)),
+      y: Math.max(8, Math.min(y, window.innerHeight - r.height - 8)),
     });
   }, [x, y]);
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    ref.current?.querySelector("button")?.focus();
+    return () => { if (previous?.isConnected) previous.focus(); };
+  }, []);
 
   useEffect(() => {
     const close = () => onClose();
@@ -54,7 +60,16 @@ export function ContextMenu({
   }, [onClose]);
 
   return (
-    <div ref={ref} className="ctxmenu" style={{ left: pos.x, top: pos.y }} onClick={(e) => e.stopPropagation()}>
+    <div ref={ref} className="ctxmenu" aria-label="Actions" style={{ left: pos.x, top: pos.y }} onClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") { e.stopPropagation(); onClose(); return; }
+        if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(e.key)) return;
+        e.preventDefault();
+        const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
+        const index = buttons.indexOf(document.activeElement as HTMLButtonElement);
+        const next = e.key === "Home" ? 0 : e.key === "End" ? buttons.length - 1 : (index + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }}>
       {items.map((item, i) => {
         if (item === "sep") return <hr key={i} />;
         if ("submenu" in item) {
@@ -63,7 +78,7 @@ export function ContextMenu({
           const flipLeft = pos.x > window.innerWidth / 2;
           return (
             <div key={i} className="relative" onMouseEnter={() => setSub(i)} onMouseLeave={() => setSub(null)}>
-              <button onClick={(e) => { e.stopPropagation(); setSub(sub === i ? null : i); }}>{item.label} ▸</button>
+              <button aria-expanded={sub === i} onClick={(e) => { e.stopPropagation(); setSub(sub === i ? null : i); }}>{item.label} ▸</button>
               {sub === i && (
                 <div
                   className="ctxmenu"
@@ -80,7 +95,7 @@ export function ContextMenu({
         return (
           <button
             key={i}
-            style={item.danger ? { color: "#e66" } : undefined}
+            style={item.danger ? { color: "var(--danger)" } : undefined}
             onMouseEnter={() => setSub(null)}
             onClick={() => { item.onClick(); onClose(); }}
           >
