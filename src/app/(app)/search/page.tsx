@@ -150,11 +150,6 @@ export default function SearchPage() {
           </div>
         </div>
 
-        <details className="search-help px-4 py-2 text-xs">
-          <summary className="cursor-pointer">Search tips</summary>
-          <p className="mt-2">Plain chips use AND and include descendants. <code>~figure ~gesture</code> means either; <code>-nsfw</code> excludes; <code>=figure</code> matches only that tag. <code>figure/*</code> is a wildcard. <code>path:library</code> filters folders; <code>=path:library</code> keeps direct children.</p>
-          <p className="mt-1">Use autocomplete for multi-word tags. One text, similar-image, or <code>suggest:tag</code> chip can be combined with tag filters.</p>
-        </details>
         {hasVectorChip && mlStatus.data?.state !== "ready" && <p role="status" className="state-message">Semantic search is unavailable. Tag filters still work.</p>}
 
         <MediaGrid
@@ -165,10 +160,12 @@ export default function SearchPage() {
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
-          hiddenIds={decisions.hiddenIds}
           tileActions={
             suggestTag
               ? (f) => (
+                  decisions.hiddenIds.has(f.id) ? (
+                    <span className="absolute top-2 left-2 rounded px-2 py-1 text-xs" style={{ background: "var(--panel)", color: "var(--text)" }}>Reviewed ✓</span>
+                  ) : (
                   <>
                     <button
                       className="check"
@@ -189,6 +186,7 @@ export default function SearchPage() {
                       ✕
                     </button>
                   </>
+                  )
                 )
               : undefined
           }

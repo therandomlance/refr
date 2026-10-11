@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ failed: false }));
+const state = vi.hoisted(() => ({ failed: false, searchOptions: {} as { staleTime?: string } }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/queue", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(),
 }));
@@ -24,7 +24,7 @@ vi.mock("refr/trpc/react", () => {
   return { api: {
     useUtils: () => ({}),
     files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: () => ({}) } },
-    search: { query: { useInfiniteQuery: query }, timeline: { useQuery: () => ({}) } },
+    search: { query: { useInfiniteQuery: (_input: unknown, options: { staleTime?: string }) => { state.searchOptions = options; return query(); } }, timeline: { useQuery: () => ({}) } },
     settings: { get: { useQuery: () => ({}) }, patch: { useMutation: mutation } },
     tags: { setTags: { useMutation: mutation }, undo: { useMutation: mutation } },
   } };
@@ -49,4 +49,14 @@ it("renders separate keyboard controls and distinguishes failed queries from emp
   expect(failed).toContain("Try again");
   expect(failed).not.toContain("Nothing here yet");
   state.failed = false;
+});
+
+it("uses static candidates only for suggest searches and exposes manual refresh", () => {
+  const token = { kind: "tag" as const, tag: "suggest:figure", negate: false, exact: false, or: false, wildcard: false };
+  const props = { source: { kind: "search" as const, tokens: [token] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
+  const suggestions = renderToStaticMarkup(createElement(MediaGrid, props));
+  expect(state.searchOptions.staleTime).toBe("static");
+  expect(suggestions).toContain("Refresh suggestions");
+  renderToStaticMarkup(createElement(MediaGrid, { ...props, source: { kind: "search", tokens: [{ ...token, tag: "figure" }] } }));
+  expect(state.searchOptions.staleTime).toBeUndefined();
 });
