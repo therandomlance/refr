@@ -7,7 +7,7 @@ import { api } from "refr/trpc/react";
 import type { FileSummary, Sort, Token } from "refr/server/services/search";
 import { isVectorToken } from "refr/server/services/search";
 import type { TimelineBucket } from "refr/lib/timeline";
-import { buildRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
+import { buildRows, compactReviewRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
 import { ContextMenu } from "./context-menu";
@@ -224,7 +224,7 @@ export function MediaGrid({
   const gap = 4;
   const aspectOf = (f: FileSummary) => (f.width && f.height ? f.width / f.height : 1);
 
-  const rows: GridRow[] = useMemo(() => {
+  const originalRows: GridRow[] = useMemo(() => {
     if (layout === "vertical") return [];
     return buildRows({
       items,
@@ -235,6 +235,7 @@ export function MediaGrid({
       doGrouping: sort === "date" && source.kind !== "ids",
     });
   }, [items, layout, width, rowH, sort, grouping, source.kind]);
+  const rows = useMemo(() => hiddenIds?.size ? compactReviewRows(originalRows, hiddenIds, width, gap) : originalRows, [originalRows, hiddenIds, width, gap]);
 
   // vertical: assign each item to the shortest column
   const colWidth = Math.round(rowH * 1.3);
@@ -243,14 +244,14 @@ export function MediaGrid({
     if (layout !== "vertical") return [];
     const heights = new Array<number>(colCount).fill(0);
     const cols: { file: FileSummary; top: number; height: number }[][] = Array.from({ length: colCount }, () => []);
-    for (const f of items) {
+    for (const f of visibleItems) {
       const c = heights.indexOf(Math.min(...heights));
       const h = colWidth / aspectOf(f);
       cols[c]!.push({ file: f, top: heights[c]!, height: h });
       heights[c]! += h + gap;
     }
     return cols;
-  }, [items, layout, colCount, colWidth]);
+  }, [visibleItems, layout, colCount, colWidth]);
 
   // ---------------- virtualization
   // Stable per-content keys so prepended rows keep their measured sizes instead
@@ -801,11 +802,14 @@ export function MediaGrid({
                     <div className="flex" style={{ gap: row.groupSizes ? PACK_GAP : gap, height: row.height }}>
                       {chunkGroups(row.files, row.groupSizes).map((gf, gi) => (
                         <div key={gi} className="flex" style={{ gap }}>
-                           {gf.filter((f) => !hiddenIds?.has(f.id)).map((f) => (
-                            <div key={f.id} style={{ width: row.height * aspectOf(f) + 2 * PAD, padding: `0 ${PAD}px`, flex: "none" }}>
-                              {renderTileSized(f)}
-                            </div>
-                          ))}
+                           {gf.filter((f) => !hiddenIds?.has(f.id)).map((f) => {
+                             const tileHeight = row.tileHeights?.[row.files.indexOf(f)] ?? row.height;
+                             return (
+                             <div key={f.id} style={{ width: tileHeight * aspectOf(f) + 2 * PAD, height: tileHeight, padding: `0 ${PAD}px`, flex: "none" }}>
+                               {renderTileSized(f)}
+                             </div>
+                             );
+                           })}
                         </div>
                       ))}
                     </div>
@@ -818,7 +822,7 @@ export function MediaGrid({
         {layout === "vertical" && (
           <div className="flex" style={{ gap }}>
             {columns.map((col, ci) => (
-              <ColumnView key={ci} col={col} hiddenIds={hiddenIds} width={colWidth} gap={gap} scrollRef={scrollRef} renderTileSized={renderTileSized} />
+              <ColumnView key={ci} col={col} width={colWidth} gap={gap} scrollRef={scrollRef} renderTileSized={renderTileSized} />
             ))}
           </div>
         )}
@@ -867,39 +871,29 @@ export function MediaGrid({
 
 function ColumnView({
   col,
-  hiddenIds,
   width,
   gap,
   scrollRef,
   renderTileSized,
 }: {
   col: { file: FileSummary; top: number; height: number }[];
-  hiddenIds?: ReadonlySet<string>;
   width: number;
   gap: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   renderTileSized: (f: FileSummary) => React.ReactNode;
 }) {
-  const visibleCol = useMemo(() => {
-    let top = 0;
-    return col.filter((c) => !hiddenIds?.has(c.file.id)).map((c) => {
-      const placed = { ...c, top };
-      top += c.height + gap;
-      return placed;
-    });
-  }, [col, hiddenIds, gap]);
-  const total = visibleCol.reduce((m, c) => Math.max(m, c.top + c.height), 0);
+  const total = col.reduce((m, c) => Math.max(m, c.top + c.height), 0);
   const v = useVirtualizer({
-    count: visibleCol.length,
-    getItemKey: (i) => visibleCol[i]!.file.id,
+    count: col.length,
+    getItemKey: (i) => col[i]!.file.id,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => visibleCol[i]!.height + gap,
+    estimateSize: (i) => col[i]!.height + gap,
     overscan: 6,
   });
   return (
     <div style={{ width, flex: "none", height: total, position: "relative" }}>
       {v.getVirtualItems().map((vi) => {
-        const c = visibleCol[vi.index]!;
+        const c = col[vi.index]!;
         return (
           <div key={c.file.id} style={{ position: "absolute", top: c.top, left: 0, width, height: c.height, padding: PAD }}>
             {renderTileSized(c.file)}

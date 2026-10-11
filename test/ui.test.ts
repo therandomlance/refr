@@ -64,12 +64,11 @@ it("uses static candidates only for suggest searches and exposes manual refresh"
   expect(state.searchOptions.staleTime).toBeUndefined();
 });
 
-it("hides reviewed thumbnails without removing their row or changing grid heights", () => {
+it("hides reviewed thumbnails and restores their original layout on undo", () => {
   const props = { source: { kind: "ids" as const, ids: ["ui1"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
   const shown = renderToStaticMarkup(createElement(MediaGrid, props));
   const hidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui1"]) }));
   expect(hidden).not.toContain('aria-label="Open image 1"');
-  expect(hidden.match(/height:[\d.]+px/g)).toEqual(shown.match(/height:[\d.]+px/g));
   const restored = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }));
   expect(restored).toBe(shown);
 });
@@ -83,11 +82,11 @@ it("shifts later thumbnails with their own original dimensions and restores them
     const ids = (markup: string) => [...markup.matchAll(/data-file-id="([^"]+)"/g)].map((match) => match[1]);
     expect(ids(shown)).toEqual(["ui1", "ui2", "ui3"]);
     expect(ids(hidden)).toEqual(["ui1", "ui3"]);
-    const widths = (markup: string) => markup.match(/width:[\d.]+px/g);
-    const originalWidths = widths(shown)!;
-    expect(widths(hidden)).toEqual([originalWidths[0], originalWidths[2]]);
-    expect(originalWidths[1]).not.toBe(originalWidths[2]); // different aspect ratios
-    expect(hidden.match(/height:[\d.]+px/g)).toEqual(shown.match(/height:[\d.]+px/g));
+    const sizes = (markup: string) => [...markup.matchAll(/width:([\d.]+)px;height:([\d.]+)px;padding/g)].map((match) => [match[1], match[2]]);
+    const originalSizes = sizes(shown);
+    expect(originalSizes).toHaveLength(3);
+    expect(sizes(hidden)).toEqual([originalSizes[0], originalSizes[2]]);
+    expect(originalSizes[1]).not.toEqual(originalSizes[2]); // different aspect ratios
     expect(renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }))).toBe(shown);
   } finally { state.extraFiles = false; }
 });

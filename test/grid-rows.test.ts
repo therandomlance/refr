@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
+import { buildRows, compactReviewRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import type { FileSummary } from "refr/server/services/search";
 
 const DAY = 24 * 3600 * 1000;
@@ -17,6 +17,24 @@ function headers(rows: GridRow[]) {
 }
 
 const OPTS = { width: 1200, rowH: 200, gap: 4, grouping: "day" as const };
+
+it("pulls later rows forward without resizing thumbnails or moving earlier rows", () => {
+  const original: GridRow[] = [
+    { type: "tiles", files: [img("before", d0)], height: 80 },
+    { type: "tiles", files: [img("a", d0), img("b", d0)], height: 100 },
+    { type: "tiles", files: [img("c", d0), img("d", d0)], height: 150 },
+    { type: "tiles", files: [img("e", d0)], height: 90 },
+  ];
+  const compacted = compactReviewRows(original, new Set(["b"]), 400, 4);
+  expect(compacted[0]).toBe(original[0]);
+  const remaining = tiles(compacted);
+  expect(remaining.map((row) => row.files.map((file) => file.id))).toEqual([["before"], ["a", "c"], ["d", "e"]]);
+  expect(remaining[1]?.tileHeights).toEqual([100, 150]);
+  expect(remaining[2]?.tileHeights).toEqual([150, 90]);
+  expect(remaining[1]?.height).toBe(150);
+  expect(compactReviewRows(original, new Set(), 400, 4)).toBe(original);
+  expect(tiles(compactReviewRows(original, new Set(["a", "b", "c", "d", "e"]), 400, 4))).toHaveLength(1);
+});
 
 describe("buildRows", () => {
   it("packs multiple small groups onto one row with per-group header segments", () => {

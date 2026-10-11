@@ -163,7 +163,7 @@ export default function SearchPage() {
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
           hiddenIds={suggestTag && hideReviewed ? decisions.hiddenIds : undefined}
           toolbarActions={suggestTag ? (
-            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }} title="Later thumbnails shift forward without changing row heights">
+            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }} title="Later thumbnails shift forward without resizing">
               <input type="checkbox" checked={hideReviewed} onChange={(e) => setHideReviewed(e.target.checked)} />
               Hide reviewed thumbnails
             </label>
