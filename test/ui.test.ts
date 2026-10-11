@@ -85,6 +85,8 @@ it("shifts only later thumbnails into fixed slots and restores their order on un
     const ids = (markup: string) => [...markup.matchAll(/data-file-id="([^"]+)"/g)].map((match) => match[1]);
     expect(ids(shown)).toEqual(["ui1", "ui2", "ui3"]);
     expect(ids(hidden)).toEqual(["ui1", "ui3"]);
+    expect(hidden).toContain('style="object-fit:contain;transform:none"');
+    expect(shown).not.toContain("object-fit:contain");
     expect(hidden.match(/(?:width|height):[^;"]+/g)).toEqual(shown.match(/(?:width|height):[^;"]+/g));
     expect(renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }))).toBe(shown);
   } finally { state.extraFiles = false; }

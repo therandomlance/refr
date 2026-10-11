@@ -543,7 +543,7 @@ export function MediaGrid({
     onReorder(ids);
   };
 
-  const renderTile = (f: FileSummary) => {
+  const renderTile = (f: FileSummary, contain = false) => {
     const index = indexOf.get(f.id) ?? -1;
     return (
       <div
@@ -629,7 +629,7 @@ export function MediaGrid({
           aria-label={`Open ${f.mediaType} ${index + 1}`}
           onClick={(e) => onTileClick(e, f, index)}
         >
-          <ThumbImg id={f.id} />
+          <ThumbImg id={f.id} contain={contain} />
           <span className="ovl" />
         </button>
         {tileActions ? (
@@ -862,7 +862,7 @@ export function MediaGrid({
     // Keep slot geometry from the original results; only later contents shift.
     const f = hiddenIds?.size ? visibleItems[indexOf.get(slot.id) ?? -1] : slot;
     return (
-      <div style={{ width: "100%", height: "100%" }}>{f ? renderTile(f) : <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />}</div>
+      <div style={{ width: "100%", height: "100%" }}>{f ? renderTile(f, f.id !== slot.id) : <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />}</div>
     );
   }
 }
@@ -902,7 +902,7 @@ function ColumnView({
 }
 
 /** Thumb with placeholder + retry while the thumbnail is still being generated. */
-function ThumbImg({ id }: { id: string }) {
+function ThumbImg({ id, contain = false }: { id: string; contain?: boolean }) {
   const [retry, setRetry] = useState(0);
   const [missing, setMissing] = useState(false);
   useEffect(() => {
@@ -922,6 +922,7 @@ function ThumbImg({ id }: { id: string }) {
       alt=""
       loading="lazy"
       draggable={false}
+      style={contain ? { objectFit: "contain", transform: "none" } : undefined}
       onError={() => setMissing(true)}
     />
   );
