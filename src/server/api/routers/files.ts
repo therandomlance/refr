@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
-import { executeList, listByOrderedIds, sourceWhere, timelineBuckets } from "refr/server/services/fileQuery";
+import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets } from "refr/server/services/fileQuery";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
 import { purgeOrphanThumbs } from "refr/server/services/thumbs";
 import * as config from "refr/server/services/config";
@@ -103,7 +103,7 @@ export const filesRouter = createTRPCRouter({
         pathPrefix: input.pathPrefix,
         tag: input.tag,
         recursive: input.recursive,
-      });
+      }) ?? libraryRootsWhere(config.timelineRoots());
       return executeList({
         where,
         sort: input.sort,
@@ -121,7 +121,9 @@ export const filesRouter = createTRPCRouter({
         recursive: z.boolean().optional(),
       }),
     )
-    .query(({ input }) => timelineBuckets(sourceWhere(input), config.timelineRoots())),
+    .query(({ input }) => timelineBuckets(
+      sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots()),
+    )),
 
   byId: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const file = await db.file.findUnique({

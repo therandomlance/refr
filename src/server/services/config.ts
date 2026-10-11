@@ -10,7 +10,7 @@ import { initDataDir, paths } from "./dataDir";
 export { THEMES };
 
 /** A read-only library root. `alias` names it for `path:<alias>` searching;
- *  `timeline` toggles whether it feeds the timeline scrubber. */
+ *  `timeline` toggles whether it appears in the unfiltered main timeline. */
 export const librarySchema = z.object({
   path: z.string(),
   alias: z.string().optional(),
@@ -93,7 +93,7 @@ export function libraryRoots(): string[] {
   return get().libraries.map((l) => path.resolve(l.path));
 }
 
-/** Roots feeding the timeline scrubber. `undefined` = no libraries configured
+/** Roots feeding the main timeline. `undefined` = no libraries configured
  *  (unconstrained), `[]` = libraries configured but all excluded. */
 export function timelineRoots(): string[] | undefined {
   const libs = get().libraries;

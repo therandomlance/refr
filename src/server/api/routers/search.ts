@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
 import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases } from "refr/server/services/search";
-import { executeList, timelineBuckets } from "refr/server/services/fileQuery";
+import { executeList, libraryRootsWhere, timelineBuckets } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
 import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
 
@@ -59,7 +59,9 @@ export const searchRouter = createTRPCRouter({
           input.limit ?? 200,
         );
       }
-      const where = tokensToWhere(tokens);
+      const where = tokens.length === 0
+        ? libraryRootsWhere(config.timelineRoots())
+        : tokensToWhere(tokens);
       return executeList({ where, sort: input.sort, cursor, limit: input.limit });
     }),
 
@@ -69,7 +71,7 @@ export const searchRouter = createTRPCRouter({
     .query(({ input }) =>
       timelineBuckets(
         tokensToWhere(resolvePathAliases(input.tokens, libraryAliases())),
-        config.timelineRoots(),
+        input.tokens.length === 0 ? config.timelineRoots() : undefined,
       ),
     ),
 

@@ -32,7 +32,7 @@ export default function SettingsPage() {
           <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
             Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.
             The alias names a library for <code>path:&lt;alias&gt;</code> search; unchecking Timeline keeps a
-            library out of the timeline scrubber.
+            library out of the main timeline, but its images remain indexed and searchable.
           </p>
         </Section>
 
@@ -198,7 +198,7 @@ function LibraryList({
               if (next !== v.alias) update(i, { alias: next });
             }}
           />
-          <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include in the timeline scrubber">
+          <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include in the main timeline">
             <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
             Timeline
           </label>

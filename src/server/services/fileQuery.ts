@@ -12,6 +12,18 @@ import {
 
 type Sql = { text: string; params: unknown[] };
 
+/** undefined = unrestricted; [] = no enabled libraries. */
+export function libraryRootsWhere(roots?: string[]): Sql | undefined {
+  if (roots === undefined) return undefined;
+  if (roots.length === 0) return { text: "1=0", params: [] };
+  return {
+    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (${roots
+      .map(() => "fp.path LIKE ? ESCAPE '\\'")
+      .join(" OR ")}))`,
+    params: roots.map((r) => r.replace(/[\\%_]/g, (c) => "\\" + c) + "/%"),
+  };
+}
+
 /** Is there any row (matching `where`) newer than (mtime,id)? Drives
  *  hasPreviousPage so scrolling up stops at the newest file. */
 async function existsNewer(where: Sql | undefined, mtime: number, id: string): Promise<boolean> {
@@ -90,14 +102,10 @@ export async function executeList(input: {
 export async function timelineBuckets(where?: Sql, roots?: string[]): Promise<TimelineBucket[]> {
   const clauses = [where?.text ?? "1=1"];
   const params: unknown[] = [...(where?.params ?? [])];
-  if (roots !== undefined) {
-    if (roots.length === 0) {
-      clauses.push("1=0");
-    } else {
-      const ors = roots.map(() => "fp.path LIKE ? ESCAPE '\\'").join(" OR ");
-      clauses.push(`EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (${ors}))`);
-      for (const r of roots) params.push(r.replace(/[\\%_]/g, (c) => "\\" + c) + "/%");
-    }
+  const libraries = libraryRootsWhere(roots);
+  if (libraries) {
+    clauses.push(libraries.text);
+    params.push(...libraries.params);
   }
   const rows = await db.$queryRawUnsafe<
     { ym: string; count: number | bigint; mn: number | bigint; mx: number | bigint }[]
