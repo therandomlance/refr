@@ -52,7 +52,7 @@ export function MediaGrid({
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
   header?: React.ReactNode;
-  /** Remove reviewed tiles and shift later ones through the existing fixed-size slots. */
+  /** Remove reviewed tiles without resizing survivors or re-justifying their rows. */
   hiddenIds?: ReadonlySet<string>;
   /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
   tileActions?: (f: FileSummary) => React.ReactNode;
@@ -543,7 +543,7 @@ export function MediaGrid({
     onReorder(ids);
   };
 
-  const renderTile = (f: FileSummary, contain = false) => {
+  const renderTile = (f: FileSummary) => {
     const index = indexOf.get(f.id) ?? -1;
     return (
       <div
@@ -629,7 +629,7 @@ export function MediaGrid({
           aria-label={`Open ${f.mediaType} ${index + 1}`}
           onClick={(e) => onTileClick(e, f, index)}
         >
-          <ThumbImg id={f.id} contain={contain} />
+          <ThumbImg id={f.id} />
           <span className="ovl" />
         </button>
         {tileActions ? (
@@ -801,7 +801,7 @@ export function MediaGrid({
                     <div className="flex" style={{ gap: row.groupSizes ? PACK_GAP : gap, height: row.height }}>
                       {chunkGroups(row.files, row.groupSizes).map((gf, gi) => (
                         <div key={gi} className="flex" style={{ gap }}>
-                          {gf.map((f) => (
+                           {gf.filter((f) => !hiddenIds?.has(f.id)).map((f) => (
                             <div key={f.id} style={{ width: row.height * aspectOf(f) + 2 * PAD, padding: `0 ${PAD}px`, flex: "none" }}>
                               {renderTileSized(f)}
                             </div>
@@ -818,7 +818,7 @@ export function MediaGrid({
         {layout === "vertical" && (
           <div className="flex" style={{ gap }}>
             {columns.map((col, ci) => (
-              <ColumnView key={ci} col={col} width={colWidth} gap={gap} scrollRef={scrollRef} renderTileSized={renderTileSized} />
+              <ColumnView key={ci} col={col} hiddenIds={hiddenIds} width={colWidth} gap={gap} scrollRef={scrollRef} renderTileSized={renderTileSized} />
             ))}
           </div>
         )}
@@ -858,39 +858,48 @@ export function MediaGrid({
     </div>
   );
 
-  function renderTileSized(slot: FileSummary) {
-    // Keep slot geometry from the original results; only later contents shift.
-    const f = hiddenIds?.size ? visibleItems[indexOf.get(slot.id) ?? -1] : slot;
+  function renderTileSized(f: FileSummary) {
     return (
-      <div style={{ width: "100%", height: "100%" }}>{f ? renderTile(f, f.id !== slot.id) : <div className="tile" aria-hidden="true" style={{ visibility: "hidden" }} />}</div>
+      <div style={{ width: "100%", height: "100%" }}>{renderTile(f)}</div>
     );
   }
 }
 
 function ColumnView({
   col,
+  hiddenIds,
   width,
   gap,
   scrollRef,
   renderTileSized,
 }: {
   col: { file: FileSummary; top: number; height: number }[];
+  hiddenIds?: ReadonlySet<string>;
   width: number;
   gap: number;
   scrollRef: React.RefObject<HTMLDivElement | null>;
   renderTileSized: (f: FileSummary) => React.ReactNode;
 }) {
-  const total = col.reduce((m, c) => Math.max(m, c.top + c.height), 0);
+  const visibleCol = useMemo(() => {
+    let top = 0;
+    return col.filter((c) => !hiddenIds?.has(c.file.id)).map((c) => {
+      const placed = { ...c, top };
+      top += c.height + gap;
+      return placed;
+    });
+  }, [col, hiddenIds, gap]);
+  const total = visibleCol.reduce((m, c) => Math.max(m, c.top + c.height), 0);
   const v = useVirtualizer({
-    count: col.length,
+    count: visibleCol.length,
+    getItemKey: (i) => visibleCol[i]!.file.id,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => col[i]!.height + gap,
+    estimateSize: (i) => visibleCol[i]!.height + gap,
     overscan: 6,
   });
   return (
     <div style={{ width, flex: "none", height: total, position: "relative" }}>
       {v.getVirtualItems().map((vi) => {
-        const c = col[vi.index]!;
+        const c = visibleCol[vi.index]!;
         return (
           <div key={c.file.id} style={{ position: "absolute", top: c.top, left: 0, width, height: c.height, padding: PAD }}>
             {renderTileSized(c.file)}
@@ -902,7 +911,7 @@ function ColumnView({
 }
 
 /** Thumb with placeholder + retry while the thumbnail is still being generated. */
-function ThumbImg({ id, contain = false }: { id: string; contain?: boolean }) {
+function ThumbImg({ id }: { id: string }) {
   const [retry, setRetry] = useState(0);
   const [missing, setMissing] = useState(false);
   useEffect(() => {
@@ -922,7 +931,6 @@ function ThumbImg({ id, contain = false }: { id: string; contain?: boolean }) {
       alt=""
       loading="lazy"
       draggable={false}
-      style={contain ? { objectFit: "contain", transform: "none" } : undefined}
       onError={() => setMissing(true)}
     />
   );

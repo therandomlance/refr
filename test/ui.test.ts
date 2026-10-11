@@ -68,15 +68,13 @@ it("hides reviewed thumbnails without removing their row or changing grid height
   const props = { source: { kind: "ids" as const, ids: ["ui1"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
   const shown = renderToStaticMarkup(createElement(MediaGrid, props));
   const hidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui1"]) }));
-  expect(hidden).toContain('aria-hidden="true"');
-  expect(hidden).toContain("visibility:hidden");
   expect(hidden).not.toContain('aria-label="Open image 1"');
-  expect(hidden.match(/height:[^;"]+/g)).toEqual(shown.match(/height:[^;"]+/g));
+  expect(hidden.match(/height:[\d.]+px/g)).toEqual(shown.match(/height:[\d.]+px/g));
   const restored = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }));
   expect(restored).toBe(shown);
 });
 
-it("shifts only later thumbnails into fixed slots and restores their order on undo", () => {
+it("shifts later thumbnails with their own original dimensions and restores them on undo", () => {
   state.extraFiles = true;
   try {
     const props = { source: { kind: "ids" as const, ids: ["ui1", "ui2", "ui3"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
@@ -85,9 +83,11 @@ it("shifts only later thumbnails into fixed slots and restores their order on un
     const ids = (markup: string) => [...markup.matchAll(/data-file-id="([^"]+)"/g)].map((match) => match[1]);
     expect(ids(shown)).toEqual(["ui1", "ui2", "ui3"]);
     expect(ids(hidden)).toEqual(["ui1", "ui3"]);
-    expect(hidden).toContain('style="object-fit:contain;transform:none"');
-    expect(shown).not.toContain("object-fit:contain");
-    expect(hidden.match(/(?:width|height):[^;"]+/g)).toEqual(shown.match(/(?:width|height):[^;"]+/g));
+    const widths = (markup: string) => markup.match(/width:[\d.]+px/g);
+    const originalWidths = widths(shown)!;
+    expect(widths(hidden)).toEqual([originalWidths[0], originalWidths[2]]);
+    expect(originalWidths[1]).not.toBe(originalWidths[2]); // different aspect ratios
+    expect(hidden.match(/height:[\d.]+px/g)).toEqual(shown.match(/height:[\d.]+px/g));
     expect(renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }))).toBe(shown);
   } finally { state.extraFiles = false; }
 });
