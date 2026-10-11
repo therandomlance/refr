@@ -33,6 +33,7 @@ export function MediaGrid({
   onContextMenu,
   onReorder,
   toolbar = true,
+  toolbarActions,
   sort: controlledSort,
   onSortChange,
   emptyState,
@@ -46,6 +47,7 @@ export function MediaGrid({
   onContextMenu?: (e: React.MouseEvent, fileId: string) => void;
   onReorder?: (ids: string[]) => void;
   toolbar?: boolean;
+  toolbarActions?: React.ReactNode;
   sort?: Sort;
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
@@ -697,6 +699,7 @@ export function MediaGrid({
               )}
             </>
           )}
+          {toolbarActions}
           {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
             <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include files from subfolders/subtags">
               <input
