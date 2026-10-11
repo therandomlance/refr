@@ -7,7 +7,7 @@ import { api } from "refr/trpc/react";
 import type { FileSummary, Sort, Token } from "refr/server/services/search";
 import { isVectorToken } from "refr/server/services/search";
 import type { TimelineBucket } from "refr/lib/timeline";
-import { buildRows, compactReviewRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
+import { buildRows, tileWidth, SIZE_SCALE, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
 import { ContextMenu } from "./context-menu";
@@ -23,8 +23,6 @@ export type GridSource =
 export type Layout = "horizontal" | "vertical";
 export type Grouping = "day" | "month" | "year";
 export type TileSize = "small" | "medium" | "large";
-
-const SIZE_SCALE: Record<TileSize, number> = { small: 1, medium: 1.5, large: 2.25 };
 
 export function MediaGrid({
   source,
@@ -52,7 +50,7 @@ export function MediaGrid({
   onSortChange?: (s: Sort) => void;
   emptyState?: React.ReactNode;
   header?: React.ReactNode;
-  /** Remove reviewed tiles without resizing survivors or re-justifying their rows. */
+  /** Remove reviewed tiles and wrap survivors at the same fixed row height. */
   hiddenIds?: ReadonlySet<string>;
   /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
   tileActions?: (f: FileSummary) => React.ReactNode;
@@ -224,18 +222,17 @@ export function MediaGrid({
   const gap = 4;
   const aspectOf = (f: FileSummary) => (f.width && f.height ? f.width / f.height : 1);
 
-  const originalRows: GridRow[] = useMemo(() => {
+  const rows: GridRow[] = useMemo(() => {
     if (layout === "vertical") return [];
     return buildRows({
-      items,
+      items: visibleItems,
       width,
       rowH,
       gap,
       grouping,
       doGrouping: sort === "date" && source.kind !== "ids",
     });
-  }, [items, layout, width, rowH, sort, grouping, source.kind]);
-  const rows = useMemo(() => hiddenIds?.size ? compactReviewRows(originalRows, hiddenIds, width, gap) : originalRows, [originalRows, hiddenIds, width, gap]);
+  }, [visibleItems, layout, width, rowH, sort, grouping, source.kind]);
 
   // vertical: assign each item to the shortest column
   const colWidth = Math.round(rowH * 1.3);
@@ -372,9 +369,10 @@ export function MediaGrid({
   useEffect(() => {
     const v = rowVirtualizer.getVirtualItems();
     const last = v[v.length - 1];
-    if (last && last.index >= rows.length - 3 && hasNextPage) void fetchNextPage();
+    const atEnd = last ? last.index >= rows.length - 3 : items.length > 0 && visibleItems.length === 0;
+    if (layout === "horizontal" && atEnd && hasNextPage && !activeQuery.isFetching) void fetchNextPage();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [rowVirtualizer.getVirtualItems(), rows.length, hasNextPage]);
+  }, [rowVirtualizer.getVirtualItems(), rows.length, items.length, visibleItems.length, layout, hasNextPage, activeQuery.isFetching]);
 
   // infinite scroll trigger (columns mode)
   useEffect(() => {
@@ -802,14 +800,11 @@ export function MediaGrid({
                     <div className="flex" style={{ gap: row.groupSizes ? PACK_GAP : gap, height: row.height }}>
                       {chunkGroups(row.files, row.groupSizes).map((gf, gi) => (
                         <div key={gi} className="flex" style={{ gap }}>
-                           {gf.filter((f) => !hiddenIds?.has(f.id)).map((f) => {
-                             const tileHeight = row.tileHeights?.[row.files.indexOf(f)] ?? row.height;
-                             return (
-                             <div key={f.id} style={{ width: tileHeight * aspectOf(f) + 2 * PAD, height: tileHeight, padding: `0 ${PAD}px`, flex: "none" }}>
-                               {renderTileSized(f)}
-                             </div>
-                             );
-                           })}
+                          {gf.map((f) => (
+                            <div key={f.id} style={{ width: tileWidth(f, row.height, width - 36), height: row.height, padding: `0 ${PAD}px`, flex: "none" }}>
+                              {renderTileSized(f)}
+                            </div>
+                          ))}
                         </div>
                       ))}
                     </div>

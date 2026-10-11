@@ -18,7 +18,7 @@ vi.mock("refr/trpc/react", () => {
   const query = () => ({
     data: state.failed ? undefined : {
       items: state.extraFiles ? [file, { ...file, id: "ui2", width: 200 }, { ...file, id: "ui3", width: 50 }] : [file],
-      pages: [{ items: [file] }],
+      pages: [{ items: state.extraFiles ? [file, { ...file, id: "ui2", width: 200 }, { ...file, id: "ui3", width: 50 }] : [file] }],
     },
     isError: state.failed, error: new Error("offline"), isLoading: false, isFetching: false,
     fetchNextPage: vi.fn(), fetchPreviousPage: vi.fn(), refetch: vi.fn(),
@@ -73,10 +73,11 @@ it("hides reviewed thumbnails and restores their original layout on undo", () =>
   expect(restored).toBe(shown);
 });
 
-it("shifts later thumbnails with their own original dimensions and restores them on undo", () => {
+it.each(["ids", "search"] as const)("shifts fixed-height thumbnails and restores them on undo (%s)", (kind) => {
   state.extraFiles = true;
   try {
-    const props = { source: { kind: "ids" as const, ids: ["ui1", "ui2", "ui3"] }, selection: new Set<string>(), onSelectionChange: vi.fn() };
+    const source = kind === "ids" ? { kind, ids: ["ui1", "ui2", "ui3"] } : { kind, tokens: [{ kind: "tag" as const, tag: "suggest:figure", negate: false, exact: false, or: false, wildcard: false }] };
+    const props = { source, selection: new Set<string>(), onSelectionChange: vi.fn() };
     const shown = renderToStaticMarkup(createElement(MediaGrid, props));
     const hidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui2"]) }));
     const ids = (markup: string) => [...markup.matchAll(/data-file-id="([^"]+)"/g)].map((match) => match[1]);
@@ -85,8 +86,12 @@ it("shifts later thumbnails with their own original dimensions and restores them
     const sizes = (markup: string) => [...markup.matchAll(/width:([\d.]+)px;height:([\d.]+)px;padding/g)].map((match) => [match[1], match[2]]);
     const originalSizes = sizes(shown);
     expect(originalSizes).toHaveLength(3);
+    expect(originalSizes.every((size) => size[1] === "300")).toBe(true);
     expect(sizes(hidden)).toEqual([originalSizes[0], originalSizes[2]]);
     expect(originalSizes[1]).not.toEqual(originalSizes[2]); // different aspect ratios
     expect(renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set<string>() }))).toBe(shown);
+    const allHidden = renderToStaticMarkup(createElement(MediaGrid, { ...props, hiddenIds: new Set(["ui1", "ui2", "ui3"]) }));
+    expect(allHidden).not.toContain('class="ghead"');
+    expect(ids(allHidden)).toEqual([]);
   } finally { state.extraFiles = false; }
 });

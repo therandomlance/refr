@@ -12,6 +12,7 @@ import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { publishViewerList } from "refr/app/_components/viewer-store";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
 import { staticSuggestionOptions, useSuggestionActions } from "refr/app/_components/tag-actions";
+import { SIZE_SCALE } from "refr/lib/grid-rows";
 
 export default function BrowsePage() {
   const router = useRouter();
@@ -368,6 +369,8 @@ function SuggestionStrip({
   onDeny: (id: string) => void;
   isPending: (id: string) => boolean;
 }) {
+  const settings = api.settings.get.useQuery();
+  const thumbSize = `calc(var(--row-h) * ${SIZE_SCALE[settings.data?.defaultThumbnailSize ?? "medium"]})`;
   const scrollRef = useRef<HTMLDivElement>(null);
   const tilesMounted = open && items.length > 0;
   // wheel → horizontal scroll while hovering the strip (non-passive so preventDefault works)
@@ -401,7 +404,7 @@ function SuggestionStrip({
         items.length > 0 ? (
           <div ref={scrollRef} className="scroll-thin flex gap-3 overflow-x-auto px-3 pb-3">
             {items.map((s) => (
-              <div key={s.fileId} className="tile" style={{ width: 220, height: 222 }}>
+              <div key={s.fileId} className="tile" style={{ width: thumbSize, height: thumbSize }}>
                  <button type="button" className="tile-open" aria-label="Open suggested image" onClick={() => onOpen(s.fileId)}>
                    {/* eslint-disable-next-line @next/next/no-img-element */}
                    <img src={`/api/thumb/${s.fileId}`} alt="" />

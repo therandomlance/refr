@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildRows, compactReviewRows, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
+import { buildRows, tileWidth, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import type { FileSummary } from "refr/server/services/search";
 
 const DAY = 24 * 3600 * 1000;
@@ -18,22 +18,28 @@ function headers(rows: GridRow[]) {
 
 const OPTS = { width: 1200, rowH: 200, gap: 4, grouping: "day" as const };
 
-it("pulls later rows forward without resizing thumbnails or moving earlier rows", () => {
-  const original: GridRow[] = [
-    { type: "tiles", files: [img("before", d0)], height: 80 },
-    { type: "tiles", files: [img("a", d0), img("b", d0)], height: 100 },
-    { type: "tiles", files: [img("c", d0), img("d", d0)], height: 150 },
-    { type: "tiles", files: [img("e", d0)], height: 90 },
-  ];
-  const compacted = compactReviewRows(original, new Set(["b"]), 400, 4);
-  expect(compacted[0]).toBe(original[0]);
-  const remaining = tiles(compacted);
-  expect(remaining.map((row) => row.files.map((file) => file.id))).toEqual([["before"], ["a", "c"], ["d", "e"]]);
-  expect(remaining[1]?.tileHeights).toEqual([100, 150]);
-  expect(remaining[2]?.tileHeights).toEqual([150, 90]);
-  expect(remaining[1]?.height).toBe(150);
-  expect(compactReviewRows(original, new Set(), 400, 4)).toBe(original);
-  expect(tiles(compactReviewRows(original, new Set(["a", "b", "c", "d", "e"]), 400, 4))).toHaveLength(1);
+it.each([false, true])("closes review gaps at fixed height (grouping=%s) and restores on undo", (doGrouping) => {
+  const items = [img("a", d0), img("b", d0), img("c", d0), img("d", d0), img("e", d0 + DAY)];
+  const options = { ...OPTS, width: 460, items, doGrouping };
+  const original = buildRows(options);
+  const hidden = new Set(["b", "e"]);
+  const remaining = buildRows({ ...options, items: items.filter((file) => !hidden.has(file.id)) });
+  expect(tiles(remaining).map((row) => row.files.map((file) => file.id))).toEqual([["a", "c"], ["d"]]);
+  expect(tiles(remaining).every((row) => row.height === OPTS.rowH)).toBe(true);
+  expect(headers(remaining).flatMap((row) => row.segs.flatMap((seg) => seg.ids))).not.toContain("e");
+  expect(buildRows({ ...options, items: [] })).toEqual([]);
+  expect(buildRows(options)).toEqual(original);
+});
+
+it("wraps mixed aspect ratios without overflow or stretching the last row", () => {
+  const items = [img("portrait", d0, 500, 1000), img("square", d0), img("panorama", d0, 10000, 1000), img("unknown", d0, 0, 0)];
+  const rows = tiles(buildRows({ ...OPTS, width: 460, items, doGrouping: false }));
+  expect(rows.map((row) => row.files.map((file) => file.id))).toEqual([["portrait", "square"], ["panorama"], ["unknown"]]);
+  for (const row of rows) {
+    expect(row.height).toBe(OPTS.rowH);
+    const footprint = row.files.reduce((sum, file) => sum + tileWidth(file, row.height, 424), 0) + OPTS.gap * (row.files.length - 1);
+    expect(footprint).toBeLessThanOrEqual(424);
+  }
 });
 
 describe("buildRows", () => {
@@ -75,7 +81,7 @@ describe("buildRows", () => {
     expect(headers(rows)[0]!.segs).toHaveLength(2);
   });
 
-  it("gives a too-wide group its own justified rows", () => {
+  it("gives a too-wide group its own fixed-height rows", () => {
     const items = Array.from({ length: 20 }, (_, i) => img(`f${i}`, d0));
     const rows = buildRows({ ...OPTS, items, doGrouping: true });
     const hs = headers(rows);
@@ -85,11 +91,10 @@ describe("buildRows", () => {
     expect(hs[0]!.segs[0]!.ids).toHaveLength(20);
     expect(ts.length).toBeGreaterThan(1);
     expect(ts.every((t) => t.groupSizes === undefined)).toBe(true);
-    // rows are justified to the container, height clamped
-    expect(Math.max(...ts.map((t) => t.height))).toBeLessThanOrEqual(200 * 1.8);
+    expect(ts.every((t) => t.height === OPTS.rowH)).toBe(true);
   });
 
-  it("ungrouped: no headers, single justified partition", () => {
+  it("ungrouped: no headers, single fixed-height partition", () => {
     const items = [img("a", d0), img("b", d0 + DAY), img("c", d0 + 2 * DAY)];
     const rows = buildRows({ ...OPTS, items, doGrouping: false });
     expect(headers(rows)).toHaveLength(0);

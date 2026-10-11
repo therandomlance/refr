@@ -367,13 +367,14 @@ small; build `Dialog`, `ContextMenu`, `Tree` as small local components).
   - infinite scroll over §9.4 via tRPC `useInfiniteQuery`;
   - **virtualized rows** (`@tanstack/react-virtual` — added dep, justified by 1M scale);
   - layouts: `waterfall-vertical` (CSS columns, column count from tile size) and
-    `waterfall-horizontal` (justified rows, Immich-style: partition a row so Σ aspect ratios
-    ≈ row width — linear scan, no fancy partition algorithm needed);
+    `waterfall-horizontal` (fixed-height rows: wrap before overflow, preserve aspect ratios,
+    leave trailing space rather than stretching; crop single over-wide panoramas to fit);
   - thumbnail size s/m/l (default from config; user changes persist back to config);
   - sorting (date/name/size/random) and grouping (day/month/year headers by `mtime`) controls;
     groups that fit on one row at natural height are packed together (larger gap, header
-    label over each group's segment); oversized groups get full-width justified rows of
-    their own. Day labels are `Tue, Aug 11` (no year). Tiles get a few px padding per side;
+    label over each group's segment); oversized groups get wrapped rows of their own at
+    the same height. Hidden reviewed tiles are removed before layout, including empty groups.
+    Day labels are `Tue, Aug 11` (no year). Tiles get a few px padding per side;
   - selection: click (toggles while a selection exists; viewer opens only when nothing is
     selected), shift-range, ctrl-toggle, click-drag range (text selection suppressed), Esc
     clears; group headers have a select-all bubble per segment; toolbar shows "N selected" +

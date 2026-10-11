@@ -4,44 +4,19 @@ export type HeaderSeg = { label: string; ids: string[]; width?: number };
 
 export type GridRow =
   | { type: "header"; segs: HeaderSeg[] }
-  | { type: "tiles"; files: FileSummary[]; height: number; groupSizes?: number[]; tileHeights?: number[] };
+  | { type: "tiles"; files: FileSummary[]; height: number; groupSizes?: number[] };
+
+export const SIZE_SCALE = { small: 1, medium: 1.5, large: 2.25 };
 
 /** Gap between groups packed onto one row (bigger than the tile gap, for visibility). */
 export const PACK_GAP = 16;
 /** Padding around every thumb (per side). Tiles are laid out footprint = h*aspect + 2*PAD. */
 export const PAD = 3;
 
-/** Repack ungrouped review results using each thumbnail's original dimensions. */
-export function compactReviewRows(rows: GridRow[], hidden: ReadonlySet<string>, width: number, gap: number): GridRow[] {
-  if (!hidden.size || rows.some((row) => row.type === "header")) return rows;
-  const first = rows.findIndex((row) => row.type === "tiles" && row.files.some((file) => hidden.has(file.id)));
-  if (first < 0) return rows;
-  const result = rows.slice(0, first);
-  let files: FileSummary[] = [];
-  let heights: number[] = [];
-  let used = 0;
-  const flush = () => {
-    if (!files.length) return;
-    result.push({ type: "tiles", files, tileHeights: heights, height: Math.max(...heights) });
-    files = [];
-    heights = [];
-    used = 0;
-  };
-  for (const row of rows.slice(first)) {
-    if (row.type !== "tiles") continue;
-    for (const [index, file] of row.files.entries()) {
-      if (hidden.has(file.id)) continue;
-      const height = row.tileHeights?.[index] ?? row.height;
-      const aspect = file.width && file.height ? file.width / file.height : 1;
-      const tileWidth = height * aspect + 2 * PAD;
-      if (files.length && used + gap + tileWidth > width - 36) flush();
-      used += (files.length ? gap : 0) + tileWidth;
-      files.push(file);
-      heights.push(height);
-    }
-  }
-  flush();
-  return result;
+/** Fixed-height footprint; crop panoramas only when a single tile cannot fit. */
+export function tileWidth(file: FileSummary, height: number, available: number): number {
+  const aspect = file.width && file.height ? file.width / file.height : 1;
+  return Math.min(height * aspect + 2 * PAD, Math.max(2 * PAD + 1, available));
 }
 
 export function groupLabel(mtime: number, grouping: "day" | "month" | "year"): string {
@@ -64,10 +39,10 @@ function groupKey(mtime: number, grouping: "day" | "month" | "year"): string {
 }
 
 /**
- * Justified horizontal rows. When grouping: a group that fits on one row at
+ * Fixed-height horizontal rows. When grouping: a group that fits on one row at
  * natural height is packed with other fitting groups (PACK_GAP between groups,
  * header label over each group's segment); a group too wide for a row gets
- * justified rows of its own. Ungrouped: one continuous justified partition.
+ * wrapped rows of its own. Ungrouped: one continuous wrapped partition.
  */
 export function buildRows({
   items,
@@ -86,9 +61,8 @@ export function buildRows({
 }): GridRow[] {
   const avail = width - 36; // page padding
   const out: GridRow[] = [];
-  const aspectOf = (f: FileSummary) => (f.width && f.height ? f.width / f.height : 1);
   const natWidth = (files: FileSummary[], h: number) =>
-    files.reduce((s, f) => s + h * aspectOf(f) + 2 * PAD, 0) + gap * (files.length - 1);
+    files.reduce((s, f) => s + tileWidth(f, h, avail), 0) + gap * (files.length - 1);
 
   // split into consecutive groups (single unlabeled group when not grouping)
   const groups: { label: string | null; files: FileSummary[] }[] = [];
@@ -104,21 +78,21 @@ export function buildRows({
     }
   }
 
-  /** original behavior: partition a wide group into full-width justified rows */
+  /** Wrap before overflow; never stretch sparse or final rows. */
   const partition = (files: FileSummary[]) => {
     let cur: FileSummary[] = [];
     let sum = 0;
     const flush = () => {
       if (cur.length === 0) return;
-      const h = Math.max(80, Math.min(rowH * 1.8, (avail - gap * (cur.length - 1) - 2 * PAD * cur.length) / sum));
-      out.push({ type: "tiles", files: cur, height: h });
+      out.push({ type: "tiles", files: cur, height: rowH });
       cur = [];
       sum = 0;
     };
     for (const f of files) {
+      const w = tileWidth(f, rowH, avail);
+      if (cur.length && sum + gap + w > avail) flush();
+      sum += (cur.length ? gap : 0) + w;
       cur.push(f);
-      sum += aspectOf(f);
-      if (sum * rowH + 2 * PAD * cur.length >= avail) flush();
     }
     flush();
   };
