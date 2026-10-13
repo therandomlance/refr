@@ -18,16 +18,18 @@ const monthLabel = (b: { year: number; month: number }) =>
 /**
  * Immich-style vertical time scrubber. Segments are months of the *whole*
  * filtered library (heights ∝ file count); the thumb tracks the topmost
- * visible month. Dragging/clicking a segment seeks the grid to that month.
+ * visible month. Dragging seeks continuously, including within a month.
  */
 export function TimelineScrubber({
   buckets,
   active,
   onSeek,
+  controls,
 }: {
   buckets: TimelineBucket[]; // newest first
   active: { year: number; month: number; fraction: number } | null;
   onSeek: (bucket: TimelineBucket, fraction: number) => void;
+  controls: string;
 }) {
   const outerRef = useRef<HTMLDivElement>(null);
   const trackRef = useRef<HTMLDivElement>(null);
@@ -35,8 +37,10 @@ export function TimelineScrubber({
   const [hovering, setHovering] = useState(false);
   const [dragging, setDragging] = useState(false);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+  const [hoverFrac, setHoverFrac] = useState(0);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragFrac, setDragFrac] = useState(0);
+  const lastSeekAt = useRef(0);
 
   useEffect(() => {
     const el = outerRef.current;
@@ -111,26 +115,37 @@ export function TimelineScrubber({
     return last >= 0 ? { idx: last, frac: 1 } : null;
   };
 
-  const onPointerDown = (e: React.PointerEvent) => {
+  const onPointerDown = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (!e.isPrimary || e.button !== 0) return;
     const hit = segIdxAt(e.clientY);
     if (!hit) return;
+    e.preventDefault();
+    e.currentTarget.focus({ preventScroll: true });
     e.currentTarget.setPointerCapture(e.pointerId);
     setDragging(true);
     setDragIdx(hit.idx);
     setDragFrac(hit.frac);
+    onSeek(buckets[hit.idx]!, hit.frac);
+    lastSeekAt.current = Date.now();
   };
-  const onPointerMove = (e: React.PointerEvent) => {
+  const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const hit = segIdxAt(e.clientY);
     setHoverIdx(hit?.idx ?? null);
-    if (dragging && hit) {
+    setHoverFrac(hit?.frac ?? 0);
+    if (e.currentTarget.hasPointerCapture(e.pointerId) && hit) {
       setDragIdx(hit.idx);
       setDragFrac(hit.frac);
+      // Each seek starts a paged query; cap previews, always seek exactly on release.
+      if (Date.now() - lastSeekAt.current >= 80) {
+        onSeek(buckets[hit.idx]!, hit.frac);
+        lastSeekAt.current = Date.now();
+      }
     }
   };
-  const endDrag = (e: React.PointerEvent) => {
-    if (dragging && dragIdx !== null) {
-      const b = buckets[dragIdx];
-      if (b) onSeek(b, dragFrac);
+  const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {
+    if (e.type === "pointerup" && e.currentTarget.hasPointerCapture(e.pointerId)) {
+      const hit = segIdxAt(e.clientY);
+      if (hit) onSeek(buckets[hit.idx]!, hit.frac);
     }
     setDragging(false);
     setDragIdx(null);
@@ -149,6 +164,9 @@ export function TimelineScrubber({
 
   const idx = dragging ? dragIdx : hovering ? hoverIdx : null;
   const bubble = idx !== null ? segments[idx]?.bucket : undefined;
+  const bubbleTop = idx !== null
+    ? (segments[idx]?.top ?? 0) + (dragging ? dragFrac : hoverFrac) * (segments[idx]?.height ?? 0)
+    : 0;
   const current =
     !dragging && !hovering && activeIdx >= 0 ? segments[activeIdx]?.bucket : undefined;
   const thumbTop =
@@ -165,7 +183,9 @@ export function TimelineScrubber({
       style={{ paddingTop: PAD_TOP, paddingBottom: PAD_BOTTOM }}
       role="scrollbar"
       tabIndex={0}
-      aria-controls="tl-time-label"
+      aria-label="Library timeline"
+      aria-orientation="vertical"
+      aria-controls={controls}
       aria-valuetext={bubble ? monthLabel(bubble) : current ? monthLabel(current) : ""}
       aria-valuenow={Math.round(thumbTop)}
       aria-valuemax={Math.round(avail)}
@@ -179,15 +199,19 @@ export function TimelineScrubber({
       onPointerMove={onPointerMove}
       onPointerUp={endDrag}
       onPointerCancel={endDrag}
+      onLostPointerCapture={() => {
+        setDragging(false);
+        setDragIdx(null);
+      }}
       onKeyDown={onKeyDown}
     >
       {bubble && idx !== null && (
-        <div id="tl-time-label" className="tl-bubble" style={{ top: (segments[idx]?.top ?? 0) + PAD_TOP - 8 }}>
+        <div className="tl-bubble" style={{ top: bubbleTop + PAD_TOP - 8 }}>
           {monthLabel(bubble)}
         </div>
       )}
       {current && (
-        <div id="tl-time-label" className="tl-current" style={{ top: thumbTop + PAD_TOP - 8 }}>
+        <div className="tl-current" style={{ top: thumbTop + PAD_TOP - 8 }}>
           {monthLabel(current)}
         </div>
       )}

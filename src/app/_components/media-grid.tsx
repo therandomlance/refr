@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
@@ -83,6 +83,7 @@ export function MediaGrid({
   }, [settings.data?.defaultThumbnailSize]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollId = useId();
   const [width, setWidth] = useState(1200);
   useEffect(() => {
     const el = scrollRef.current;
@@ -742,7 +743,7 @@ export function MediaGrid({
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <div ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
+        <div id={scrollId} ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
         {header}
         {searchNotice && <p role="status" className="state-message">{searchNotice}</p>}
         {activeQuery.isError && (
@@ -818,7 +819,7 @@ export function MediaGrid({
         {items.length > 0 && activeQuery.isFetching && <p role="status" className="state-message">Loading images…</p>}
         </div>
         {showTimeline && (
-          <TimelineScrubber buckets={buckets ?? []} active={activeMonth} onSeek={seekToBucket} />
+          <TimelineScrubber buckets={buckets ?? []} active={activeMonth} onSeek={seekToBucket} controls={scrollId} />
         )}
       </div>
       {viewerId && <Viewer fileId={viewerId} onClose={closeViewer} />}
