@@ -418,7 +418,7 @@ button, summary { touch-action: manipulation; }
 @media (hover: none) {
   .tile .tile-menu, .tile .check, .tile .deny { opacity: 1; min-width: 44px; min-height: 44px; }
 }
-.tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tile img { width: 100%; height: 100%; object-fit: cover; transition: transform .18s ease; display: block; }
 .tile .ovl {
   position: absolute; inset: 0; opacity: 0; transition: opacity .15s;
   background: linear-gradient(to bottom, rgba(0,0,0,.34), transparent 32%, transparent 68%, rgba(0,0,0,.42));
@@ -436,6 +436,7 @@ button, summary { touch-action: manipulation; }
 }
 .tile.sel .check { opacity: 1; background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
 .tile.sel { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tile.sel img { transform: scale(.88); }
 .tile .thumb-wait { width: 100%; height: 100%; animation: thumbpulse 1.5s ease-in-out infinite; }
 @keyframes thumbpulse { 0%, 100% { opacity: .25; } 50% { opacity: .7; } }
 .tile .badge {
@@ -637,5 +638,5 @@ select.input { cursor: pointer; }
 
 @media (prefers-reduced-motion: reduce) {
   .tile .thumb-wait { animation: none; opacity: .5; }
-  .tile .ovl, .tile .check, .tile .deny, .tile .badge, .tile-menu { transition: none; }
+  .tile img, .tile .ovl, .tile .check, .tile .deny, .tile .badge, .tile-menu { transition: none; }
 }
