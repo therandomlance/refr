@@ -568,6 +568,9 @@ select.input { cursor: pointer; }
 
 /* ponytail: phone-only overrides — sidepanel becomes a drawer, dialog + palette editor go single-column */
 .sidepanel-backdrop { display: none; }
+.sidepanel { width: var(--sidebar-width, 240px); max-width: 50vw; min-width: 180px; }
+.sidepanel-resize { width: 6px; flex: none; cursor: col-resize; touch-action: none; user-select: none; }
+.sidepanel-resize:hover, .sidepanel-resize:focus-visible { background: var(--accent); }
 
 @media (max-width: 640px) {
   .dialog { min-width: 0; width: calc(100vw - 32px); max-width: calc(100vw - 32px); max-height: calc(100vh - 64px); overflow-y: auto; }
@@ -575,6 +578,7 @@ select.input { cursor: pointer; }
     position: fixed; top: 0; left: 0; width: 80vw; max-width: 300px; z-index: 40;
     bottom: calc(60px + env(safe-area-inset-bottom));
   }
+  .sidepanel-resize { display: none; }
   .sidepanel-backdrop {
     display: block; position: fixed; top: 0; left: 0; right: 0;
     bottom: calc(60px + env(safe-area-inset-bottom));
