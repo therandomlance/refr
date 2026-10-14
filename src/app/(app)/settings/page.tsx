@@ -220,7 +220,13 @@ function LibraryList({
 }
 
 function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onTimeChange: (t: string | null) => void }) {
-  const scanNow = api.settings.scanNow.useMutation();
+  const utils = api.useUtils();
+  // The mutation only kicks off the background job and returns immediately —
+  // suppress the generic "Done." and refetch status so polling picks it up.
+  const scanNow = api.settings.scanNow.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: () => void utils.settings.scanStatus.invalidate(),
+  });
   const status = api.settings.scanStatus.useQuery(undefined, {
     refetchInterval: (q) => (q.state.data?.running ? 2000 : false),
   });
