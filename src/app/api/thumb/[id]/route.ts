@@ -1,4 +1,4 @@
-import fs from "node:fs";
+import fs from "node:fs/promises";
 import { NextResponse } from "next/server";
 import { requestAuthed } from "refr/server/services/requestAuth";
 import { thumbPath } from "refr/server/services/thumbs";
@@ -8,8 +8,15 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   const { id } = await ctx.params;
   if (!/^[0-9a-f]{64}$/.test(id)) return new NextResponse(null, { status: 400 });
   const file = thumbPath(id);
-  if (!fs.existsSync(file)) return new NextResponse(null, { status: 404 });
-  const buf = await fs.promises.readFile(file);
+  let buf: Buffer;
+  try {
+    buf = await fs.readFile(file);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      return new NextResponse(null, { status: 404 });
+    }
+    throw error;
+  }
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "content-type": "image/webp",

@@ -64,6 +64,8 @@ model FileEmbedding {
     model     String
     updatedAt DateTime @updatedAt
     file      File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+    @@index([model, updatedAt]) // covering index for the sidecar's cache stamp
 }
 
 model TagVector {

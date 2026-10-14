@@ -410,7 +410,7 @@ function SuggestionStrip({
               <div key={s.fileId} className="tile" style={{ width: thumbSize, height: thumbSize }}>
                  <button type="button" className="tile-open" aria-label="Open suggested image" onClick={() => onOpen(s.fileId)}>
                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                   <img src={`/api/thumb/${s.fileId}`} alt="" />
+                   <img src={`/api/thumb/${s.fileId}`} alt="" loading="lazy" decoding="async" />
                  </button>
                 <button
                   className="check"

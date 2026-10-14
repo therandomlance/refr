@@ -29,9 +29,8 @@ export function libraryRootsWhere(roots?: string[]): Sql | undefined {
 async function existsNewer(where: Sql | undefined, mtime: number, id: string): Promise<boolean> {
   const rows = await db.$queryRawUnsafe<unknown[]>(
     `SELECT 1 FROM File f WHERE ${where?.text ?? "1=1"}
-     AND (f.mtime > ? OR (f.mtime = ? AND f.id > ?)) LIMIT 1`,
+     AND (f.mtime, f.id) > (?, ?) LIMIT 1`,
     ...(where?.params ?? []),
-    mtime,
     mtime,
     id,
   );

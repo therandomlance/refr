@@ -1,6 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { db } from "refr/server/db";
-import { deleteTag, merge, normalize, rename, setTags, tree, undoTags, TagUndoConflict } from "refr/server/services/tags";
+import { deleteTag, invalidateTreeCache, merge, normalize, rename, setTags, tree, undoTags, TagUndoConflict } from "refr/server/services/tags";
 
 async function tagNamesOf(fileId: string): Promise<string[]> {
   const rows = await db.fileTag.findMany({ where: { fileId }, include: { tag: true } });
@@ -95,5 +95,80 @@ describe("tags", () => {
     await expect(undoTags(changes)).rejects.toBeInstanceOf(TagUndoConflict);
     expect(await tagNamesOf("t1")).toEqual(before);
     expect(await tagNamesOf("t2")).toContain("later");
+  });
+});
+
+describe("tag tree concurrent loads", () => {
+  it("shares cold loads across browse and autocomplete callers", async () => {
+    invalidateTreeCache();
+    const query = vi.spyOn(db, "$queryRaw");
+    try {
+      const results = await Promise.all([tree(), tree(), tree()]);
+      expect(query).toHaveBeenCalledTimes(1);
+      expect(results[0]).toEqual(results[1]);
+      expect(results[1]).toEqual(results[2]);
+    } finally { query.mockRestore(); invalidateTreeCache(); }
+  });
+
+  it("does not cache an old load or clear a newer load after invalidation", async () => {
+    invalidateTreeCache();
+    let resolveOld!: (rows: { name: string; count: bigint }[]) => void;
+    let resolveNew!: (rows: { name: string; count: bigint }[]) => void;
+    const oldRows = new Promise<{ name: string; count: bigint }[]>((resolve) => { resolveOld = resolve; });
+    const newRows = new Promise<{ name: string; count: bigint }[]>((resolve) => { resolveNew = resolve; });
+    const query = vi.spyOn(db, "$queryRaw")
+      .mockReturnValueOnce(oldRows as ReturnType<typeof db.$queryRaw>)
+      .mockReturnValueOnce(newRows as ReturnType<typeof db.$queryRaw>);
+    try {
+      const old = tree();
+      invalidateTreeCache();
+      const current = tree();
+      resolveOld([{ name: "old", count: 1n }]);
+      await old;
+      const concurrent = tree();
+      expect(query).toHaveBeenCalledTimes(2);
+      resolveNew([{ name: "new", count: 2n }]);
+      expect(await current).toEqual([{ name: "new", count: 2 }]);
+      expect(await concurrent).toEqual(await tree());
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally { query.mockRestore(); invalidateTreeCache(); }
+  });
+
+  it("retries after a failed cold query", async () => {
+    invalidateTreeCache();
+    const query = vi.spyOn(db, "$queryRaw").mockRejectedValueOnce(new Error("unavailable"));
+    try {
+      await expect(tree()).rejects.toThrow("unavailable");
+      await tree();
+      expect(query).toHaveBeenCalledTimes(2);
+    } finally { query.mockRestore(); invalidateTreeCache(); }
+  });
+});
+
+describe("batched tag edits", () => {
+  it("preserves mixed snapshots and undo across chunk boundaries and duplicate ids", async () => {
+    const ids = Array.from({ length: 405 }, (_, i) => `bulk-tag-${i}`);
+    await db.file.createMany({ data: ids.map((id) => ({ id, size: 1, mtime: new Date(), mediaType: "image" })) });
+    try {
+      await setTags(ids.slice(0, 10), ["bulk/root/child"], []);
+      await setTags(ids.slice(10), ["bulk/root"], []);
+      const { changes } = await setTags([...ids, ids[0]!], ["bulk/root/child"], []);
+      expect(changes).toHaveLength(395);
+      expect(await tagNamesOf(ids[400]!)).toEqual(["bulk/root/child"]);
+      expect((await setTags(ids, ["bulk/root/child"], [])).changes).toEqual([]);
+      await undoTags(changes);
+      expect(await tagNamesOf(ids[0]!)).toEqual(["bulk/root/child"]);
+      expect(await tagNamesOf(ids[400]!)).toEqual(["bulk/root"]);
+    } finally { await db.file.deleteMany({ where: { id: { in: ids } } }); invalidateTreeCache(); }
+  });
+
+  it("rolls back earlier chunks when a file does not exist", async () => {
+    const ids = Array.from({ length: 400 }, (_, i) => `bulk-rollback-${i}`);
+    await db.file.createMany({ data: ids.map((id) => ({ id, size: 1, mtime: new Date(), mediaType: "image" })) });
+    try {
+      await expect(setTags([...ids, "bulk-missing-file"], ["bulk/rollback"], [])).rejects.toThrow();
+      expect(await db.fileTag.count({ where: { fileId: { in: ids } } })).toBe(0);
+      expect(await db.tag.findUnique({ where: { name: "bulk/rollback" } })).toBeNull();
+    } finally { await db.file.deleteMany({ where: { id: { in: ids } } }); invalidateTreeCache(); }
   });
 });

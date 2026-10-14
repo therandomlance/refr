@@ -40,18 +40,22 @@ async function getOrCreateTag(name: string): Promise<number> {
  *  ancestor tags from the affected files (a child implies its parents). */
 export async function setTags(fileIds: string[], add: string[], remove: string[]) {
   if (fileIds.length === 0) return { changes: [] as TagChange[] };
+  fileIds = [...new Set(fileIds)];
   const changes = await db.$transaction(async (tx) => {
-    const before = await namesFor(tx, [...new Set(fileIds)]);
+    const before = await namesFor(tx, fileIds);
     for (const name of add) {
       const n = normalize(name);
       if (!n) continue;
       const tag = await tx.tag.upsert({ where: { name: n }, create: { name: n }, update: {} });
-      for (const fileId of fileIds) {
-        await tx.fileTag.upsert({
-          where: { fileId_tagId: { fileId, tagId: tag.id } },
-          create: { fileId, tagId: tag.id },
-          update: {},
-        });
+      // Limit bind parameters and skip only duplicate links; FK errors still
+      // roll back the entire edit, including its undo snapshots.
+      for (let i = 0; i < fileIds.length; i += 400) {
+        const batch = fileIds.slice(i, i + 400);
+        await tx.$executeRawUnsafe(
+          `INSERT INTO FileTag (fileId, tagId) VALUES ${batch.map(() => "(?, ?)").join(",")}
+           ON CONFLICT (fileId, tagId) DO NOTHING`,
+          ...batch.flatMap((fileId) => [fileId, tag.id]),
+        );
       }
       // the new tag implies its ancestors — remove explicit ancestor links
       for (const ancestor of ancestors(n).slice(0, -1)) {
@@ -66,7 +70,7 @@ export async function setTags(fileIds: string[], add: string[], remove: string[]
         where: { fileId: { in: fileIds }, tag: { name: n } },
       });
     }
-    const after = await namesFor(tx, [...new Set(fileIds)]);
+    const after = await namesFor(tx, fileIds);
     return [...before].flatMap(([fileId, tags]) => {
       const next = after.get(fileId)!;
       return JSON.stringify(tags) === JSON.stringify(next) ? [] : [{ fileId, before: tags, after: next }];
@@ -165,11 +169,22 @@ export async function deleteTag(name: string) {
 export type TreeNode = { name: string; count: number };
 
 let treeCache: { at: number; data: TreeNode[] } | null = null;
+let treePending: Promise<TreeNode[]> | null = null;
+let treeGeneration = 0;
 const TREE_TTL = 5000;
 
 /** Full tag list with counts including descendants, deduped per file. */
 export async function tree(): Promise<TreeNode[]> {
   if (treeCache && Date.now() - treeCache.at < TREE_TTL) return treeCache.data;
+  if (treePending) return treePending;
+  const pending = loadTree(treeGeneration).finally(() => {
+    if (treePending === pending) treePending = null;
+  });
+  treePending = pending;
+  return pending;
+}
+
+async function loadTree(generation: number): Promise<TreeNode[]> {
   const rows = await db.$queryRaw<{ name: string; count: bigint }[]>`
     WITH RECURSIVE prefixes(tagId, name, prefix, rest) AS (
       SELECT id, name, '', name FROM Tag
@@ -184,7 +199,8 @@ export async function tree(): Promise<TreeNode[]> {
     FROM prefixes p JOIN FileTag ft ON ft.tagId = p.tagId
     WHERE p.prefix <> '' GROUP BY p.prefix ORDER BY p.prefix`;
   const data = rows.map(({ name, count }) => ({ name, count: Number(count) }));
-  treeCache = { at: Date.now(), data };
+  // A mutation may invalidate this load while its query is in flight.
+  if (treeGeneration === generation) treeCache = { at: Date.now(), data };
   return data;
 }
 
@@ -213,6 +229,8 @@ export async function forFiles(fileIds: string[]): Promise<string[]> {
 
 export function invalidateTreeCache() {
   treeCache = null;
+  treePending = null;
+  treeGeneration++;
 }
 
 export { getOrCreateTag };

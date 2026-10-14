@@ -1,5 +1,6 @@
-import { describe, expect, it, beforeAll } from "vitest";
+import { describe, expect, it, beforeAll, vi } from "vitest";
 import fs from "node:fs";
+import fsp from "node:fs/promises";
 import path from "node:path";
 import crypto from "node:crypto";
 import { db } from "refr/server/db";
@@ -39,6 +40,18 @@ describe("scanner", () => {
     const ids = res.items.map((i) => i.id);
     expect(ids).toContain(hashOf(path.join(LIB, "a.jpg")));
     expect(ids).not.toContain(hashOf(path.join(LIB, "sub/b.jpg")));
+  });
+
+  it("stats unchanged known paths once while still discovering new files", async () => {
+    const known = path.join(LIB, "a.jpg");
+    const added = path.join(LIB, "new.jpg");
+    fs.writeFileSync(added, "scan-new-file");
+    const stat = vi.spyOn(fsp, "stat");
+    try {
+      await scanNow();
+      expect(stat.mock.calls.filter(([p]) => p === known)).toHaveLength(1);
+      expect((await db.filePath.findUnique({ where: { path: added } }))?.fileId).toBe(hashOf(added));
+    } finally { stat.mockRestore(); }
   });
 
   it("rename keeps tags", async () => {

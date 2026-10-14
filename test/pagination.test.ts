@@ -38,3 +38,27 @@ describe("keyset pagination", () => {
     expect(back.prevCursor ?? null).toBeNull(); // reached the newest file
   });
 });
+
+describe("keyset pagination with tied timestamps", () => {
+  it("keeps every file exactly once across pages and seeks in both directions", async () => {
+    const ids = ["tie1", "tie2", "tie3", "tie4", "tie5"];
+    const mtime = new Date(2023, 0, 1).getTime();
+    await db.file.createMany({ data: ids.map((id) => ({ id, size: 1, mtime: new Date(mtime), mediaType: "image" })) });
+    const where = { text: "f.id IN (?,?,?,?,?)", params: ids };
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    do {
+      const page = await executeList({ where, sort: "date", cursor, limit: 2 });
+      seen.push(...page.items.map((f) => f.id));
+      cursor = page.nextCursor;
+    } while (cursor);
+    expect(seen).toEqual([...ids].reverse());
+    const middle = await executeList({ where, sort: "date", cursor: `!${mtime}|tie4`, limit: 2 });
+    expect(middle.items.map((f) => f.id)).toEqual(["tie3", "tie2"]);
+    const back = await executeList({ where, sort: "date", cursor: middle.prevCursor, limit: 2 });
+    expect(back.items.map((f) => f.id)).toEqual(["tie5", "tie4"]);
+    expect(back.prevCursor).toBeNull();
+    const boundary = await executeList({ where, sort: "date", cursor: `!${mtime + 1}|`, limit: 2 });
+    expect(boundary.items.map((f) => f.id)).toEqual(["tie5", "tie4"]);
+  });
+});

@@ -256,9 +256,9 @@ export function buildListQuery(input: ListInput): Sql {
     if (raw) {
       const [mtime, id] = raw.split("|");
       text += backward
-        ? ` AND (f.mtime > ? OR (f.mtime = ? AND f.id > ?))`
-        : ` AND (f.mtime < ? OR (f.mtime = ? AND f.id < ?))`;
-      params.push(Number(mtime), Number(mtime), id);
+        ? ` AND (f.mtime, f.id) > (?, ?)`
+        : ` AND (f.mtime, f.id) < (?, ?)`;
+      params.push(Number(mtime), id);
     }
     text += backward
       ? ` ORDER BY f.mtime ASC, f.id ASC LIMIT ?`

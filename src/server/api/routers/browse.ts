@@ -17,10 +17,14 @@ async function childrenOf(dir: string): Promise<FolderNode[]> {
     return [];
   }
   const out: FolderNode[] = [];
-  for (const e of entries) {
-    if (!e.isDirectory()) continue;
-    const full = path.join(dir, e.name);
-    out.push({ name: e.name, path: full, hasChildren: await hasMediaOrSubdirs(full) });
+  const dirs = entries.filter((e) => e.isDirectory());
+  for (let i = 0; i < dirs.length; i += 8) {
+    out.push(
+      ...await Promise.all(dirs.slice(i, i + 8).map(async (e) => {
+        const full = path.join(dir, e.name);
+        return { name: e.name, path: full, hasChildren: await hasMediaOrSubdirs(full) };
+      })),
+    );
   }
   return out.sort((a, b) => a.name.localeCompare(b.name));
 }

@@ -30,7 +30,7 @@ export function scanStatus(): ScanProgress {
   return { ...progress };
 }
 
-async function* walk(dir: string): AsyncGenerator<{ path: string; size: number; mtime: Date }> {
+async function* walk(dir: string): AsyncGenerator<string> {
   let entries;
   try {
     entries = await fsp.readdir(dir, { withFileTypes: true });
@@ -44,12 +44,7 @@ async function* walk(dir: string): AsyncGenerator<{ path: string; size: number; 
     } else if (e.isFile()) {
       const ext = path.extname(e.name).slice(1).toLowerCase();
       if (!(ext in EXTENSIONS)) continue;
-      try {
-        const st = await fsp.stat(full);
-        yield { path: full, size: st.size, mtime: st.mtime };
-      } catch {
-        // vanished between readdir and stat
-      }
+      yield full;
     }
   }
 }
@@ -158,10 +153,12 @@ async function runScan() {
     // Pass 2: walk libraries, hash unknown paths
     for (const lib of libraries) {
       progress.phase = `scanning ${lib}`;
-      for await (const item of walk(lib)) {
+      for await (const filePath of walk(lib)) {
         progress.total++;
-        if (knownPaths.has(item.path)) continue; // already handled above
-        await hashAndAttach(item, null, touchedFiles);
+        if (knownPaths.has(filePath)) continue; // already statted during reconciliation
+        const st = await fsp.stat(filePath).catch(() => null);
+        if (!st) continue; // vanished between readdir and stat
+        await hashAndAttach({ path: filePath, size: st.size, mtime: st.mtime }, null, touchedFiles);
         progress.processed++;
       }
     }
