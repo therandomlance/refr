@@ -18,6 +18,14 @@ export const librarySchema = z.object({
 });
 export type Library = z.infer<typeof librarySchema>;
 
+// Keep existing string-only configs working while destinations gain aliases.
+export const sendToPathsSchema = z
+  .array(z.union([
+    z.string().trim().min(1),
+    z.object({ path: z.string().trim().min(1), alias: z.string().trim().transform((s) => s || undefined).optional() }),
+  ]))
+  .transform((dests) => dests.map((d) => typeof d === "string" ? { path: d, alias: undefined } : d));
+
 const configSchema = z.object({
   passwordHash: z.string().nullable().default(null),
   // Accepts legacy `libraries: ["/path"]` and normalizes to objects.
@@ -38,7 +46,7 @@ const configSchema = z.object({
     .default("03:00"),
   defaultThumbnailSize: z.enum(["small", "medium", "large"]).default("medium"),
   skipTagRemoveConfirm: z.boolean().default(false),
-  sendToPaths: z.array(z.string()).default([]),
+  sendToPaths: sendToPathsSchema.default([]),
   sessionHistoryCap: z.number().int().min(1).default(1000),
   theme: z.enum(THEMES).default("graphite"),
   ml: z

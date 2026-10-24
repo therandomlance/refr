@@ -7,6 +7,7 @@ import { ContextMenu, type MenuItem } from "./context-menu";
 import { TagPromptDialog } from "./dialog";
 import { useTagEdit } from "./tag-actions";
 import { moveQueueItems } from "refr/lib/queue-order";
+import { useActionFeedback } from "./action-feedback";
 
 /**
  * Shared context actions (§10.2) for grid tiles + viewer: queue, palette,
@@ -23,6 +24,7 @@ export function useFileContextMenu(
   const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[] }>(null);
   const router = useRouter();
   const utils = api.useUtils();
+  const notify = useActionFeedback();
 
   const queueQ = api.queue.get.useQuery();
   const settings = api.settings.get.useQuery();
@@ -33,7 +35,17 @@ export function useFileContextMenu(
   });
 
   const setQueue = api.queue.set.useMutation({ onSuccess: () => void utils.queue.get.invalidate() });
-  const sendTo = api.files.sendTo.useMutation();
+  const sendTo = api.files.sendTo.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: ({ copied, existing, failed }) => notify({
+      message: [
+        `Sent ${copied.length} file${copied.length === 1 ? "" : "s"}.`,
+        existing.length ? `Skipped ${existing.length} already-existing filename${existing.length === 1 ? "" : "s"}: ${existing.join(", ")}.` : "",
+        failed.length ? `Failed ${failed.length}: ${failed.map((f) => `${f.name}: ${f.message}`).join("; ")}.` : "",
+      ].filter(Boolean).join(" "),
+      error: failed.length > 0,
+    }),
+  });
   const setTags = useTagEdit();
 
   const open = (e: React.MouseEvent, fileId: string) => {
@@ -107,8 +119,8 @@ export function useFileContextMenu(
       items.push({
         label: "Send to",
         submenu: dests.map((d, i) => ({
-          label: d.split("/").filter(Boolean).pop() ?? d,
-          onClick: () => sendTo.mutate({ id: fileIds[0]!, destIndex: i }),
+          label: d.alias ?? d.path.split("/").filter(Boolean).pop() ?? d.path,
+          onClick: () => sendTo.mutate({ fileIds, destIndex: i }),
         })),
       });
     }

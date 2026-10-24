@@ -134,32 +134,38 @@ export const filesRouter = createTRPCRouter({
     return file;
   }),
 
-  /** §11.7 — copy first existing path into a configured destination. Strict validation. */
+  /** §11.7 — copy every selected file without overwriting existing filenames. */
   sendTo: protectedProcedure
-    .input(z.object({ id: z.string(), destIndex: z.number().int().min(0) }))
+    .input(z.object({ fileIds: z.array(z.string().min(1)).min(1), destIndex: z.number().int().min(0) }))
     .mutation(async ({ input }) => {
-      const dests = config.get().sendToPaths.map((p) => path.resolve(p));
-      const dest = dests[input.destIndex];
-      if (!dest) throw new TRPCError({ code: "BAD_REQUEST", message: "unknown destination" });
-      const file = await db.file.findUnique({
-        where: { id: input.id },
-        select: { paths: { select: { path: true } } },
-      });
-      const src = file?.paths.map((p) => p.path).find((p) => fs.existsSync(p));
-      if (!src) throw new TRPCError({ code: "NOT_FOUND", message: "no existing path for file" });
-      const base = path.basename(src);
-      const ext = path.extname(base);
-      const stem = base.slice(0, base.length - ext.length);
-      let target = path.join(dest, base);
-      for (let i = 1; i <= 999 && fs.existsSync(target); i++) {
-        target = path.join(dest, `${stem} (${i})${ext}`);
-      }
-      if (fs.existsSync(target)) {
-        throw new TRPCError({ code: "CONFLICT", message: "too many name collisions" });
-      }
+      const destination = config.get().sendToPaths[input.destIndex];
+      if (!destination) throw new TRPCError({ code: "BAD_REQUEST", message: "unknown destination" });
+      const dest = path.resolve(destination.path);
       await fsp.mkdir(dest, { recursive: true });
-      await fsp.copyFile(src, target);
-      return { target };
+      const copied: string[] = [];
+      const existing: string[] = [];
+      const failed: { id: string; name: string; message: string }[] = [];
+      for (const id of new Set(input.fileIds)) {
+        const file = await db.file.findUnique({
+          where: { id },
+          select: { paths: { select: { path: true }, orderBy: { path: "asc" } } },
+        });
+        const src = file?.paths.map((p) => p.path).find((p) => fs.existsSync(p));
+        if (!src) {
+          failed.push({ id, name: path.basename(file?.paths[0]?.path ?? id), message: "no existing path for file" });
+          continue;
+        }
+        const name = path.basename(src);
+        try {
+          // Atomic filename check: concurrent sends must never overwrite each other.
+          await fsp.copyFile(src, path.join(dest, name), fs.constants.COPYFILE_EXCL);
+          copied.push(name);
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === "EEXIST") existing.push(name);
+          else failed.push({ id, name, message: error instanceof Error ? error.message : "copy failed" });
+        }
+      }
+      return { copied, existing, failed };
     }),
 
   purgeOrphans: protectedProcedure.mutation(() => purgeOrphans()),

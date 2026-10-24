@@ -53,7 +53,7 @@ libraries: []                 # absolute paths
 scanTime: "03:00"             # HH:MM or null = disabled
 defaultThumbnailSize: medium  # small|medium|large
 skipTagRemoveConfirm: false
-sendToPaths: []               # absolute paths
+sendToPaths: []               # {path: "/absolute/path", alias?: "label"}; legacy strings accepted
 sessionHistoryCap: 1000
 theme: slate                  # slate|paper|ember|forest|velvet|mono
 ml:                           # see §13.9
@@ -248,7 +248,7 @@ Depends on: §3, §4. `src/server/api/root.ts` replaces the boilerplate `post` r
 | Router | Procedures |
 |---|---|
 | `auth` | `login`, `logout`, `status` |
-| `files` | `list` (shared cursor query, §9.4), `byId`, `sendTo(id, destIndex)`, `purgeOrphans`/`countOrphans`, `purgeExternal`/`countExternal`, `purgeOrphanThumbs` |
+| `files` | `list` (shared cursor query, §9.4), `byId`, `sendTo(fileIds, destIndex)`, `purgeOrphans`/`countOrphans`, `purgeExternal`/`countExternal`, `purgeOrphanThumbs` |
 | `tags` | §7.2 + `forFiles(fileIds[])` (intersection for viewer/multi-select) |
 | `search` | `query(tokens, sort, cursor)` (§9; routes through §13.5 when a text chip is present), `autocomplete(term)` |
 | `ml` | `status`, `setEnabled`, `similar(fileId)`, `suggestImagesForTag(tag)`, `suggestTagsForFile(fileId)`, `reembedAll` (§13.8) |
@@ -560,7 +560,7 @@ Form bound to `settings.get`/`settings.patch` (every field from §2.2), plus:
 - Password: set/change/clear (three fields, current-password check when one is set).
 - Libraries: path list editor (add/remove; remove warns that files stay in DB until purge
   or vanish-prune).
-- Send-to destinations: path list editor.
+- Send-to destinations: add/remove destinations, edit their paths, and set optional menu aliases.
 - Appearance: theme picker (6 swatches, §10.4); applies live via `settings.patch`.
 - **Semantic / ML** (§13): enable toggle (validates python, runs bootstrap with a progress
   log: venv → deps → model download → load), status card (device, model, `embedded x/y`,
@@ -569,8 +569,9 @@ Form bound to `settings.get`/`settings.patch` (every field from §2.2), plus:
 
 ### 11.7 Send-to (context action)
 
-`files.sendTo`: copy the file's first existing path into the chosen destination. Collision →
-`name (1).ext`, `name (2).ext`, … (`fs.existsSync` loop, cap 999). Only configured
+`files.sendTo`: copy each selected file's first existing path into the chosen destination.
+Existing filenames are skipped using an exclusive copy (no overwrite or automatic renaming).
+Report copied files, skipped filenames, and individual failures without stopping the batch. Only configured
 `sendToPaths` are valid targets (server-validated — this is the sole write outside the data
 dir, keep the validation strict).
 

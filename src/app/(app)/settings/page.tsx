@@ -101,7 +101,11 @@ export default function SettingsPage() {
         </Section>
 
         <Section title="Send-to destinations">
-          <PathList values={s.sendToPaths} onChange={(sendToPaths) => save({ sendToPaths })} addLabel="Add destination" />
+          <DestinationList values={s.sendToPaths} onChange={(sendToPaths) => save({ sendToPaths })} />
+          <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
+            Edit a path to change the destination; an optional alias names it in the Send to menu.
+            Existing filenames are skipped, never overwritten or renamed.
+          </p>
         </Section>
 
         <Section title="Sessions">
@@ -149,25 +153,51 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   );
 }
 
-function PathList({ values, onChange, addLabel }: { values: string[]; onChange: (v: string[]) => void; addLabel: string }) {
+type Destination = { path: string; alias?: string };
+
+function DestinationList({ values, onChange }: { values: Destination[]; onChange: (v: Destination[]) => void }) {
   const [draft, setDraft] = useState("");
   return (
     <div className="flex flex-col gap-2">
       {values.map((v, i) => (
-        <div key={i} className="flex items-center gap-2">
-          <code className="flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs" style={{ background: "var(--hover)" }}>{v}</code>
-          <button className="btn" aria-label={`Remove destination ${v}`} onClick={() => onChange(values.filter((_, j) => j !== i))}><Icon name="close" /></button>
-        </div>
+        <form
+          key={`${i}:${v.path}:${v.alias ?? ""}`}
+          className="flex flex-wrap items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const data = new FormData(e.currentTarget);
+            const next = { path: (data.get("path") as string).trim(), alias: (data.get("alias") as string).trim() || undefined };
+            if (next.path) onChange(values.map((value, j) => j === i ? next : value));
+          }}
+        >
+          <input
+            className="input min-w-40 flex-1"
+            name="path"
+            required
+            aria-label={`Destination path ${i + 1}`}
+            defaultValue={v.path}
+          />
+          <input
+            className="input"
+            name="alias"
+            style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
+            aria-label={`Destination alias ${i + 1}`}
+            placeholder="alias"
+            defaultValue={v.alias ?? ""}
+          />
+          <button className="btn" type="submit">Save</button>
+          <button className="btn" type="button" aria-label={`Remove destination ${v.path}`} onClick={() => onChange(values.filter((_, j) => j !== i))}><Icon name="close" /></button>
+        </form>
       ))}
       <form
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (draft.trim()) { onChange([...values, draft.trim()]); setDraft(""); }
+          if (draft.trim()) { onChange([...values, { path: draft.trim() }]); setDraft(""); }
         }}
       >
-        <input className="input flex-1" placeholder="/absolute/path" value={draft} onChange={(e) => setDraft(e.target.value)} />
-        <button className="btn" type="submit">{addLabel}</button>
+        <input className="input flex-1" aria-label="New destination path" placeholder="/absolute/path" value={draft} onChange={(e) => setDraft(e.target.value)} />
+        <button className="btn" type="submit">Add destination</button>
       </form>
     </div>
   );

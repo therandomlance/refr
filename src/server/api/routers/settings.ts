@@ -26,7 +26,7 @@ export const settingsRouter = createTRPCRouter({
           scanTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
           defaultThumbnailSize: z.enum(["small", "medium", "large"]),
           skipTagRemoveConfirm: z.boolean(),
-          sendToPaths: z.array(z.string()),
+          sendToPaths: config.sendToPathsSchema,
           sessionHistoryCap: z.number().int().min(1),
           theme: z.enum(config.THEMES),
           ml: z
