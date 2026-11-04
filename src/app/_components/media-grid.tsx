@@ -16,6 +16,7 @@ import { TagPromptDialog } from "./dialog";
 import { TimelineScrubber } from "./timeline-scrubber";
 import { staticSuggestionOptions, useTagEdit } from "./tag-actions";
 import { Icon } from "./icon";
+import { useActionFeedback } from "./action-feedback";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -72,6 +73,7 @@ export function MediaGrid({
   const [includeKids, setIncludeKids] = useState(true);
   const settings = api.settings.get.useQuery();
   const utils = api.useUtils();
+  const notify = useActionFeedback();
   const patchSettings = api.settings.patch.useMutation({
     onSuccess: () => void utils.settings.get.invalidate(),
   });
@@ -378,6 +380,44 @@ export function MediaGrid({
   }, [layout, hasNextPage, fetchNextPage]);
 
   // ---------------- selection
+  const [selectingAll, setSelectingAll] = useState(false);
+  const selectAllAbort = useRef<AbortController | null>(null);
+  useLayoutEffect(() => {
+    setSelectingAll(false);
+    return () => selectAllAbort.current?.abort();
+  }, [filterKey, selection]);
+  const selectAll = async () => {
+    if (source.kind !== "files") {
+      onSelectionChange(new Set(visibleItems.map((f) => f.id)));
+      return;
+    }
+    if (selectAllAbort.current && !selectAllAbort.current.signal.aborted) return;
+    const controller = new AbortController();
+    selectAllAbort.current = controller;
+    setSelectingAll(true);
+    try {
+      // ponytail: keep explicit IDs for existing bulk actions; use filter-based
+      // selections if the complete ID set becomes too large for the browser.
+      const selected = new Set<string>();
+      let cursor: string | null = null;
+      do {
+        const page = await utils.client.files.ids.query({
+          pathPrefix: source.pathPrefix, tag: source.tag, recursive: includeKids, cursor,
+        }, { signal: controller.signal });
+        if (controller.signal.aborted) return;
+        for (const id of page.ids) if (!hiddenIds?.has(id)) selected.add(id);
+        cursor = page.nextCursor;
+      } while (cursor);
+      onSelectionChange(selected);
+    } catch (error) {
+      if (!controller.signal.aborted) notify({ message: error instanceof Error ? error.message : "Could not select all images. Please try again.", error: true });
+    } finally {
+      if (selectAllAbort.current === controller) {
+        selectAllAbort.current = null;
+        if (!controller.signal.aborted) setSelectingAll(false);
+      }
+    }
+  };
   const anchor = useRef<number>(-1);
   const toggle = useCallback(
     (id: string) => {
@@ -721,11 +761,11 @@ export function MediaGrid({
       {selection.size > 0 && (
         <>
           <span className="text-xs" style={{ color: "var(--text-faint)" }}>{selection.size} selected</span>
-          <button className="btn" onClick={() => onSelectionChange(new Set(visibleItems.map((f) => f.id)))}>Select all</button>
+          <button className="btn" disabled={selectingAll} aria-busy={selectingAll} onClick={selectAll}>{selectingAll ? "Selecting…" : "Select all"}</button>
           <button className="btn" title="Clear selection" aria-label="Clear selection" onClick={() => onSelectionChange(new Set())}>
             <Icon name="close" />
           </button>
-          <button className="btn" title="Selection actions" aria-label="Selection actions" onClick={(e) => {
+          <button className="btn" disabled={selectingAll} title="Selection actions" aria-label="Selection actions" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
             setSelMenu({ x: rect.left, y: rect.bottom + 8 });
           }}>

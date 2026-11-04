@@ -2,7 +2,18 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ failed: false, extraFiles: false, timeline: false, loadedMonth: false, firstPagePending: false, monthFailed: false, monthCount: 600, monthSeeds: 0, monthRequests: 0, searchOptions: {} as { staleTime?: string } }));
+const state = vi.hoisted(() => ({ failed: false, extraFiles: false, timeline: false, loadedMonth: false, firstPagePending: false, monthFailed: false, monthCount: 600, monthSeeds: 0, monthRequests: 0, searchOptions: {} as { staleTime?: string }, idsQuery: vi.fn(), notify: vi.fn(), selectAll: undefined as (() => Promise<void>) | undefined }));
+// Capture the rendered control to exercise its async handler without a DOM dependency.
+vi.mock("react/jsx-dev-runtime", async (original) => {
+  const runtime = await original<typeof import("react/jsx-dev-runtime")>();
+  return { ...runtime, jsxDEV: (...args: Parameters<typeof runtime.jsxDEV>) => {
+    const [type, props] = args;
+    const button = props as { children?: unknown; onClick?: () => Promise<void> };
+    if (type === "button" && button.children === "Select all") state.selectAll = button.onClick;
+    return runtime.jsxDEV(...args);
+  } };
+});
+vi.mock("refr/app/_components/action-feedback", () => ({ useActionFeedback: () => state.notify }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/queue", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(),
 }));
@@ -28,7 +39,7 @@ vi.mock("refr/trpc/react", () => {
   const timeline = () => ({ data: state.timeline ? [{ year: 1970, month: 1, count: state.monthCount, minMtime: 0, maxMtime: 0 }] : undefined });
   const month = (_input: unknown, options: { initialData?: { items: typeof file[] }; enabled?: boolean }) => options;
   return { api: {
-    useUtils: () => ({}),
+    useUtils: () => ({ client: { files: { ids: { query: state.idsQuery } } } }),
     useQueries: (getQueries: (t: { files: { list: typeof month }; search: { query: typeof month } }) => ReturnType<typeof month>[], options: { combine: (results: { data?: { items: typeof file[] }; error: Error | null; refetch: () => void }[]) => unknown }) => {
       const queries = getQueries({ files: { list: month }, search: { query: month } });
       state.monthSeeds = queries.filter((q) => q.initialData).length;
@@ -88,6 +99,43 @@ it.each(["files", "search"] as const)("seeds a fully covered month without anoth
 
 import { MediaGrid } from "refr/app/_components/media-grid";
 import { Tree } from "refr/app/_components/tree";
+
+it.each(["folder", "tag"] as const)("selects every matching browse ID across pages, not just loaded thumbnails (%s)", async (kind) => {
+  state.idsQuery.mockReset()
+    .mockResolvedValueOnce({ ids: ["ui1", "unloaded-1"], nextCursor: "unloaded-1" })
+    .mockResolvedValueOnce({ ids: ["unloaded-2", "unloaded-3"], nextCursor: null });
+  const onSelectionChange = vi.fn();
+  const filter = kind === "folder" ? { pathPrefix: "/select-all/folder" } : { tag: "select-all/tag" };
+  renderToStaticMarkup(createElement(MediaGrid, { source: { kind: "files", ...filter }, selection: new Set(["ui1"]), onSelectionChange }));
+  await state.selectAll!();
+  expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith(new Set(["ui1", "unloaded-1", "unloaded-2", "unloaded-3"]));
+  expect(state.idsQuery).toHaveBeenCalledTimes(2);
+  expect(state.idsQuery.mock.calls[0]?.[0]).toMatchObject({ ...filter, recursive: true, cursor: null });
+  expect(state.idsQuery.mock.calls[1]?.[0]).toMatchObject({ ...filter, recursive: true, cursor: "unloaded-1" });
+  expect(state.idsQuery.mock.calls[0]?.[1]).toMatchObject({ signal: expect.any(AbortSignal) });
+});
+
+it("leaves the existing selection intact if an ID page fails", async () => {
+  state.idsQuery.mockReset()
+    .mockResolvedValueOnce({ ids: ["ui1", "unloaded"], nextCursor: "unloaded" })
+    .mockRejectedValueOnce(new Error("offline"));
+  state.notify.mockClear();
+  const onSelectionChange = vi.fn();
+  renderToStaticMarkup(createElement(MediaGrid, { source: { kind: "files", tag: "select-all" }, selection: new Set(["ui1"]), onSelectionChange }));
+  await state.selectAll!();
+  expect(onSelectionChange).not.toHaveBeenCalled();
+  expect(state.notify).toHaveBeenCalledWith({ message: "offline", error: true });
+});
+
+it.each(["search", "ids"] as const)("keeps the existing select-all behavior outside browse (%s)", async (kind) => {
+  state.idsQuery.mockClear();
+  const onSelectionChange = vi.fn();
+  const source = kind === "search" ? { kind, tokens: [] } : { kind, ids: ["ui1"] };
+  renderToStaticMarkup(createElement(MediaGrid, { source, selection: new Set(["ui1"]), onSelectionChange }));
+  await state.selectAll!();
+  expect(onSelectionChange).toHaveBeenCalledExactlyOnceWith(new Set(["ui1"]));
+  expect(state.idsQuery).not.toHaveBeenCalled();
+});
 
 it("renders separate keyboard controls and distinguishes failed queries from empty lists", () => {
   const props = { source: { kind: "ids" as const, ids: ["ui1"] }, selection: new Set<string>(), onSelectionChange: vi.fn(), onContextMenu: vi.fn() };

@@ -80,6 +80,26 @@ async function pathComplete(typed: string): Promise<string[]> {
 }
 
 export const filesRouter = createTRPCRouter({
+  /** IDs only for browse selection; independent of the grid's loaded pages/sort. */
+  ids: protectedProcedure
+    .input(z.object({
+      pathPrefix: z.string().optional(),
+      tag: z.string().optional(),
+      recursive: z.boolean().optional(),
+      cursor: z.string().nullish(),
+      limit: z.number().int().min(1).max(1000).default(1000),
+    }))
+    .query(async ({ input }) => {
+      const where = sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots());
+      const rows = await db.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT f.id FROM File f WHERE (${where?.text ?? "1=1"}) AND f.id > ?
+         ORDER BY f.id ASC LIMIT ?`,
+        ...(where?.params ?? []), input.cursor ?? "", input.limit + 1,
+      );
+      const ids = rows.slice(0, input.limit).map((r) => r.id);
+      return { ids, nextCursor: rows.length > input.limit ? ids.at(-1)! : null };
+    }),
+
   /** Shared cursor query (§9.4). Filter by path prefix, tag, or explicit ids. */
   list: protectedProcedure
     .input(
