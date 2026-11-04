@@ -84,7 +84,7 @@ async function probe(filePath: string, mediaType: "image" | "video") {
     try {
       const sharp = (await import("sharp")).default;
       const meta = await sharp(filePath).metadata();
-      return { width: meta.width, height: meta.height };
+      return { width: meta.autoOrient.width, height: meta.autoOrient.height };
     } catch {
       return {};
     }

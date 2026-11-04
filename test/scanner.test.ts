@@ -8,6 +8,7 @@ import { scanNow, purgeOrphans, displayDims } from "refr/server/services/scanner
 import { executeList, pathPrefixWhere } from "refr/server/services/fileQuery";
 import * as config from "refr/server/services/config";
 import { setTags, forFiles } from "refr/server/services/tags";
+import { thumbPath, thumbStatus } from "refr/server/services/thumbs";
 
 const LIB = "/tmp/refr-vitest-lib";
 
@@ -93,6 +94,56 @@ describe("scanner", () => {
     expect(orphaned.length).toBeGreaterThan(0);
     await purgeOrphans();
     expect(await db.file.count({ where: { paths: { none: {} } } })).toBe(0);
+  });
+
+  it("uses EXIF display orientation for thumbnails and indexed dimensions without changing originals", async () => {
+    const sharp = (await import("sharp")).default;
+    const source = await sharp(Buffer.from(
+      '<svg width="80" height="48"><rect width="80" height="48" fill="white"/><rect width="40" height="24" fill="red"/><rect x="40" width="40" height="24" fill="#00ff00"/><rect y="24" width="40" height="24" fill="blue"/></svg>',
+    )).jpeg().toBuffer();
+    // Expected RGB corner colors: top-left, top-right, bottom-left, bottom-right.
+    const cases = [
+      [undefined, ["100", "010", "001", "111"]],
+      [1, ["100", "010", "001", "111"]],
+      [2, ["010", "100", "111", "001"]],
+      [3, ["111", "001", "010", "100"]],
+      [4, ["001", "111", "100", "010"]],
+      [5, ["100", "001", "010", "111"]],
+      [6, ["001", "100", "111", "010"]],
+      [7, ["111", "010", "001", "100"]],
+      [8, ["010", "111", "100", "001"]],
+    ] as const;
+    const fixtures = [];
+    const libraries = config.get().libraries;
+    config.patch({ libraries: [LIB] });
+    try {
+      for (const [orientation, corners] of cases) {
+        const file = path.join(LIB, `camera-${orientation ?? "none"}.jpg`);
+        const image = sharp(source);
+        if (orientation) image.withMetadata({ orientation });
+        await image.toFile(file);
+        fixtures.push({ file, id: hashOf(file), orientation, corners });
+      }
+      await scanNow();
+      await vi.waitFor(() => expect(thumbStatus().running).toBe(false));
+      for (const { file, id, orientation, corners } of fixtures) {
+        const swap = orientation != null && orientation >= 5;
+        const dims = { width: swap ? 48 : 80, height: swap ? 80 : 48 };
+        expect(await db.file.findUnique({ where: { id } })).toMatchObject(dims);
+        const { data, info } = await sharp(thumbPath(id)).raw().toBuffer({ resolveWithObject: true });
+        expect(info).toMatchObject(dims);
+        const actual = [[0.25, 0.25], [0.75, 0.25], [0.25, 0.75], [0.75, 0.75]].map(([x, y]) => {
+          const offset = (Math.floor(y! * info.height) * info.width + Math.floor(x! * info.width)) * info.channels;
+          return [...data.subarray(offset, offset + 3)].map((v) => Math.round(v / 255)).join("");
+        });
+        expect(actual).toEqual(corners);
+        expect((await sharp(thumbPath(id)).metadata()).orientation).toBeUndefined();
+        expect(hashOf(file)).toBe(id);
+      }
+    } finally {
+      config.patch({ libraries });
+      for (const { file } of fixtures) fs.rmSync(file, { force: true });
+    }
   });
 
   it("shares scan ownership and progress across module instances", async () => {

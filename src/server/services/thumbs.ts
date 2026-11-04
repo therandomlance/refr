@@ -189,6 +189,7 @@ async function makeThumb(job: ThumbJob) {
   try {
     await fsp.mkdir(shardDir(job.fileId), { recursive: true });
     await sharp(input)
+      .autoOrient()
       .resize(512, 512, { fit: "inside", withoutEnlargement: true })
       .webp({ quality: 80 })
       .toFile(thumbPath(job.fileId) + ".tmp");
