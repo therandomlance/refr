@@ -224,7 +224,7 @@ export function TimelineScrubber({
         ))}
         <div
           className="tl-thumb"
-          style={{ top: thumbTop, opacity: dragging ? 0 : 1 }}
+          style={{ top: thumbTop }}
         />
       </div>
     </div>

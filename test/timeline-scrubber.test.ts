@@ -34,6 +34,10 @@ it("seeks during captured drags, follows the pointer, and lands exactly on relea
     (track.props.ref as { current: unknown }).current = { getBoundingClientRect: () => ({ top: 32 }) };
     return node;
   };
+  const thumb = () => {
+    const track = render().props.children.at(-1) as Node;
+    return (track.props.children as Node[]).at(-1)!;
+  };
   let captured = false;
   const currentTarget = {
     focus: vi.fn(),
@@ -49,9 +53,11 @@ it("seeks during captured drags, follows the pointer, and lands exactly on relea
     expect(onSeek).not.toHaveBeenCalled();
     render().props.onPointerDown(event(57, "pointerdown"));
     expect(onSeek).toHaveBeenLastCalledWith(buckets[0], 0.25);
+    expect(thumb().props.style).toEqual({ top: 25 }); // visible throughout the drag
     vi.advanceTimersByTime(80);
     render().props.onPointerMove(event(182));
     expect(onSeek).toHaveBeenLastCalledWith(buckets[1], 0.5);
+    expect(thumb().props.style).toEqual({ top: 150 });
     const bubble = render().props.children[0] as Node;
     expect(bubble.props.style).toEqual({ top: 174 });
     render().props.onPointerMove(event(207));
@@ -84,7 +90,7 @@ it("uses grid heights instead of file counts for pointer and thumb positions", (
   const track = node.props.children.at(-1) as Node;
   (track.props.ref as { current: unknown }).current = { getBoundingClientRect: () => ({ top: 32 }) };
   const children = track.props.children as Node[];
-  expect(children.at(-1)?.props.style).toEqual({ top: 75, opacity: 1 });
+  expect(children.at(-1)?.props.style).toEqual({ top: 75 });
   node.props.onPointerDown({
     clientY: 157, isPrimary: true, button: 0, pointerId: 1, preventDefault: vi.fn(),
     currentTarget: { focus: vi.fn(), setPointerCapture: vi.fn() },
