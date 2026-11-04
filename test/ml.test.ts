@@ -1,4 +1,4 @@
-import { describe, expect, it, afterAll } from "vitest";
+import { describe, expect, it, afterAll, vi } from "vitest";
 import http from "node:http";
 import fs from "node:fs";
 import path from "node:path";
@@ -19,6 +19,9 @@ function vec(seed: number): number[] {
 
 let holdImages = false;
 let releaseImages: (() => void) | undefined;
+let holdTexts = false;
+let releaseTexts: (() => void) | undefined;
+let textBatches = 0;
 const stub = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
@@ -27,7 +30,10 @@ const stub = http.createServer((req, res) => {
     if (req.url === "/health") {
       res.end(JSON.stringify({ status: "ready", device: "cpu", model: "test" }));
     } else if (req.url === "/embed/text") {
-      res.end(JSON.stringify({ vectors: (parsed.texts ?? []).map((t) => vec(t.length % 97)) }));
+      textBatches++;
+      const reply = () => res.end(JSON.stringify({ vectors: (parsed.texts ?? []).map((t) => vec(t.length % 97)) }));
+      if (holdTexts) releaseTexts = reply;
+      else reply();
     } else if (req.url === "/embed/image") {
       const paths = parsed.paths ?? [];
       const reply = () => res.end(JSON.stringify({ vectors: paths.map((p) => vec(p.length % 97)), kept: paths.map((_, i) => i) }));
@@ -55,7 +61,11 @@ describe("ml (stub sidecar)", () => {
     await db.file.create({ data: { id: "ml1", size: 1, mtime: new Date(), mediaType: "image" } });
     await setTags(["ml1"], ["mltag"], []);
   });
-  afterAll(() => stub.close());
+  afterAll(async () => {
+    await ml.enqueueTagVectors();
+    config.patch({ ml: { enabled: false } });
+    stub.close();
+  });
 
   it("reports actual embedding activity, not incomplete coverage", async () => {
     const ids = ["ml-progress-ready", "ml-progress-no-thumb", "ml-progress-old-model"];
@@ -205,6 +215,7 @@ describe("ml (stub sidecar)", () => {
     });
     // "commontag" sits on the whole selection → excluded; "weighted" only on img1
     await setTags(["img1", "img2"], ["commontag"], []);
+    await ml.enqueueTagVectors();
     const out = await ml.suggestTagsForFiles(["img1", "img2"]);
     expect(out.length).toBeGreaterThan(0);
     expect(out.every((s) => s.tag !== "commontag")).toBe(true);
@@ -212,6 +223,43 @@ describe("ml (stub sidecar)", () => {
     for (let i = 1; i < out.length; i++) expect(out[i - 1]!.score).toBeGreaterThanOrEqual(out[i]!.score);
     // no embeddings → no suggestions
     expect(await ml.suggestTagsForFiles(["vs0"])).toEqual([]);
+  });
+
+  it("serves cached suggestions without waiting for a shared background repair", async () => {
+    await ml.enqueueTagVectors();
+    vi.resetModules();
+    const other = await import("refr/server/services/ml");
+    holdTexts = true;
+    const before = textBatches;
+    await ml.invalidateAllTagVectors();
+    let returned = false;
+    const requests = Promise.all([ml.suggestTagsForFiles(["img1"]), other.suggestTagsForFiles(["img1"])])
+      .then((results) => { returned = true; return results; });
+    try {
+      await expect.poll(() => !!releaseTexts).toBe(true);
+      await expect.poll(() => returned, { timeout: 1000 }).toBe(true);
+      expect(await requests).toEqual([[], []]);
+      expect(textBatches - before).toBe(1);
+      await setTags(["img2"], ["weighted"], []); // invalidate the held batch before it can write
+    } finally {
+      holdTexts = false;
+      releaseTexts?.();
+      releaseTexts = undefined;
+      await requests;
+      await ml.enqueueTagVectors();
+    }
+    expect((await ml.suggestTagsForFiles(["img1"])).length).toBeGreaterThan(0);
+    expect(textBatches - before).toBe(2);
+    expect((await db.tagVector.findFirst({ where: { tag: { name: "weighted" } } }))?.fileCount).toBe(2);
+  });
+
+  it("warms more than 500 missing tag vectors without another suggestion request", async () => {
+    const names = Array.from({ length: 501 }, (_, i) => `background-tag-${i}`);
+    await db.tag.createMany({ data: names.map((name) => ({ name })) });
+    try {
+      await ml.enqueueTagVectors();
+      expect(await db.tagVector.count({ where: { model: mlModel(), tag: { name: { in: names } } } })).toBe(501);
+    } finally { await db.tag.deleteMany({ where: { name: { in: names } } }); }
   });
 });
 

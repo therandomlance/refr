@@ -25,7 +25,15 @@ export type ScanProgress = {
   total: number;
 };
 
-const progress: ScanProgress = { running: false, phase: "", processed: 0, total: 0 };
+// Instrumentation and request handlers must share both the guard and progress.
+const globalForScan = globalThis as typeof globalThis & {
+  refrScan?: { running: Promise<void> | null; progress: ScanProgress };
+};
+const scan = globalForScan.refrScan ??= {
+  running: null,
+  progress: { running: false, phase: "", processed: 0, total: 0 },
+};
+const progress = scan.progress;
 export function scanStatus(): ScanProgress {
   return { ...progress };
 }
@@ -108,14 +116,12 @@ async function probe(filePath: string, mediaType: "image" | "video") {
   }
 }
 
-let running: Promise<void> | null = null;
-
 /** Single-flight scan trigger. Returns the in-flight promise if already running. */
 export function scanNow(): Promise<void> {
-  running ??= runScan().finally(() => {
-    running = null;
+  scan.running ??= runScan().finally(() => {
+    scan.running = null;
   });
-  return running;
+  return scan.running;
 }
 
 async function runScan() {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { buildRows, tileWidth, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import type { FileSummary } from "refr/server/services/search";
 
@@ -79,6 +79,19 @@ describe("buildRows", () => {
     const rows = buildRows({ ...OPTS, items, doGrouping: true });
     // both fit one row easily, but they're different days → two segments
     expect(headers(rows)[0]!.segs).toHaveLength(2);
+  });
+
+  it("formats month headers once per group, including across years", () => {
+    const format = vi.spyOn(Date.prototype, "toLocaleDateString");
+    try {
+      const items = [
+        ...Array.from({ length: 1000 }, (_, i) => img(`a${i}`, new Date(2026, 0, 5, 12).getTime())),
+        img("previous-year", new Date(2025, 0, 5, 12).getTime()),
+      ];
+      const rows = buildRows({ ...OPTS, grouping: "month", items, doGrouping: true });
+      expect(headers(rows).flatMap((row) => row.segs).map((s) => s.ids.length)).toEqual([1000, 1]);
+      expect(format).toHaveBeenCalledTimes(2);
+    } finally { format.mockRestore(); }
   });
 
   it("gives a too-wide group its own fixed-height rows", () => {

@@ -31,10 +31,11 @@ export function groupLabel(mtime: number, grouping: "day" | "month" | "year"): s
   return d.toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric" });
 }
 
-/** Bucket key: like groupLabel but year-qualified for days (same "Aug 11" label, different years). */
+/** Numeric local-calendar keys; format labels only once per group. */
 function groupKey(mtime: number, grouping: "day" | "month" | "year"): string {
-  if (grouping !== "day") return groupLabel(mtime, grouping);
   const d = new Date(mtime);
+  if (grouping === "year") return String(d.getFullYear());
+  if (grouping === "month") return `${d.getFullYear()}-${d.getMonth()}`;
   return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
 }
 

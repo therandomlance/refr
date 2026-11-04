@@ -32,7 +32,7 @@ All suites share ONE SQLite db (`/tmp/refr-vitest-data`, erased/recreated by `te
 ## Architecture notes that bite
 
 - **Server/client boundary:** most services are `server-only`; do not import them into client components. Exception: `src/server/services/search.ts` deliberately contains client-safe token/SQL builders; DB execution is in `fileQuery.ts`. Put new shared constants/helpers in `src/lib/`.
-- **Multiple module instances:** Next splits RSC / route handlers / instrumentation into separate module graphs, so module-level caches (config, scan progress) are per-instance. `config.get()` re-reads the file when its mtime changes — don't "optimize" that away.
+- **Multiple module instances:** Next splits RSC / route handlers / instrumentation into separate module graphs. Background-job state is shared through `globalThis`; config caches remain per-instance. `config.get()` re-reads the file when its mtime changes — don't "optimize" that away.
 - **Auth:** no middleware. `src/app/(app)/layout.tsx` guards pages; tRPC `protectedProcedure` guards the API; `/api/file/[id]` and `/api/thumb/[id]` use `requestAuthed()`. `passwordHash: null` in config = open app.
 - **Search grammar:** `?q=` is the canonical **JSON-encoded token array**. `parseQuery`/`serializeQuery` are display/legacy forms, not lossless serialization (multi-word tags and similar-image chips).
 - **File identity** = sha256 content hash; `FilePath` rows are attributes. Never write under a library path (only Send-to destinations may be written).

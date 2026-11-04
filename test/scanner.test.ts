@@ -94,6 +94,25 @@ describe("scanner", () => {
     await purgeOrphans();
     expect(await db.file.count({ where: { paths: { none: {} } } })).toBe(0);
   });
+
+  it("shares scan ownership and progress across module instances", async () => {
+    vi.resetModules();
+    const other = await import("refr/server/services/scanner");
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const read = vi.spyOn(db.filePath, "findMany").mockReturnValueOnce(gate.then(() => []) as ReturnType<typeof db.filePath.findMany>);
+    const run = scanNow();
+    try {
+      expect(other.scanNow()).toBe(run);
+      expect(other.scanStatus().running).toBe(true);
+      expect(read).toHaveBeenCalledTimes(1);
+    } finally {
+      release();
+      await run;
+      read.mockRestore();
+    }
+    expect(other.scanStatus().running).toBe(false);
+  });
 });
 
 describe("displayDims (video rotation)", () => {

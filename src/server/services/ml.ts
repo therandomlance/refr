@@ -34,30 +34,52 @@ export type MlStatus = {
   error?: string;
 };
 
-let state: MlStatus["state"] = "disabled";
-let bootLog: string[] = [];
-let lastError: string | undefined;
-let child: ChildProcess | null = null;
-let healthInfo: { device?: string; model?: string } = {};
-let restarts = 0;
-let stopping = false;
+type MlRuntime = {
+  state: MlStatus["state"];
+  bootLog: string[];
+  lastError?: string;
+  child: ChildProcess | null;
+  healthInfo: { device?: string; model?: string };
+  healthCache: { ready: boolean; t: number } | null;
+  restarts: number;
+  stopping: boolean;
+  starting: Promise<void> | null;
+  restartTimer: NodeJS.Timeout | null;
+  exitRegistered: boolean;
+  tagRefresh: Promise<void> | null;
+  tagRefreshRequested: boolean;
+  tagGeneration: number;
+};
+const globalForMl = globalThis as typeof globalThis & {
+  refrMl?: MlRuntime;
+  refrEmbedJob?: { running: boolean };
+};
+// Next's instrumentation and request graphs share the actual process owner.
+const runtime = globalForMl.refrMl ??= {
+  state: "disabled", bootLog: [], child: null, healthInfo: {}, healthCache: null,
+  restarts: 0, stopping: false, starting: null, restartTimer: null, exitRegistered: false,
+  tagRefresh: null, tagRefreshRequested: false, tagGeneration: 0,
+};
 
 // Kill the sidecar when the Node process exits so it doesn't orphan and squat
 // on the port (which would make the next server start think ML is "ready" from
 // the stale /health response while POSTs silently fail).
-process.on("exit", () => {
-  if (child) {
-    try {
-      child.kill();
-    } catch {
-      // already gone
+if (!runtime.exitRegistered) {
+  runtime.exitRegistered = true;
+  process.on("exit", () => {
+    if (runtime.child) {
+      try {
+        runtime.child.kill();
+      } catch {
+        // already gone
+      }
     }
-  }
-});
+  });
+}
 
 function log(line: string) {
-  bootLog.push(line);
-  if (bootLog.length > 200) bootLog.shift();
+  runtime.bootLog.push(line);
+  if (runtime.bootLog.length > 200) runtime.bootLog.shift();
 }
 
 export async function status(): Promise<MlStatus> {
@@ -66,29 +88,27 @@ export async function status(): Promise<MlStatus> {
   const embedded = await db.fileEmbedding.count({ where: { model: currentModelId() } });
   const embeddingRunning = cfg.enabled && embedJob.running;
   if (!cfg.enabled) {
-    return { enabled: false, state: "disabled", embedded, total, embeddingRunning, log: bootLog.slice(-50) };
+    return { enabled: false, state: "disabled", embedded, total, embeddingRunning, log: runtime.bootLog.slice(-50) };
   }
-  // The sidecar may have been started by another module graph (boot via
-  // instrumentation), so trust the live /health over this graph's local state;
-  // local state still covers bootstrapping/error while it's coming up here.
+  // Live health also covers a functional sidecar reused after a dev restart.
   const h = await health();
   const live: MlStatus["state"] = h
     ? h.status === "ready"
       ? "ready"
       : "starting"
-    : state === "disabled"
+    : runtime.state === "disabled"
       ? "starting"
-      : state;
+      : runtime.state;
   return {
     enabled: true,
     state: live,
-    device: h?.device ?? healthInfo.device,
-    model: h?.model ?? healthInfo.model,
+    device: h?.device ?? runtime.healthInfo.device,
+    model: h?.model ?? runtime.healthInfo.model,
     embedded,
     total,
     embeddingRunning,
-    log: bootLog.slice(-50),
-    error: live === "error" ? lastError : undefined,
+    log: runtime.bootLog.slice(-50),
+    error: live === "error" ? runtime.lastError : undefined,
   };
 }
 
@@ -163,12 +183,13 @@ function spawnSidecar() {
 async function waitReady(timeoutMs = 600_000): Promise<boolean> {
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
+    if (runtime.stopping || !config.get().ml.enabled || runtime.child?.exitCode !== null) return false;
     const h = await health();
+    if (runtime.stopping || !config.get().ml.enabled) return false;
     if (h?.status === "ready") {
-      healthInfo = { device: h.device, model: h.model };
+      runtime.healthInfo = { device: h.device, model: h.model };
       return true;
     }
-    if (child?.exitCode !== null) return false;
     await new Promise((r) => setTimeout(r, 2000));
   }
   return false;
@@ -185,11 +206,7 @@ async function health(): Promise<{ status: string; device?: string; model?: stri
   }
 }
 
-// The sidecar is booted from instrumentation — a separate module graph from
-// route handlers — so the module-local `state` is "disabled" in the handler
-// graph even when the sidecar is healthy. Trust the live /health instead, with
-// a short TTL cache so tight loops (refreshTagVectors) don't hammer it.
-let healthCache: { ready: boolean; t: number } | null = null;
+// A short positive-only cache keeps embedding loops from hammering /health.
 const HEALTH_TTL = 3000;
 
 async function isReady(): Promise<boolean> {
@@ -199,11 +216,11 @@ async function isReady(): Promise<boolean> {
   // enqueueEmbeddings right after the sidecar comes up (waitReady polls
   // health() directly, bypassing this cache, so the cache can hold a stale
   // false from the loading phase).
-  if (healthCache?.ready && now - healthCache.t < HEALTH_TTL) return true;
+  if (runtime.healthCache?.ready && now - runtime.healthCache.t < HEALTH_TTL) return true;
   const h = await health();
   const ready = h?.status === "ready";
-  healthCache = { ready, t: now };
-  if (ready) state = "ready";
+  runtime.healthCache = { ready, t: now };
+  if (ready && !runtime.stopping && config.get().ml.enabled) runtime.state = "ready";
   return ready;
 }
 
@@ -228,24 +245,36 @@ async function killPort(port: number): Promise<void> {
   }
 }
 
-async function start() {
-  stopping = false;
-  state = "bootstrapping";
-  bootLog = [];
-  lastError = undefined;
+function start(): Promise<void> {
+  if (runtime.starting) return runtime.starting;
+  if (runtime.restartTimer) clearTimeout(runtime.restartTimer);
+  runtime.restartTimer = null;
+  const pending = startSidecar().finally(() => { runtime.starting = null; });
+  runtime.starting = pending;
+  return pending;
+}
+
+async function startSidecar() {
+  runtime.stopping = false;
+  runtime.state = "bootstrapping";
+  runtime.bootLog = [];
+  runtime.lastError = undefined;
   try {
     // Reuse a healthy, functional sidecar from a previous session if one is
     // already on the port — avoids a multi-minute model reload on dev restarts.
     const h = await health();
+    if (runtime.stopping || !config.get().ml.enabled) return;
     if (h?.status === "ready" && h.model === currentModelId()) {
       if (await probeSidecar()) {
-        state = "ready";
-        healthInfo = { device: h.device, model: h.model };
-        restarts = 0;
+        if (runtime.stopping || !config.get().ml.enabled) return;
+        runtime.state = "ready";
+        runtime.healthInfo = { device: h.device, model: h.model };
+        runtime.restarts = 0;
         log("reusing existing sidecar");
         void enqueueEmbeddings();
         return;
       }
+      if (runtime.stopping || !config.get().ml.enabled) return;
       // Stale sidecar responds to /health but POSTs fail (orphaned process from
       // a crashed/killed previous server). Evict it before spawning our own.
       log("evicting stale sidecar on port…");
@@ -253,57 +282,79 @@ async function start() {
     }
 
     await ensureVenv();
-    state = "starting";
+    if (runtime.stopping || !config.get().ml.enabled) return;
+    runtime.state = "starting";
     log("starting sidecar…");
-    child = await spawnSidecar();
+    const child = await spawnSidecar();
+    runtime.child = child;
     child.on("exit", (code) => {
-      child = null;
-      if (stopping || !config.get().ml.enabled) return;
-      state = "error";
-      lastError = `sidecar exited (${code})`;
-      if (restarts < 3) {
-        restarts++;
-        log(`restarting sidecar (attempt ${restarts}/3)…`);
-        setTimeout(() => void start(), 2000 * restarts);
+      if (runtime.child !== child) return;
+      runtime.child = null;
+      runtime.healthCache = null;
+      if (runtime.stopping || !config.get().ml.enabled) return;
+      runtime.state = "error";
+      runtime.lastError = `sidecar exited (${code})`;
+      if (runtime.restarts < 3) {
+        runtime.restarts++;
+        log(`restarting sidecar (attempt ${runtime.restarts}/3)…`);
+        runtime.restartTimer = setTimeout(() => {
+          runtime.restartTimer = null;
+          void (runtime.starting ?? Promise.resolve()).then(() => {
+            if (!runtime.stopping && config.get().ml.enabled && runtime.state === "error") void start();
+          });
+        }, 2000 * runtime.restarts);
       }
     });
+    if (runtime.stopping || !config.get().ml.enabled) {
+      child.kill();
+      runtime.child = null;
+      return;
+    }
     const ok = await waitReady();
     // Verify OUR child is still alive AND functional — a stale sidecar on the
     // port can answer /health before the new child crashes on bind, making
     // waitReady return true for the wrong process. The POST probe catches this.
-    if (ok && child?.exitCode === null && (await probeSidecar())) {
-      state = "ready";
-      restarts = 0;
+    const functional = ok && child.exitCode === null && (await probeSidecar());
+    if (runtime.stopping || !config.get().ml.enabled) return;
+    if (functional) {
+      runtime.state = "ready";
+      runtime.restarts = 0;
       log("sidecar ready");
       void enqueueEmbeddings();
     } else {
-      state = "error";
-      lastError = ok
+      runtime.state = "error";
+      runtime.lastError = ok
         ? "sidecar health check passed but POST failed — port may be in use by a stale process"
         : "sidecar did not become ready";
-      log(`error: ${lastError}`);
-      child?.kill();
-      child = null;
+      log(`error: ${runtime.lastError}`);
+      child.kill();
     }
   } catch (e) {
-    state = "error";
-    lastError = e instanceof Error ? e.message : String(e);
-    log(`error: ${lastError}`);
+    if (runtime.stopping || !config.get().ml.enabled) return;
+    runtime.state = "error";
+    runtime.lastError = e instanceof Error ? e.message : String(e);
+    log(`error: ${runtime.lastError}`);
   }
 }
 
 function stop() {
-  stopping = true;
-  child?.kill();
-  child = null;
-  state = "disabled";
-  healthInfo = {};
+  runtime.stopping = true;
+  if (runtime.restartTimer) clearTimeout(runtime.restartTimer);
+  runtime.restartTimer = null;
+  runtime.child?.kill();
+  runtime.child = null;
+  runtime.state = "disabled";
+  runtime.healthInfo = {};
+  runtime.healthCache = null;
 }
 
 export async function setEnabled(enabled: boolean) {
   config.patch({ ml: { enabled } });
   if (enabled) {
-    void start(); // bootstrap is long; status() polls progress
+    // Re-enabling during a cancelled bootstrap waits for its cleanup first.
+    if (runtime.stopping && runtime.starting) {
+      void runtime.starting.then(() => { if (config.get().ml.enabled) void start(); });
+    } else void start(); // bootstrap is long; status() polls progress
   } else {
     stop();
   }
@@ -319,14 +370,14 @@ export async function bootMl() {
 
 // Instrumentation and route handlers have separate module graphs, but share
 // this process-wide worker flag (including the single-flight guard).
-const globalForMl = globalThis as typeof globalThis & { refrEmbedJob?: { running: boolean } };
 const embedJob = globalForMl.refrEmbedJob ??= { running: false };
 
 /** Background: embed files lacking a current-model embedding, batches of 8 thumbnails. */
 export async function enqueueEmbeddings() {
-  if (!config.get().ml.enabled || !(await isReady()) || embedJob.running || thumbStatus().running) return;
+  if (!config.get().ml.enabled || embedJob.running || thumbStatus().running) return;
   embedJob.running = true;
   try {
+    if (!(await isReady())) return;
     const modelId = currentModelId();
     // ponytail: keyset-page by f.id so a run of thumbless files can't stall the
     // queue — they're skipped (continue), not aborted. Next boot retries them
@@ -363,6 +414,7 @@ export async function enqueueEmbeddings() {
     }
   } finally {
     embedJob.running = false;
+    void enqueueTagVectors();
   }
 }
 
@@ -373,7 +425,7 @@ function currentModelId(): string {
 
 /** ponytail: test hook — lets vitest fake "ready" without a real sidecar process. */
 export function _setStateForTest(s: MlStatus["state"]) {
-  state = s;
+  runtime.state = s;
 }
 
 export class SidecarError extends Error {}
@@ -480,16 +532,20 @@ export async function restoreSuggestion(tagName: string, fileId: string) {
  *  Unknown names (no Tag row) are silently skipped. */
 export async function invalidateTagVectors(tagNames: string[]) {
   if (tagNames.length === 0) return;
+  runtime.tagGeneration++;
   const tags = await db.tag.findMany({ where: { name: { in: tagNames } }, select: { id: true } });
   if (tags.length === 0) return;
   await db.tagVector.deleteMany({ where: { tagId: { in: tags.map((t) => t.id) } } });
+  void enqueueTagVectors();
 }
 
 /** Wipe the whole TagVector matrix — for rare bulk admin ops (rename/merge/
  *  delete) where computing the precise affected set is more code than it's
- *  worth. The matrix rebuilds lazily on next suggestTagsForFile call. */
+ *  worth. Rebuild in the background; readers can use a partial matrix. */
 export async function invalidateAllTagVectors() {
+  runtime.tagGeneration++;
   await db.tagVector.deleteMany({});
+  void enqueueTagVectors();
 }
 
 function normalize(v: Float32Array): Float32Array {
@@ -519,6 +575,7 @@ function parentOf(name: string): string | null {
 async function computeTagVector(
   tagName: string,
   textEmb: Float32Array,
+  modelId = currentModelId(),
 ): Promise<{ v: Float32Array; fileCount: number }> {
   const samples = await db.$queryRawUnsafe<{ vector: Buffer }[]>(
     `SELECT fe.vector FROM FileEmbedding fe
@@ -527,7 +584,7 @@ async function computeTagVector(
        WHERE t.name = ? OR t.name LIKE ? ESCAPE '\\'
      )
      ORDER BY RANDOM() LIMIT 2000`,
-    currentModelId(),
+    modelId,
     tagName,
     `${tagName.replace(/[%_\\]/g, (c) => "\\" + c)}/%`,
   );
@@ -584,28 +641,59 @@ export async function tagVectorByName(tagName: string): Promise<Float32Array | n
   return tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
 }
 
-/** Batch-rebuild TagVector rows (one text-embed call for all tags). With no
- *  tagIds, rebuilds up to 500 tags (cold start); with tagIds, only those
- *  (incremental after invalidateTagVectors). */
-async function refreshTagVectors(tagIds?: number[]) {
-  const modelId = currentModelId();
-  const tags = await db.tag.findMany({
-    where: tagIds ? { id: { in: tagIds } } : undefined,
-    select: { id: true, name: true },
-    take: 500,
-  });
-  if (tags.length === 0) return;
+/** One batch; invalidation prevents an old centroid from repopulating the cache. */
+async function refreshTagVectors(tags: { id: number; name: string }[], modelId: string, generation: number) {
+  const current = () => generation === runtime.tagGeneration && modelId === currentModelId();
   const textEmbs = await embedText(tags.map((t) => prettify(t.name)));
   for (let i = 0; i < tags.length; i++) {
+    if (!current() || !config.get().ml.enabled || embedJob.running || thumbStatus().running) return false;
     const textEmb = textEmbs[i]!;
     if (!textEmb) continue;
-    const { v, fileCount } = await computeTagVector(tags[i]!.name, textEmb);
+    const { v, fileCount } = await computeTagVector(tags[i]!.name, textEmb, modelId);
+    if (!current()) return false;
     await db.tagVector.upsert({
       where: { tagId: tags[i]!.id },
       create: { tagId: tags[i]!.id, vector: vecToBytes(v), fileCount, linksVersion: 0, model: modelId },
       update: { vector: vecToBytes(v), fileCount, model: modelId },
     });
+    if (!current()) {
+      await db.tagVector.deleteMany({ where: { tagId: tags[i]!.id } });
+      return false;
+    }
   }
+  return true;
+}
+
+/** Process-wide, best-effort warming. Never await this from a suggestion request. */
+export function enqueueTagVectors(): Promise<void> {
+  if (runtime.tagRefresh) {
+    runtime.tagRefreshRequested = true;
+    return runtime.tagRefresh;
+  }
+  if (!config.get().ml.enabled || embedJob.running || thumbStatus().running) return Promise.resolve();
+  runtime.tagRefreshRequested = false;
+  const pending = (async () => {
+    let cursor = 0;
+    while (config.get().ml.enabled && !embedJob.running && !thumbStatus().running) {
+      if (!(await isReady())) return;
+      const modelId = currentModelId();
+      const generation = runtime.tagGeneration;
+      const tags = await db.tag.findMany({
+        where: { id: { gt: cursor }, OR: [{ vector: { is: null } }, { vector: { is: { model: { not: modelId } } } }] },
+        orderBy: { id: "asc" }, select: { id: true, name: true }, take: 500,
+      });
+      if (generation !== runtime.tagGeneration || modelId !== currentModelId()) { cursor = 0; continue; }
+      if (!tags.length) return;
+      cursor = await refreshTagVectors(tags, modelId, generation) ? tags[tags.length - 1]!.id : 0;
+    }
+  })().catch((error) => {
+    console.error("[ml] tag-vector warmup failed:", error);
+  }).finally(() => {
+    runtime.tagRefresh = null;
+    if (runtime.tagRefreshRequested) return enqueueTagVectors();
+  });
+  runtime.tagRefresh = pending;
+  return pending;
 }
 
 /** Suggested images for a tag: kNN on the tag vector, excluding files already tagged
@@ -675,37 +763,12 @@ export async function suggestImagesOutsideRoot(tagName: string) {
   return knn(v, 60, 0, root, excluded.size ? [...excluded] : undefined);
 }
 
-/** TagVector matrix for the current model, with cold-start/incremental rebuild:
- *  empty matrix → rebuild all (capped 500); rows deleted by invalidateTagVectors
- *  → rebuild just those (one batched text-embed call for the missing set). */
+/** Serve the available cache immediately; missing vectors warm off the request path. */
 async function tagMatrix(): Promise<{ tagId: number; name: string; vector: Float32Array }[]> {
   const modelId = currentModelId();
-  let rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
-  if (rows.length === 0) {
-    try {
-      await refreshTagVectors();
-      rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
-    } catch {
-      return [];
-    }
-  } else {
-    // incremental: rebuild any vectors deleted by invalidateTagVectors
-    const tagCount = await db.tag.count();
-    if (rows.length < tagCount) {
-      const present = new Set(rows.map((r) => r.tagId));
-      const missing = (await db.tag.findMany({ select: { id: true } }))
-        .map((t) => t.id)
-        .filter((id) => !present.has(id));
-      if (missing.length > 0) {
-        try {
-          await refreshTagVectors(missing);
-          rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
-        } catch {
-          // keep the partial set we have
-        }
-      }
-    }
-  }
+  const rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
+  // ponytail: partial suggestions until the next query; add completion-driven refetch if live refresh matters.
+  void enqueueTagVectors();
   return rows.map((r) => ({
     tagId: r.tagId,
     name: r.tag.name,
@@ -772,6 +835,7 @@ export async function suggestTagsForFiles(fileIds: string[]): Promise<{ tag: str
 }
 
 export async function reembedAll() {
+  runtime.tagGeneration++;
   await db.fileEmbedding.deleteMany({});
   await db.tagVector.deleteMany({});
   await enqueueEmbeddings();

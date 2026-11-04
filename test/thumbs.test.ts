@@ -38,17 +38,22 @@ describe("thumbnail storage layout", () => {
   });
 
   it("deduplicates jobs while queued and active", async () => {
+    vi.resetModules();
+    const other = await import("refr/server/services/thumbs");
     const before = thumbStatus().processed;
     const drained = new Promise<void>((resolve) => setOnThumbDrain(resolve));
     const job = { fileId: idA, mediaType: "image", path: "/missing" };
     enqueueThumbs([job]);
-    enqueueThumbs([job]);
+    other.enqueueThumbs([job]);
     await drained;
     setOnThumbDrain(null);
     expect(thumbStatus().processed - before).toBe(1);
+    expect(other.thumbStatus()).toEqual(thumbStatus());
   });
 
   it("pages catch-up and coalesces producers until the bounded queue drains", async () => {
+    vi.resetModules();
+    const other = await import("refr/server/services/thumbs");
     const files = Array.from({ length: 310 }, (_, i) => ({
       id: i.toString(16).padStart(64, "0"), size: 1n, mtime: new Date(0), addedAt: new Date(0),
       mediaType: "image", width: null, height: null, duration: null, paths: [{ path: "/missing" }],
@@ -59,7 +64,7 @@ describe("thumbnail storage layout", () => {
     const drained = new Promise<void>((resolve) => setOnThumbDrain(resolve));
     try {
       const run = catchUpMissingThumbs();
-      expect(catchUpMissingThumbs()).toBe(run);
+      expect(other.catchUpMissingThumbs()).toBe(run);
       expect(thumbStatus().running).toBe(true);
       await run;
       expect(thumbStatus().pending).toBeLessThanOrEqual(256);

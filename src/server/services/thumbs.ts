@@ -12,32 +12,40 @@ const execFileP = promisify(execFile);
 
 export type ThumbJob = { fileId: string; mediaType: string; path: string };
 
-const queue: ThumbJob[] = [];
-const active = new Set<string>();
-let workers = 0;
+type ThumbWorker = {
+  queue: ThumbJob[];
+  active: Set<string>;
+  workers: number;
+  catchup: Promise<void> | null;
+  producers: number;
+  capacityWaiters: (() => void)[];
+  total: number;
+  processed: number;
+  onDrain: (() => void) | null;
+};
+const globalForThumbs = globalThis as typeof globalThis & { refrThumbs?: ThumbWorker };
+const worker = globalForThumbs.refrThumbs ??= {
+  queue: [], active: new Set<string>(), workers: 0, catchup: null, producers: 0,
+  capacityWaiters: [], total: 0, processed: 0, onDrain: null,
+};
+const { queue, active, capacityWaiters } = worker;
 const CONCURRENCY = 2;
 const MAX_PENDING = 256;
 const PAGE_SIZE = 100;
-let catchup: Promise<void> | null = null;
-let producers = 0;
-const capacityWaiters: (() => void)[] = [];
-let total = 0;
-let processed = 0;
-let onDrain: (() => void) | null = null;
 export function setOnThumbDrain(cb: (() => void) | null) {
-  onDrain = cb;
+  worker.onDrain = cb;
 }
 
-/** Queue progress since boot (per module instance, like scan progress). */
+/** Process-wide queue progress, including work started by instrumentation. */
 export function thumbStatus() {
-  return { running: producers > 0 || queue.length > 0 || workers > 0, pending: queue.length + workers, processed, total };
+  return { running: worker.producers > 0 || queue.length > 0 || worker.workers > 0, pending: queue.length + worker.workers, processed: worker.processed, total: worker.total };
 }
 
 /** Single-flight, keyset-paged sweep; disk checks and production stay off request paths. */
 export function catchUpMissingThumbs(): Promise<void> {
-  if (catchup) return catchup;
-  producers++;
-  catchup = (async () => {
+  if (worker.catchup) return worker.catchup;
+  worker.producers++;
+  worker.catchup = (async () => {
     let cursor: string | undefined;
     for (;;) {
       const files = await db.file.findMany({
@@ -54,22 +62,22 @@ export function catchUpMissingThumbs(): Promise<void> {
           : null));
       for (const job of missing) {
         if (!job) continue;
-        while (queue.length + workers >= MAX_PENDING) await new Promise<void>((resolve) => capacityWaiters.push(resolve));
+        while (queue.length + worker.workers >= MAX_PENDING) await new Promise<void>((resolve) => capacityWaiters.push(resolve));
         enqueueThumbs([job]);
       }
       if (files.length < PAGE_SIZE) break;
     }
   })().finally(() => {
-    catchup = null;
-    producers--;
+    worker.catchup = null;
+    worker.producers--;
     notifyDrain();
   });
-  return catchup;
+  return worker.catchup;
 }
 
 function notifyDrain() {
-  if (!queue.length && !workers) {
-    if (producers === 0) onDrain?.();
+  if (!queue.length && !worker.workers) {
+    if (worker.producers === 0) worker.onDrain?.();
     for (const resolve of capacityWaiters.splice(0)) resolve();
   }
 }
@@ -115,20 +123,20 @@ export function enqueueThumbs(jobs: ThumbJob[]) {
     queue.push(j);
     added++;
   }
-  total += added;
+  worker.total += added;
   pump();
 }
 
 function pump() {
-  while (workers < CONCURRENCY && queue.length > 0) {
+  while (worker.workers < CONCURRENCY && queue.length > 0) {
     const job = queue.shift()!;
-    workers++;
+    worker.workers++;
     void makeThumb(job)
       .catch(() => undefined)
       .finally(() => {
-        workers--;
+        worker.workers--;
         active.delete(job.fileId);
-        processed++;
+        worker.processed++;
         pump();
         for (const resolve of capacityWaiters.splice(0)) resolve();
         notifyDrain();

@@ -37,6 +37,7 @@ export default function PalettesPage() {
   const extract = api.palettes.extract.useMutation();
   const save = api.palettes.save.useMutation({ onSuccess: invalidate });
   const del = api.palettes.delete.useMutation({ onSuccess: invalidate });
+  const saving = save.isPending || del.isPending;
   const move = api.palettes.move.useMutation({ onSuccess: invalidate });
   const createFolder = api.palettes.createFolder.useMutation({ onSuccess: invalidate });
   const renameFolder = api.palettes.renameFolder.useMutation({ onSuccess: invalidate });
@@ -161,13 +162,16 @@ export default function PalettesPage() {
         <PaletteEditor
           editing={editing}
           folders={folders}
-          onSave={(e) => {
+          saving={saving}
+          onSave={async (e) => {
             const isEdit = !!e.orig && e.orig.name === e.name && e.orig.folder === e.folder;
-            if (e.orig && !isEdit) del.mutate(e.orig); // renamed/moved: remove the old file
-            save.mutate({ name: e.name, colors: e.colors, folder: e.folder, sourceFileId: e.sourceFileId, overwrite: isEdit });
-            setEditing(null);
+            try {
+              await save.mutateAsync({ name: e.name, colors: e.colors, folder: e.folder, sourceFileId: e.sourceFileId, overwrite: isEdit });
+              if (e.orig && !isEdit) await del.mutateAsync(e.orig);
+              setEditing(null);
+            } catch { /* mutation feedback reports failures; keep the editor open */ }
           }}
-          onClose={() => setEditing(null)}
+          onClose={() => { if (!saving) setEditing(null); }}
         />
       )}
       {menu && (
@@ -278,12 +282,14 @@ function FolderPicker({ folders, onPick, onClose }: { folders: string[]; onPick:
 function PaletteEditor({
   editing,
   folders,
+  saving,
   onSave,
   onClose,
 }: {
   editing: Editing;
   folders: string[];
-  onSave: (e: Editing) => void;
+  saving: boolean;
+  onSave: (e: Editing) => Promise<void>;
   onClose: () => void;
 }) {
   const [e, setE] = useState(editing);
@@ -352,6 +358,7 @@ function PaletteEditor({
 
   return (
     <Dialog title="Palette" onClose={onClose} wide={1620} dismissOnBackdrop={false}>
+      <fieldset disabled={saving} inert={saving} className="contents">
       <div className="mb-3 flex gap-2">
         <input className="input flex-1" value={e.name} onChange={(ev) => setE({ ...e, name: ev.target.value })} />
         <select className="input" value={e.folder} onChange={(ev) => setE({ ...e, folder: ev.target.value })}>
@@ -453,19 +460,20 @@ function PaletteEditor({
           </div>
         )}
       </div>
+      </fieldset>
 
       <div className="flex flex-wrap gap-2">
         <button
           className="btn"
-          disabled={e.colors.length >= 10}
+          disabled={saving || e.colors.length >= 10}
           onClick={() => setE({ ...e, colors: [...e.colors, "#888888"] })}
         >
           + Add color
         </button>
-        <button className="btn" onClick={() => exportPng(e.name, e.colors)}>Export PNG</button>
+        <button className="btn" disabled={saving} onClick={() => exportPng(e.name, e.colors)}>Export PNG</button>
         <div className="flex-1" />
-        <button className="btn" onClick={onClose}>Cancel</button>
-        <button className="btn primary" onClick={() => onSave(e)}>Save</button>
+        <button className="btn" aria-disabled={saving} onClick={onClose}>Cancel</button>
+        <button className="btn primary" disabled={saving || !e.name.trim()} onClick={() => void onSave(e)}>{saving ? "Saving…" : "Save"}</button>
       </div>
     </Dialog>
   );
