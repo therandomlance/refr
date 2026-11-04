@@ -11,9 +11,10 @@ export function timelineRowHeight(row: LayoutRow, gap: number): number {
   return row.type === "header" ? HEADER_HEIGHT : row.type === "placeholder" ? row.height : row.height + 2 * PAD + gap;
 }
 
-export function buildTimelineLayout({ buckets, months, width, rowH, gap, grouping }: {
+export function buildTimelineLayout({ buckets, months, partialMonths, width, rowH, gap, grouping }: {
   buckets: TimelineBucket[];
   months: (FileSummary[] | undefined)[];
+  partialMonths?: boolean[];
   width: number;
   rowH: number;
   gap: number;
@@ -33,6 +34,9 @@ export function buildTimelineLayout({ buckets, months, width, rowH, gap, groupin
       : [{ type: "placeholder", height: estimatedHeight }];
     if (grouping === "year" && !yearContinuation && monthRows[0]?.type === "header") {
       monthRows[0].segs[0]!.ids = months.flatMap((files, i) => buckets[i]?.year === bucket.year ? files?.map((f) => f.id) ?? [] : []);
+    }
+    if (items && partialMonths?.[monthIndex] && items.length < bucket.count) {
+      monthRows.push({ type: "placeholder", height: Math.ceil(estimatedHeight * (bucket.count - items.length) / bucket.count) });
     }
     const height = monthRows.reduce((sum, row) => sum + timelineRowHeight(row, gap), 0);
     rows.push(...monthRows.map((row) => ({ ...row, monthIndex })));

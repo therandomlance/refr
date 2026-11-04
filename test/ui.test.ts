@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ failed: false, extraFiles: false, timeline: false, loadedMonth: false, searchOptions: {} as { staleTime?: string } }));
+const state = vi.hoisted(() => ({ failed: false, extraFiles: false, timeline: false, loadedMonth: false, firstPagePending: false, monthFailed: false, monthCount: 600, monthSeeds: 0, monthRequests: 0, searchOptions: {} as { staleTime?: string } }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/queue", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(),
 }));
@@ -16,18 +16,25 @@ vi.mock("@tanstack/react-virtual", () => ({
 vi.mock("refr/trpc/react", () => {
   const file = { id: "ui1", mediaType: "image", width: 100, height: 100, duration: null, mtime: 0 };
   const query = () => ({
-    data: state.failed ? undefined : {
+    data: state.failed || state.firstPagePending ? undefined : {
       items: state.extraFiles ? [file, { ...file, id: "ui2", width: 200 }, { ...file, id: "ui3", width: 50 }] : [file],
       pages: [{ items: state.extraFiles ? [file, { ...file, id: "ui2", width: 200 }, { ...file, id: "ui3", width: 50 }] : [file] }],
     },
-    isError: state.failed, error: new Error("offline"), isLoading: false, isFetching: false,
+    isError: state.failed, error: new Error("offline"), isLoading: state.firstPagePending, isFetching: state.firstPagePending,
+    dataUpdatedAt: 1000,
     fetchNextPage: vi.fn(), fetchPreviousPage: vi.fn(), refetch: vi.fn(),
   });
   const mutation = () => ({ isPending: false, mutate: vi.fn(), mutateAsync: async () => ({ changes: [] }) });
-  const timeline = () => ({ data: state.timeline ? [{ year: 1970, month: 1, count: 600, minMtime: 0, maxMtime: 0 }] : undefined });
+  const timeline = () => ({ data: state.timeline ? [{ year: 1970, month: 1, count: state.monthCount, minMtime: 0, maxMtime: 0 }] : undefined });
+  const month = (_input: unknown, options: { initialData?: { items: typeof file[] }; enabled?: boolean }) => options;
   return { api: {
     useUtils: () => ({}),
-    useQueries: () => state.timeline ? [{ items: state.loadedMonth ? [file] : undefined, error: state.failed ? new Error("offline") : null, refetch: vi.fn() }] : [],
+    useQueries: (getQueries: (t: { files: { list: typeof month }; search: { query: typeof month } }) => ReturnType<typeof month>[], options: { combine: (results: { data?: { items: typeof file[] }; error: Error | null; refetch: () => void }[]) => unknown }) => {
+      const queries = getQueries({ files: { list: month }, search: { query: month } });
+      state.monthSeeds = queries.filter((q) => q.initialData).length;
+      state.monthRequests = queries.filter((q) => q.enabled && !q.initialData).length;
+      return options.combine(queries.map((q) => ({ data: state.loadedMonth ? { items: [file] } : q.initialData, error: state.failed || state.monthFailed ? new Error("offline") : null, refetch: vi.fn() })));
+    },
     files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: timeline } },
     search: { query: { useInfiniteQuery: (_input: unknown, options: { staleTime?: string }) => { state.searchOptions = options; return query(); } }, timeline: { useQuery: timeline } },
     settings: { get: { useQuery: () => ({}) }, patch: { useMutation: mutation } },
@@ -35,23 +42,48 @@ vi.mock("refr/trpc/react", () => {
   } };
 });
 
-it.each(["files", "search"] as const)("renders a single-month virtual timeline, including loading and retry states (%s)", (kind) => {
+it.each(["files", "search"] as const)("starts thumbnails from the first page before its full timeline month loads (%s)", (kind) => {
   state.timeline = true;
   const source = kind === "files" ? { kind } : { kind, tokens: [] };
   const render = () => renderToStaticMarkup(createElement(MediaGrid, { source, selection: new Set<string>(), onSelectionChange: vi.fn() }));
   try {
+    state.firstPagePending = true;
     const loading = render();
     expect(loading).toContain('role="scrollbar"');
     expect(loading).toContain('class="tl-placeholder"');
     expect(loading).not.toContain("Nothing here yet");
+    expect(loading).not.toContain('data-file-id="ui1"');
+    expect(state.monthRequests).toBe(0); // wait for the first page before deciding what needs fetching
+    state.firstPagePending = false;
+    const preview = render();
+    expect(preview).toContain('data-file-id="ui1"');
+    expect(preview).toContain('class="tl-placeholder"'); // room remains for the rest of the month
+    state.monthFailed = true;
+    expect(render()).toContain('data-file-id="ui1"'); // a background failure must not erase the preview
+    expect(render()).toContain("Try again");
+    state.monthFailed = false;
     state.failed = true;
     expect(render()).toContain("Could not load images. offline");
     expect(render()).toContain("Try again");
     state.failed = false;
     state.loadedMonth = true;
-    expect(render()).toContain('data-file-id="ui1"');
-    expect(render()).not.toContain('class="tl-placeholder"');
-  } finally { state.timeline = false; state.loadedMonth = false; state.failed = false; }
+    const loaded = render();
+    expect(loaded.match(/data-file-id="ui1"/g)).toHaveLength(1);
+    expect(loaded).not.toContain('class="tl-placeholder"');
+  } finally { state.timeline = false; state.loadedMonth = false; state.failed = false; state.firstPagePending = false; state.monthFailed = false; }
+});
+
+it.each(["files", "search"] as const)("seeds a fully covered month without another metadata request (%s)", (kind) => {
+  state.timeline = true;
+  state.monthCount = 1;
+  const source = kind === "files" ? { kind } : { kind, tokens: [] };
+  try {
+    const html = renderToStaticMarkup(createElement(MediaGrid, { source, selection: new Set<string>(), onSelectionChange: vi.fn() }));
+    expect(html).toContain('data-file-id="ui1"');
+    expect(html).not.toContain('class="tl-placeholder"');
+    expect(state.monthSeeds).toBe(1);
+    expect(state.monthRequests).toBe(0);
+  } finally { state.timeline = false; state.monthCount = 600; }
 });
 
 import { MediaGrid } from "refr/app/_components/media-grid";

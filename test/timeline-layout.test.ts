@@ -31,3 +31,20 @@ it("keeps one year header and includes all loaded files of the year in its selec
   expect(headers).toHaveLength(1);
   expect(headers[0]?.type === "header" && headers[0].segs[0]?.ids).toHaveLength(1800);
 });
+
+it.each(["day", "month", "year"] as const)("reserves the unloaded remainder after a first-page preview (%s)", (grouping) => {
+  const month = images(3);
+  const partial = buildTimelineLayout({ ...options, grouping, months: [month.slice(0, 200)], partialMonths: [true] });
+  const prefix = partial.rows.filter((r) => r.monthIndex === 0);
+  expect(prefix.flatMap((r) => r.type === "tiles" ? r.files : [])).toEqual(month.slice(0, 200));
+  const tail = prefix.at(-1)!;
+  expect(tail.type).toBe("placeholder");
+  expect(timelineRowHeight(tail, options.gap)).toBeGreaterThan(0);
+  expect(partial.positions[1]!.top).toBe(prefix.reduce((sum, r) => sum + timelineRowHeight(r, options.gap), 0));
+  const target = { year: 2025, month: 3, fraction: 0.75 };
+  expect(timelinePosition(partial, timelineOffset(partial, target))?.fraction).toBeCloseTo(0.75);
+
+  const loaded = buildTimelineLayout({ ...options, grouping, months: [month], partialMonths: [false] });
+  expect(loaded.rows.filter((r) => r.monthIndex === 0).some((r) => r.type === "placeholder")).toBe(false);
+  expect(loaded.rows.flatMap((r) => r.type === "tiles" ? r.files : [])).toEqual(month);
+});

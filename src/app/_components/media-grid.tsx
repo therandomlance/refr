@@ -159,18 +159,6 @@ export function MediaGrid({
   const timelineMode = sort === "date" && layout === "horizontal" && !suggestionMode && !vectorMode && (buckets?.length ?? 0) > 0;
   const showTimeline = timelineMode;
   const [visibleMonths, setVisibleMonths] = useState({ key: "", indices: [0] });
-  const monthQueries = api.useQueries((t) => timelineMode ? (buckets ?? []).map((b, i) => {
-    const options = {
-      enabled: (visibleMonths.key === filterKey ? visibleMonths.indices : [0]).includes(i),
-      staleTime: 60_000,
-    };
-    const month = { year: b.year, month: b.month };
-    return source.kind === "files"
-      ? t.files.list({ pathPrefix: source.pathPrefix, tag: source.tag, recursive: includeKids, month }, options)
-      : t.search.query({ tokens: source.kind === "search" ? source.tokens : [], month }, options);
-  }) : [], {
-    combine: (results) => results.map((q) => ({ items: q.data?.items, error: q.error, refetch: q.refetch })),
-  });
   const filesQ = api.files.list.useInfiniteQuery(
     {
       pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
@@ -198,6 +186,37 @@ export function MediaGrid({
 
   const filesData = filesQ.data;
   const searchData = searchQ.data;
+  const firstPageQuery = source.kind === "files" ? filesQ : searchQ;
+  const firstPageItems = firstPageQuery.data?.pages[0]?.items;
+  const waitingForFirstPage = !firstPageQuery.data && firstPageQuery.isFetching;
+  const previewMonths = useMemo(() => (buckets ?? []).map((b) => {
+    // Use the server's timestamp range, not the browser's possibly different timezone.
+    const items = firstPageItems?.filter((f) => f.mtime >= b.minMtime && f.mtime <= b.maxMtime);
+    return items?.length ? { items, nextCursor: null, prevCursor: null } : undefined;
+  }), [buckets, firstPageItems]);
+  // Let an in-flight first page seed complete months before creating their queries.
+  const monthQueries = api.useQueries((t) => timelineMode && !waitingForFirstPage ? (buckets ?? []).map((b, i) => {
+    const preview = previewMonths[i];
+    const options = {
+      enabled: (visibleMonths.key === filterKey ? visibleMonths.indices : [0]).includes(i),
+      staleTime: 60_000,
+      // A month already covered by the first page needs no second request.
+      initialData: preview?.items.length === b.count ? preview : undefined,
+      initialDataUpdatedAt: firstPageQuery.dataUpdatedAt,
+    };
+    const month = { year: b.year, month: b.month };
+    return source.kind === "files"
+      ? t.files.list({ pathPrefix: source.pathPrefix, tag: source.tag, recursive: includeKids, month }, options)
+      : t.search.query({ tokens: source.kind === "search" ? source.tokens : [], month }, options);
+  }) : [], {
+    // Start thumbnail requests from the first page while dense months load.
+    combine: (results) => results.map((q, i) => ({
+      items: q.data?.items ?? previewMonths[i]?.items,
+      partial: !q.data && !!previewMonths[i] && previewMonths[i].items.length < buckets![i]!.count,
+      error: q.error,
+      refetch: q.refetch,
+    })),
+  });
   const items: FileSummary[] = useMemo(() => {
     return (
       timelineMode ? monthQueries.flatMap((q) => q.items ?? []) : source.kind === "ids"
@@ -225,6 +244,7 @@ export function MediaGrid({
   const timelineLayout = useMemo(() => buildTimelineLayout({
     buckets: timelineMode ? buckets ?? [] : [],
     months: monthQueries.map((q) => hiddenIds?.size ? q.items?.filter((f) => !hiddenIds.has(f.id)) : q.items),
+    partialMonths: monthQueries.map((q) => q.partial),
     width, rowH, gap, grouping,
   }), [timelineMode, buckets, monthQueries, hiddenIds, width, rowH, grouping]);
   // Keep the track fixed while months load, as Immich does. Actual canvas
@@ -459,11 +479,11 @@ export function MediaGrid({
     const viewerMonth = monthQueries.findIndex((q) => q.items?.some((f) => f.id === viewerId));
     let start = viewerMonth >= 0 ? viewerMonth : (buckets?.findIndex((b) => b.year === activeMonth?.year && b.month === activeMonth.month) ?? 0);
     let end = start;
-    while (start > 0 && monthQueries[start - 1]?.items) start--;
-    while (end + 1 < monthQueries.length && monthQueries[end + 1]?.items) end++;
+    while (start > 0 && monthQueries[start - 1]?.items && !monthQueries[start - 1]?.partial) start--;
+    while (end + 1 < monthQueries.length && !monthQueries[end]?.partial && monthQueries[end + 1]?.items) end++;
     return {
       items: monthQueries.slice(start, end + 1).flatMap((q) => q.items ?? []).filter((f) => !hiddenIds?.has(f.id)),
-      next: monthQueries[end + 1] ?? null,
+      next: (monthQueries[end]?.partial ? monthQueries[end] : monthQueries[end + 1]) ?? null,
     };
   }, [timelineMode, visibleItems, monthQueries, viewerId, buckets, activeMonth?.year, activeMonth?.month, hiddenIds]);
   useEffect(() => {
