@@ -3,7 +3,7 @@ import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
 import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases } from "refr/server/services/search";
-import { executeList, libraryRootsWhere, timelineBuckets } from "refr/server/services/fileQuery";
+import { executeList, libraryRootsWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
 import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
 
@@ -31,6 +31,7 @@ export const searchRouter = createTRPCRouter({
         cursor: z.string().nullish(),
         // timeline scrubber seek: used only for the first page (when no page cursor yet)
         seek: z.string().nullish(),
+        month: timelineMonthSchema.optional(),
         limit: z.number().int().min(1).max(500).optional(),
       }),
     )
@@ -62,6 +63,7 @@ export const searchRouter = createTRPCRouter({
       const where = tokens.length === 0
         ? libraryRootsWhere(config.timelineRoots())
         : tokensToWhere(tokens);
+      if (input.month) return timelineMonth(where, input.month);
       return executeList({ where, sort: input.sort, cursor, limit: input.limit });
     }),
 

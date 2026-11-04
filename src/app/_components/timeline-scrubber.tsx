@@ -5,7 +5,6 @@ import type { TimelineBucket } from "refr/lib/timeline";
 
 const PAD_TOP = 32; // room for the hover bubble above the track
 const PAD_BOTTOM = 10;
-const MIN_H = 3; // unclickable slivers for tiny months
 const YEAR_GAP = 16; // min px between year labels
 const DOT_GAP = 8; // min px between month dots
 
@@ -17,16 +16,18 @@ const monthLabel = (b: { year: number; month: number }) =>
 
 /**
  * Immich-style vertical time scrubber. Segments are months of the *whole*
- * filtered library (heights ∝ file count); the thumb tracks the topmost
- * visible month. Dragging seeks continuously, including within a month.
+ * filtered library; the thumb tracks pixel progress through the grid.
+ * Dragging seeks synchronously, including within a month.
  */
 export function TimelineScrubber({
   buckets,
+  heights,
   active,
   onSeek,
   controls,
 }: {
   buckets: TimelineBucket[]; // newest first
+  heights?: number[]; // actual/estimated month geometry, in grid pixels
   active: { year: number; month: number; fraction: number } | null;
   onSeek: (bucket: TimelineBucket, fraction: number) => void;
   controls: string;
@@ -40,7 +41,6 @@ export function TimelineScrubber({
   const [hoverFrac, setHoverFrac] = useState(0);
   const [dragIdx, setDragIdx] = useState<number | null>(null);
   const [dragFrac, setDragFrac] = useState(0);
-  const lastSeekAt = useRef(0);
 
   useEffect(() => {
     const el = outerRef.current;
@@ -55,10 +55,9 @@ export function TimelineScrubber({
 
   const segments = useMemo(() => {
     if (buckets.length === 0) return [];
-    const total = buckets.reduce((s, b) => s + b.count, 0) || 1;
-    let hs = buckets.map((b) => Math.max(MIN_H, (b.count / total) * avail));
-    const sum = hs.reduce((s, h) => s + h, 0) || 1;
-    hs = hs.map((h) => (h * avail) / sum);
+    const weights = buckets.map((b, i) => heights?.[i] ?? b.count);
+    const total = weights.reduce((s, h) => s + h, 0) || 1;
+    const hs = weights.map((h) => (h * avail) / total);
     const out: {
       bucket: TimelineBucket;
       top: number;
@@ -94,7 +93,7 @@ export function TimelineScrubber({
       spanDot += h;
     }
     return out;
-  }, [buckets, avail]);
+  }, [buckets, heights, avail]);
 
   const activeIdx = useMemo(() => {
     if (!active) return -1;
@@ -126,7 +125,6 @@ export function TimelineScrubber({
     setDragIdx(hit.idx);
     setDragFrac(hit.frac);
     onSeek(buckets[hit.idx]!, hit.frac);
-    lastSeekAt.current = Date.now();
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const hit = segIdxAt(e.clientY);
@@ -135,11 +133,8 @@ export function TimelineScrubber({
     if (e.currentTarget.hasPointerCapture(e.pointerId) && hit) {
       setDragIdx(hit.idx);
       setDragFrac(hit.frac);
-      // Each seek starts a paged query; cap previews, always seek exactly on release.
-      if (Date.now() - lastSeekAt.current >= 80) {
-        onSeek(buckets[hit.idx]!, hit.frac);
-        lastSeekAt.current = Date.now();
-      }
+      // Seeking moves an existing virtual canvas; never throttle pointer tracking.
+      onSeek(buckets[hit.idx]!, hit.frac);
     }
   };
   const endDrag = (e: React.PointerEvent<HTMLDivElement>) => {

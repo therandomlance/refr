@@ -47,12 +47,17 @@ it("indexes excluded libraries without showing them in the main timeline", async
     expect((await files.list({})).items.map((f) => f.id)).toEqual([ids[1], ids[0]]);
     expect((await search.timeline({ tokens: [] })).map((b) => b.year)).toEqual([2021, 2020]);
     expect((await files.timeline({})).map((b) => b.year)).toEqual([2021, 2020]);
+    expect((await files.list({ month: { year: 2021, month: 1 } })).items.map((f) => f.id)).toEqual([ids[1]]);
+    expect((await search.query({ tokens: [], month: { year: 2022, month: 1 } })).items).toEqual([]);
 
     const tokens = parseQuery("path:hidden");
     expect((await search.query({ tokens })).items.map((f) => f.id)).toEqual([ids[2]]);
     expect((await search.timeline({ tokens })).map((b) => b.year)).toEqual([2022]);
     expect((await files.list({ pathPrefix: hidden })).items.map((f) => f.id)).toEqual([ids[2]]);
     expect((await files.timeline({ pathPrefix: hidden })).map((b) => b.year)).toEqual([2022]);
+    expect((await search.query({ tokens, month: { year: 2022, month: 1 } })).items.map((f) => f.id)).toEqual([ids[2]]);
+    expect((await files.list({ pathPrefix: hidden, month: { year: 2022, month: 1 } })).items.map((f) => f.id)).toEqual([ids[2]]);
+    await expect(files.list({ month: { year: 2024, month: 13 } })).rejects.toThrow();
 
     config.patch({ libraries: [{ path: hidden, alias: "hidden", timeline: false }] });
     expect((await search.query({ tokens: [] })).items).toEqual([]);

@@ -1,4 +1,5 @@
 import "server-only";
+import { z } from "zod";
 import { db } from "refr/server/db";
 import type { TimelineBucket } from "refr/lib/timeline";
 import {
@@ -11,6 +12,11 @@ import {
 } from "./search";
 
 type Sql = { text: string; params: unknown[] };
+
+export const timelineMonthSchema = z.object({
+  year: z.number().int().min(1).max(9999),
+  month: z.number().int().min(1).max(12),
+});
 
 /** undefined = unrestricted; [] = no enabled libraries. */
 export function libraryRootsWhere(roots?: string[]): Sql | undefined {
@@ -54,9 +60,10 @@ export async function executeList(input: {
   >(q.text, ...q.params);
 
   // backward pages are fetched ASC (nearest newer first) then flipped to DESC
-  const ordered = backward ? [...rawRows].reverse() : rawRows;
-  const hasMore = ordered.length > limit;
-  const page = ordered.slice(0, limit);
+  const hasMore = rawRows.length > limit;
+  // Drop the lookahead BEFORE reversing; otherwise every backward page skips a file.
+  const page = rawRows.slice(0, limit);
+  if (backward) page.reverse();
   const toMs = (v: number | bigint | Date | undefined): number =>
     v === undefined ? 0 : typeof v === "object" ? v.getTime() : Number(v);
   const items: FileSummary[] = page.map((r) => ({
@@ -90,6 +97,26 @@ export async function executeList(input: {
   }
 
   return { items, nextCursor, prevCursor };
+}
+
+/** Load a complete visible month; the client virtualizes its rows, not its data. */
+export async function timelineMonth(where: Sql | undefined, month: z.infer<typeof timelineMonthSchema>): Promise<ListResult> {
+  const start = new Date(0);
+  start.setFullYear(month.year, month.month - 1, 1);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start);
+  end.setMonth(end.getMonth() + 1);
+  const rows = await db.$queryRawUnsafe<(Omit<FileSummary, "mtime"> & { mtime: number | bigint | Date })[]>(
+    `SELECT f.id, f.mediaType, f.width, f.height, f.duration, f.mtime FROM File f
+     WHERE (${where?.text ?? "1=1"}) AND f.mtime >= ? AND f.mtime < ?
+     ORDER BY f.mtime DESC, f.id DESC`,
+    ...(where?.params ?? []), start.getTime(), end.getTime(),
+  );
+  // ponytail: whole-month metadata, like Immich; page within a month if a single month exhausts memory.
+  return {
+    items: rows.map((r) => ({ ...r, mtime: r.mtime instanceof Date ? r.mtime.getTime() : Number(r.mtime) })),
+    nextCursor: null, prevCursor: null,
+  };
 }
 
 /**

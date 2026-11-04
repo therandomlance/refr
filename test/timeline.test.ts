@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
-import { timelineBuckets } from "refr/server/services/fileQuery";
+import { timelineBuckets, timelineMonth } from "refr/server/services/fileQuery";
 
 describe("timeline buckets", () => {
   const ids = ["tl1", "tl2", "tl3"];
@@ -51,5 +51,20 @@ describe("timeline buckets", () => {
     expect(only.map((b) => `${b.year}-${b.month}`)).toEqual(["2020-1"]);
     expect(only[0]!.count).toBe(2);
     expect(await timelineBuckets(where, [])).toEqual([]);
+  });
+
+  it("loads a complete dense month in stable order, with the same filters and exact month boundaries", async () => {
+    const ids = Array.from({ length: 601 }, (_, i) => `dense-${String(i).padStart(4, "0")}`);
+    const start = new Date(2024, 1, 1);
+    const end = new Date(2024, 2, 1);
+    await db.file.createMany({ data: ids.map((id, i) => ({
+      id, size: 1, mediaType: "image", mtime: i === 600 ? end : start,
+    })) });
+    const where = { text: "f.id LIKE ?", params: ["dense-%"] };
+    const month = await timelineMonth(where, { year: 2024, month: 2 });
+    expect(month.items.map((f) => f.id)).toEqual(ids.slice(0, 600).reverse());
+    expect(month.items.every((f) => f.mtime === start.getTime())).toBe(true);
+    expect(month.nextCursor).toBeNull();
+    expect((await timelineMonth({ text: "1=0", params: [] }, { year: 2024, month: 2 })).items).toEqual([]);
   });
 });

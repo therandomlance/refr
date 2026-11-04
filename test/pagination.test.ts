@@ -37,6 +37,15 @@ describe("keyset pagination", () => {
     expect(back.items.map((i) => i.id)).toEqual(["pg5", "pg4"]);
     expect(back.prevCursor ?? null).toBeNull(); // reached the newest file
   });
+
+  it("does not skip the nearest newer file when a backward page has lookahead", async () => {
+    const seek = await executeList({ where, sort: "date", cursor: `!${t(1) + 1}|`, limit: 2 });
+    const back = await executeList({ where, sort: "date", cursor: seek.prevCursor, limit: 2 });
+    expect(back.items.map((f) => f.id)).toEqual(["pg3", "pg2"]);
+    const newest = await executeList({ where, sort: "date", cursor: back.prevCursor, limit: 2 });
+    expect(newest.items.map((f) => f.id)).toEqual(["pg5", "pg4"]);
+    expect(newest.prevCursor).toBeNull();
+  });
 });
 
 describe("keyset pagination with tied timestamps", () => {

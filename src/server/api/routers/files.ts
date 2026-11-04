@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
-import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets } from "refr/server/services/fileQuery";
+import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
 import { purgeOrphanThumbs } from "refr/server/services/thumbs";
 import * as config from "refr/server/services/config";
@@ -92,6 +92,7 @@ export const filesRouter = createTRPCRouter({
         cursor: z.string().nullish(),
         // timeline scrubber seek: used only for the first page (when no page cursor yet)
         seek: z.string().nullish(),
+        month: timelineMonthSchema.optional(),
         limit: z.number().int().min(1).max(500).optional(),
       }),
     )
@@ -104,6 +105,7 @@ export const filesRouter = createTRPCRouter({
         tag: input.tag,
         recursive: input.recursive,
       }) ?? libraryRootsWhere(config.timelineRoots());
+      if (input.month) return timelineMonth(where, input.month);
       return executeList({
         where,
         sort: input.sort,

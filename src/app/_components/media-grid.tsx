@@ -7,6 +7,7 @@ import { api } from "refr/trpc/react";
 import type { FileSummary, Sort, Token } from "refr/server/services/search";
 import { isVectorToken } from "refr/server/services/search";
 import type { TimelineBucket } from "refr/lib/timeline";
+import { buildTimelineLayout, timelineOffset, timelinePosition, timelineRowHeight, type TimelineLayout, type TimelineRow } from "refr/lib/timeline-layout";
 import { buildRows, tileWidth, SIZE_SCALE, PACK_GAP, PAD, type GridRow } from "refr/lib/grid-rows";
 import { publishViewerList } from "./viewer-store";
 import { Viewer } from "./viewer";
@@ -83,14 +84,33 @@ export function MediaGrid({
   }, [settings.data?.defaultThumbnailSize]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const scrollId = useId();
   const [width, setWidth] = useState(1200);
+  const [viewportHeight, setViewportHeight] = useState(0);
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const [scrollTop, setScrollTop] = useState(0);
+  const latestScrollTop = useRef(0);
+  const updateScrollTop = useCallback((top: number) => {
+    latestScrollTop.current = top;
+    setScrollTop(top);
+  }, []);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setWidth(el.clientWidth));
+    const read = () => { setWidth(el.clientWidth); setViewportHeight(el.clientHeight); };
+    const ro = new ResizeObserver(read);
     ro.observe(el);
-    setWidth(el.clientWidth);
+    read();
+    return () => ro.disconnect();
+  }, []);
+  useEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const read = () => setHeaderHeight(el.clientHeight);
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    read();
     return () => ro.disconnect();
   }, []);
 
@@ -109,9 +129,6 @@ export function MediaGrid({
   const rowH = baseRowH * SIZE_SCALE[size];
 
   // ---------------- data
-  // Timeline seek: the scrubber jumps the list to a date by starting the
-  // infinite query at a keyset cursor. Scoped per filter so changing the
-  // source/sort resets it automatically.
   const filterKey = JSON.stringify({
     k: source.kind,
     p: source.kind === "files" ? source.pathPrefix : undefined,
@@ -120,54 +137,6 @@ export function MediaGrid({
     kids: includeKids,
     sort,
   });
-  const [seek, setSeek] = useState<{ cursor: string | null; key: string }>({
-    cursor: null,
-    key: "",
-  });
-  const seekCursor = seek.key === filterKey ? seek.cursor : null;
-  const seekTo = (cursor: string | null) => {
-    setSeek({ cursor, key: filterKey });
-    scrollRef.current?.scrollTo({ top: 0 });
-  };
-  // mid-month: fraction 0 = segment top (newest) → the month's maxMtime
-  const seekToBucket = (b: TimelineBucket, fraction: number) => {
-    const target = Math.round(b.minMtime + (1 - fraction) * (b.maxMtime - b.minMtime));
-    seekTo(`!${target + 1}|`);
-  };
-  // generation changes reset prepend anchoring (seek/filter = fresh list, not prepend)
-  const listGen = `${filterKey}|${seekCursor ?? ""}`;
-  const prevFirstId = useRef<string | null>(null);
-  const prevTotal = useRef(0);
-  const prevGen = useRef(listGen);
-
-  const filesQ = api.files.list.useInfiniteQuery(
-    {
-      pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
-      tag: source.kind === "files" ? source.tag : undefined,
-      recursive: includeKids,
-      sort,
-      seek: seekCursor,
-    },
-    {
-      enabled: source.kind === "files",
-      getNextPageParam: (p) => p.nextCursor ?? undefined,
-      getPreviousPageParam: (p) => p.prevCursor ?? undefined,
-    },
-  );
-  const searchQ = api.search.query.useInfiniteQuery(
-    { tokens: source.kind === "search" ? source.tokens : [], sort, seek: seekCursor },
-    {
-      ...(suggestionMode ? staticSuggestionOptions : {}),
-      enabled: source.kind === "search",
-      getNextPageParam: (p) => p.nextCursor ?? undefined,
-      getPreviousPageParam: (p) => p.prevCursor ?? undefined,
-    },
-  );
-  const idsQ = api.files.list.useQuery(
-    { ids: source.kind === "ids" ? source.ids : [] },
-    { enabled: source.kind === "ids" },
-  );
-
   // month buckets for the whole filtered library (timeline scrubber)
   const timelineQ = api.files.timeline.useQuery(
     {
@@ -179,7 +148,7 @@ export function MediaGrid({
   );
   const searchTimelineQ = api.search.timeline.useQuery(
     { tokens: source.kind === "search" ? source.tokens : [] },
-    { enabled: source.kind === "search" && sort === "date" },
+    { enabled: source.kind === "search" && sort === "date" && !suggestionMode && !vectorMode },
   );
   const buckets =
     source.kind === "files"
@@ -187,47 +156,85 @@ export function MediaGrid({
       : source.kind === "search"
         ? searchTimelineQ.data
         : undefined;
-  const showTimeline = sort === "date" && layout === "horizontal" && (buckets?.length ?? 0) > 1;
+  const timelineMode = sort === "date" && layout === "horizontal" && !suggestionMode && !vectorMode && (buckets?.length ?? 0) > 0;
+  const showTimeline = timelineMode;
+  const [visibleMonths, setVisibleMonths] = useState({ key: "", indices: [0] });
+  const monthQueries = api.useQueries((t) => timelineMode ? (buckets ?? []).map((b, i) => {
+    const options = {
+      enabled: (visibleMonths.key === filterKey ? visibleMonths.indices : [0]).includes(i),
+      staleTime: 60_000,
+    };
+    const month = { year: b.year, month: b.month };
+    return source.kind === "files"
+      ? t.files.list({ pathPrefix: source.pathPrefix, tag: source.tag, recursive: includeKids, month }, options)
+      : t.search.query({ tokens: source.kind === "search" ? source.tokens : [], month }, options);
+  }) : [], {
+    combine: (results) => results.map((q) => ({ items: q.data?.items, error: q.error, refetch: q.refetch })),
+  });
+  const filesQ = api.files.list.useInfiniteQuery(
+    {
+      pathPrefix: source.kind === "files" ? source.pathPrefix : undefined,
+      tag: source.kind === "files" ? source.tag : undefined,
+      recursive: includeKids,
+      sort,
+    },
+    {
+      enabled: source.kind === "files" && !timelineMode,
+      getNextPageParam: (p) => p.nextCursor ?? undefined,
+    },
+  );
+  const searchQ = api.search.query.useInfiniteQuery(
+    { tokens: source.kind === "search" ? source.tokens : [], sort },
+    {
+      ...(suggestionMode ? staticSuggestionOptions : {}),
+      enabled: source.kind === "search" && !timelineMode,
+      getNextPageParam: (p) => p.nextCursor ?? undefined,
+    },
+  );
+  const idsQ = api.files.list.useQuery(
+    { ids: source.kind === "ids" ? source.ids : [] },
+    { enabled: source.kind === "ids" },
+  );
 
   const filesData = filesQ.data;
   const searchData = searchQ.data;
   const items: FileSummary[] = useMemo(() => {
     return (
-      source.kind === "ids"
+      timelineMode ? monthQueries.flatMap((q) => q.items ?? []) : source.kind === "ids"
         ? (idsQ.data?.items ?? [])
         : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? [])
     );
-  }, [source.kind, idsQ.data, filesData, searchData]);
+  }, [timelineMode, monthQueries, source.kind, idsQ.data, filesData, searchData]);
   const visibleItems = useMemo(() => hiddenIds?.size ? items.filter((f) => !hiddenIds.has(f.id)) : items, [items, hiddenIds]);
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
-  const hasNextPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasNextPage;
-  const fetchPreviousPage = source.kind === "files" ? filesQ.fetchPreviousPage : searchQ.fetchPreviousPage;
-  const hasPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).hasPreviousPage;
-  const isFetchingPreviousPage = source.kind === "ids" ? false : (source.kind === "files" ? filesQ : searchQ).isFetchingPreviousPage;
+  const hasNextPage = source.kind === "ids" || timelineMode ? false : (source.kind === "files" ? filesQ : searchQ).hasNextPage;
   const activeQuery = source.kind === "ids" ? idsQ : source.kind === "files" ? filesQ : searchQ;
   const firstSearchPage = searchData?.pages[0];
   const searchNotice = source.kind === "search" && firstSearchPage && "notice" in firstSearchPage && typeof firstSearchPage.notice === "string" ? firstSearchPage.notice : undefined;
   useEffect(() => {
     if (source.kind !== "search" || !searchData?.pages.some((page) => "restart" in page && page.restart)) return;
-    void utils.search.query.reset({ tokens: source.tokens, sort, seek: seekCursor });
+    void utils.search.query.reset({ tokens: source.tokens, sort });
     scrollRef.current?.scrollTo({ top: 0 });
-  }, [searchData, source, sort, seekCursor, utils]);
-
-  useEffect(() => {
-    publishViewerList({
-      items: visibleItems,
-      loadMore: hasNextPage ? () => void fetchNextPage() : null,
-      hasMore: !!hasNextPage,
-    });
-  }, [visibleItems, hasNextPage, fetchNextPage]);
+  }, [searchData, source, sort, utils]);
 
   // ---------------- layout math
   const gap = 4;
   const aspectOf = (f: FileSummary) => (f.width && f.height ? f.width / f.height : 1);
 
-  const rows: GridRow[] = useMemo(() => {
+  const timelineLayout = useMemo(() => buildTimelineLayout({
+    buckets: timelineMode ? buckets ?? [] : [],
+    months: monthQueries.map((q) => hiddenIds?.size ? q.items?.filter((f) => !hiddenIds.has(f.id)) : q.items),
+    width, rowH, gap, grouping,
+  }), [timelineMode, buckets, monthQueries, hiddenIds, width, rowH, grouping]);
+  // Keep the track fixed while months load, as Immich does. Actual canvas
+  // geometry changes underneath it, but a pointer coordinate keeps its date.
+  const scrubberHeights = useMemo(() => buildTimelineLayout({
+    buckets: buckets ?? [], months: [], width, rowH, gap, grouping,
+  }).positions.map((p) => p.height), [buckets, width, rowH, grouping]);
+  const rows: (GridRow | TimelineRow)[] = useMemo(() => {
     if (layout === "vertical") return [];
+    if (timelineMode) return timelineLayout.rows;
     return buildRows({
       items: visibleItems,
       width,
@@ -236,7 +243,7 @@ export function MediaGrid({
       grouping,
       doGrouping: sort === "date" && source.kind !== "ids",
     });
-  }, [visibleItems, layout, width, rowH, sort, grouping, source.kind]);
+  }, [visibleItems, layout, timelineMode, timelineLayout, width, rowH, sort, grouping, source.kind]);
 
   // vertical: assign each item to the shortest column
   const colWidth = Math.round(rowH * 1.3);
@@ -261,6 +268,7 @@ export function MediaGrid({
     (i: number) => {
       const r = rows[i];
       if (!r) return `row-${i}`;
+      if (r.type === "placeholder") return `month:${r.monthIndex}`;
       return r.type === "header"
         ? `h:${r.segs.flatMap((s) => s.ids).slice(0, 4).join(",")}`
         : `t:${r.files[0]?.id ?? i}`;
@@ -271,103 +279,62 @@ export function MediaGrid({
     count: rows.length,
     getScrollElement: () => scrollRef.current,
     getItemKey: rowKey,
-    estimateSize: (i) => (rows[i]!.type === "header" ? 46 : (rows[i] as { height: number }).height + 2 * PAD + gap),
+    estimateSize: (i) => timelineMode ? timelineRowHeight(rows[i]!, gap) : (rows[i]!.type === "header" ? 46 : (rows[i] as { height: number }).height + 2 * PAD + gap),
+    scrollMargin: headerHeight,
     overscan: 4,
   });
+  useLayoutEffect(() => {
+    if (timelineMode) rowVirtualizer.measure();
+  }, [timelineMode, rowH, rowVirtualizer]);
 
   const indexOf = useMemo(() => new Map(items.map((f, i) => [f.id, i])), [items]);
 
-  // ---- timeline position: month of the topmost visible file
-  const topVisibleMtime = (): number | null => {
-    if (layout !== "horizontal") return items[0]?.mtime ?? null;
-    const st = scrollRef.current?.scrollTop ?? 0;
-    for (const vr of rowVirtualizer.getVirtualItems()) {
-      if (vr.start + vr.size <= st + 1) continue;
-      const row = rows[vr.index];
-      if (row?.type === "tiles" && row.files[0]) return row.files[0].mtime;
-    }
-    return items[0]?.mtime ?? null;
+  // Like Immich, map the full timeline onto the *scrollable* range. This makes
+  // the last month reachable even when it is shorter than the viewport.
+  const scrollScale = timelineLayout.height > 0
+    ? Math.max(0, timelineLayout.height + headerHeight + 40 - viewportHeight) / timelineLayout.height
+    : 0;
+  const activeMonth = timelineMode
+    ? timelinePosition(timelineLayout, scrollScale > 0 ? scrollTop / scrollScale : 0)
+    : null;
+  const seekToBucket = (bucket: TimelineBucket, fraction: number) => {
+    scrollRef.current?.scrollTo({ top: timelineOffset(timelineLayout, { ...bucket, fraction }) * scrollScale, behavior: "instant" });
+    updateScrollTop(scrollRef.current?.scrollTop ?? 0);
   };
-  let activeMonth: { year: number; month: number; fraction: number } | null = null;
-  if (showTimeline && buckets && items.length > 0) {
-    const top = topVisibleMtime();
-    if (top !== null) {
-      const d = new Date(top);
-      const idx = buckets.findIndex((b) => b.year === d.getFullYear() && b.month === d.getMonth() + 1);
-      if (idx >= 0) {
-        const b = buckets[idx]!;
-        const span = b.maxMtime - b.minMtime;
-        activeMonth = {
-          year: b.year,
-          month: b.month,
-          fraction: span > 0 ? Math.min(1, Math.max(0, (b.maxMtime - top) / span)) : 0,
-        };
-      }
-    }
-  }
 
-  // load newer pages when the user scrolls to the very top (Immich month loading).
-  // scrollTop is pushed back down after a prepend, so this only refires when the
-  // user actually returns to the top.
-  // ponytail: loads PAGE_SIZE files, not whole months — fine until a month exceeds 200.
-  useEffect(() => {
-    if (layout !== "horizontal" || source.kind === "ids") return;
-    const el = scrollRef.current;
-    if (!el) return;
-    const onScroll = () => {
-      if (el.scrollTop < 4 && hasPreviousPage && !isFetchingPreviousPage) {
-        void fetchPreviousPage();
-      }
-    };
-    el.addEventListener("scroll", onScroll);
-    return () => el.removeEventListener("scroll", onScroll);
-  }, [layout, source.kind, hasPreviousPage, isFetchingPreviousPage, fetchPreviousPage]);
-
-  // after a seek, pull the page above the landing spot once so the user can
-  // immediately scroll up, and so the anchor correction runs before they do.
-  const autoPrevGen = useRef<string | null>(null);
-  useEffect(() => {
-    if (layout !== "horizontal" || source.kind === "ids" || !hasPreviousPage) return;
-    if (autoPrevGen.current === listGen) return;
-    autoPrevGen.current = listGen;
-    void fetchPreviousPage();
-  }, [layout, source.kind, listGen, hasPreviousPage, fetchPreviousPage]);
-
-  // keep the viewport anchored when newer items are prepended: measure how much
-  // the list grew and push scrollTop down by the same amount, so the tiles under
-  // the cursor stay put instead of the new page shoving them down.
-  const anchorToken = useRef(0);
+  // Loading/resize changes geometry, not the month/fraction the user chose.
+  const previousTimeline = useRef<{ key: string; layout: TimelineLayout; scale: number } | null>(null);
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    const firstId = items[0]?.id ?? null;
-    const total = rowVirtualizer.getTotalSize();
-    const sameGen = prevGen.current === listGen;
-    if (
-      layout === "horizontal" &&
-      sameGen &&
-      prevFirstId.current &&
-      firstId &&
-      firstId !== prevFirstId.current &&
-      total > prevTotal.current
-    ) {
-      const delta = total - prevTotal.current;
-      if (el) {
-        el.scrollTop += delta;
-        // off-screen headers measure a hair taller than their estimate; correct
-        // once after paint (skipped if another prepend superseded this one)
-        const token = ++anchorToken.current;
-        requestAnimationFrame(() => {
-          if (anchorToken.current !== token) return;
-          const drift = rowVirtualizer.getTotalSize() - total;
-          if (drift !== 0) el.scrollTop += drift;
-        });
+    const previous = previousTimeline.current;
+    if (!timelineMode || !el) {
+      previousTimeline.current = null;
+      return;
+    }
+    const position = previous?.key === filterKey
+      ? timelinePosition(previous.layout, previous.scale > 0 ? latestScrollTop.current / previous.scale : 0)
+      : null;
+    el.scrollTop = position ? timelineOffset(timelineLayout, position) * scrollScale : 0;
+    updateScrollTop(el.scrollTop);
+    previousTimeline.current = { key: filterKey, layout: timelineLayout, scale: scrollScale };
+  }, [timelineMode, filterKey, timelineLayout, scrollScale, updateScrollTop]);
+
+  const virtualRows = rowVirtualizer.getVirtualItems();
+  useEffect(() => {
+    if (!timelineMode) return;
+    const top = scrollTop;
+    const indices = new Set<number>();
+    for (const vr of virtualRows) {
+      if (vr.end < top || vr.start > top + viewportHeight) continue;
+      const index = (rows[vr.index] as TimelineRow).monthIndex;
+      for (const i of [index - 1, index, index + 1]) {
+        if (i >= 0 && i < timelineLayout.positions.length) indices.add(i);
       }
     }
-    prevGen.current = listGen;
-    prevFirstId.current = firstId;
-    prevTotal.current = total;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, listGen, layout, rowVirtualizer.getTotalSize()]);
+    const next = [...indices].sort((a, b) => a - b);
+    setVisibleMonths((prev) => prev.key === filterKey && prev.indices.join() === next.join()
+      ? prev : { key: filterKey, indices: next });
+  }, [timelineMode, virtualRows, rows, viewportHeight, timelineLayout.positions.length, filterKey, scrollTop]);
 
   // infinite scroll trigger (rows mode)
   useEffect(() => {
@@ -485,6 +452,27 @@ export function MediaGrid({
   const pathname = usePathname();
   const params = useSearchParams();
   const viewerId = params.get("v");
+
+  // The viewer must not skip unloaded months between separately visited dates.
+  const viewerRange = useMemo(() => {
+    if (!timelineMode) return { items: visibleItems, next: null };
+    const viewerMonth = monthQueries.findIndex((q) => q.items?.some((f) => f.id === viewerId));
+    let start = viewerMonth >= 0 ? viewerMonth : (buckets?.findIndex((b) => b.year === activeMonth?.year && b.month === activeMonth.month) ?? 0);
+    let end = start;
+    while (start > 0 && monthQueries[start - 1]?.items) start--;
+    while (end + 1 < monthQueries.length && monthQueries[end + 1]?.items) end++;
+    return {
+      items: monthQueries.slice(start, end + 1).flatMap((q) => q.items ?? []).filter((f) => !hiddenIds?.has(f.id)),
+      next: monthQueries[end + 1] ?? null,
+    };
+  }, [timelineMode, visibleItems, monthQueries, viewerId, buckets, activeMonth?.year, activeMonth?.month, hiddenIds]);
+  useEffect(() => {
+    publishViewerList({
+      items: viewerRange.items,
+      loadMore: timelineMode ? viewerRange.next ? () => void viewerRange.next?.refetch() : null : hasNextPage ? () => void fetchNextPage() : null,
+      hasMore: timelineMode ? !!viewerRange.next : !!hasNextPage,
+    });
+  }, [viewerRange, timelineMode, hasNextPage, fetchNextPage]);
 
   // Esc clears the selection (skipped while viewer/menu/dialog is open — those consume Esc)
   useEffect(() => {
@@ -743,19 +731,21 @@ export function MediaGrid({
         </div>
       )}
       <div className="flex min-h-0 flex-1">
-        <div id={scrollId} ref={scrollRef} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
-        {header}
-        {searchNotice && <p role="status" className="state-message">{searchNotice}</p>}
-        {activeQuery.isError && (
+        <div id={scrollId} ref={scrollRef} onScroll={(e) => updateScrollTop(e.currentTarget.scrollTop)} className="scroll-thin min-w-0 flex-1 select-none overflow-y-auto px-4 pb-10" style={{ touchAction: "pan-y", overflowAnchor: "none" }}>
+        <div ref={headerRef}>
+          {header}
+          {searchNotice && <p role="status" className="state-message">{searchNotice}</p>}
+        </div>
+        {!timelineMode && activeQuery.isError && (
           <div role="alert" className="state-message">
             <p>Could not load images. {activeQuery.error.message}</p>
             <button className="btn mt-2" onClick={() => void activeQuery.refetch()}>Try again</button>
           </div>
         )}
-        {items.length === 0 && activeQuery.isLoading && (
+        {!timelineMode && items.length === 0 && activeQuery.isLoading && (
           <p role="status" className="state-message">Loading images…</p>
         )}
-        {items.length === 0 && !activeQuery.isLoading && !activeQuery.isError && (
+        {!timelineMode && items.length === 0 && !activeQuery.isLoading && !activeQuery.isError && (
           <div className="state-message">{emptyState ?? "Nothing here yet."}</div>
         )}
         {layout === "horizontal" && rows.length > 0 && (
@@ -766,17 +756,27 @@ export function MediaGrid({
                 <div
                   key={vr.key}
                   data-index={vr.index}
-                  ref={rowVirtualizer.measureElement}
+                  ref={timelineMode ? undefined : rowVirtualizer.measureElement}
                   style={{
                     position: "absolute",
                     top: 0,
                     left: 0,
                     width: "100%",
-                    transform: `translateY(${vr.start}px)`,
+                    transform: `translateY(${vr.start - headerHeight}px)`,
+                    height: timelineMode ? vr.size : undefined,
                     padding: row.type === "tiles" ? `${PAD}px 0 ${PAD + gap}px` : undefined,
                   }}
                 >
-                  {row.type === "header" ? (
+                  {row.type === "placeholder" ? (
+                    <div className="tl-placeholder" style={{ height: row.height }} role={monthQueries[row.monthIndex]?.error ? "alert" : "status"}>
+                      <div className="state-message">
+                        {monthQueries[row.monthIndex]?.error ? <>
+                          <p>Could not load images. {monthQueries[row.monthIndex]?.error?.message}</p>
+                          <button className="btn mt-2" onClick={() => void monthQueries[row.monthIndex]?.refetch()}>Try again</button>
+                        </> : "Loading images…"}
+                      </div>
+                    </div>
+                  ) : row.type === "header" ? (
                     <div className="ghead" style={{ gap: PACK_GAP }}>
                       {row.segs.map((s, i) => (
                         <div key={i} className="gseg" style={s.width ? { width: s.width, flex: "none" } : undefined}>
@@ -816,10 +816,10 @@ export function MediaGrid({
             ))}
           </div>
         )}
-        {items.length > 0 && activeQuery.isFetching && <p role="status" className="state-message">Loading images…</p>}
+        {!timelineMode && items.length > 0 && activeQuery.isFetching && <p role="status" className="state-message">Loading images…</p>}
         </div>
         {showTimeline && (
-          <TimelineScrubber buckets={buckets ?? []} active={activeMonth} onSeek={seekToBucket} controls={scrollId} />
+          <TimelineScrubber buckets={buckets ?? []} heights={scrubberHeights} active={activeMonth} onSeek={seekToBucket} controls={scrollId} />
         )}
       </div>
       {viewerId && <Viewer fileId={viewerId} onClose={closeViewer} />}

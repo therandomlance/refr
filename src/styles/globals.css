@@ -630,6 +630,8 @@ select.input { cursor: pointer; }
   position: absolute; right: 44px; z-index: 5; pointer-events: none; white-space: nowrap;
   font-size: 11px; color: var(--text-dim);
 }
+.tl-placeholder { background: var(--panel); }
+.tl-placeholder .state-message { position: sticky; top: 0; }
 
 @media (max-width: 640px) {
   .tl-scrub { width: 30px; }

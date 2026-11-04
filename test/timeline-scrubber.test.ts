@@ -55,21 +55,39 @@ it("seeks during captured drags, follows the pointer, and lands exactly on relea
     const bubble = render().props.children[0] as Node;
     expect(bubble.props.style).toEqual({ top: 174 });
     render().props.onPointerMove(event(207));
-    expect(onSeek).toHaveBeenCalledTimes(2); // previews are rate-limited
+    expect(onSeek).toHaveBeenLastCalledWith(buckets[1], 0.75); // no throttle between pointer events
     render().props.onPointerUp(event(222, "pointerup"));
     expect(onSeek).toHaveBeenLastCalledWith(buckets[1], 0.9);
     expect(captured).toBe(false);
     render().props.onPointerMove(event(57));
-    expect(onSeek).toHaveBeenCalledTimes(3); // hover does not seek
+    expect(onSeek).toHaveBeenCalledTimes(4); // hover does not seek
 
     render().props.onPointerDown(event(-50, "pointerdown"));
     expect(onSeek).toHaveBeenLastCalledWith(buckets[0], 0);
     render().props.onPointerCancel(event(500, "pointercancel"));
-    expect(onSeek).toHaveBeenCalledTimes(4); // cancellation doesn't commit
+    expect(onSeek).toHaveBeenCalledTimes(5); // cancellation doesn't commit
     render().props.onPointerDown(event(500, "pointerdown"));
     expect(onSeek).toHaveBeenLastCalledWith(buckets[1], 1);
     render().props.onPointerUp(event(500, "pointerup"));
   } finally {
     vi.useRealTimers();
   }
+});
+
+it("uses grid heights instead of file counts for pointer and thumb positions", () => {
+  hooks.values = [undefined, undefined, 242];
+  hooks.index = 0;
+  const buckets = [2, 1].map((month) => ({ year: 2025, month, count: 10, minMtime: 0, maxMtime: 0 }));
+  const onSeek = vi.fn();
+  const node = TimelineScrubber({ buckets, heights: [300, 100], active: { year: 2025, month: 2, fraction: 0.5 }, onSeek, controls: "grid" });
+  type Node = ReactElement<Record<string, unknown>>;
+  const track = node.props.children.at(-1) as Node;
+  (track.props.ref as { current: unknown }).current = { getBoundingClientRect: () => ({ top: 32 }) };
+  const children = track.props.children as Node[];
+  expect(children.at(-1)?.props.style).toEqual({ top: 75, opacity: 1 });
+  node.props.onPointerDown({
+    clientY: 157, isPrimary: true, button: 0, pointerId: 1, preventDefault: vi.fn(),
+    currentTarget: { focus: vi.fn(), setPointerCapture: vi.fn() },
+  } as unknown as React.PointerEvent<HTMLDivElement>);
+  expect(onSeek).toHaveBeenCalledWith(buckets[0], 125 / 150);
 });

@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { expect, it, vi } from "vitest";
 
-const state = vi.hoisted(() => ({ failed: false, extraFiles: false, searchOptions: {} as { staleTime?: string } }));
+const state = vi.hoisted(() => ({ failed: false, extraFiles: false, timeline: false, loadedMonth: false, searchOptions: {} as { staleTime?: string } }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/queue", useRouter: () => ({ push: vi.fn() }), useSearchParams: () => new URLSearchParams(),
 }));
@@ -24,13 +24,34 @@ vi.mock("refr/trpc/react", () => {
     fetchNextPage: vi.fn(), fetchPreviousPage: vi.fn(), refetch: vi.fn(),
   });
   const mutation = () => ({ isPending: false, mutate: vi.fn(), mutateAsync: async () => ({ changes: [] }) });
+  const timeline = () => ({ data: state.timeline ? [{ year: 1970, month: 1, count: 600, minMtime: 0, maxMtime: 0 }] : undefined });
   return { api: {
     useUtils: () => ({}),
-    files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: () => ({}) } },
-    search: { query: { useInfiniteQuery: (_input: unknown, options: { staleTime?: string }) => { state.searchOptions = options; return query(); } }, timeline: { useQuery: () => ({}) } },
+    useQueries: () => state.timeline ? [{ items: state.loadedMonth ? [file] : undefined, error: state.failed ? new Error("offline") : null, refetch: vi.fn() }] : [],
+    files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: timeline } },
+    search: { query: { useInfiniteQuery: (_input: unknown, options: { staleTime?: string }) => { state.searchOptions = options; return query(); } }, timeline: { useQuery: timeline } },
     settings: { get: { useQuery: () => ({}) }, patch: { useMutation: mutation } },
     tags: { setTags: { useMutation: mutation }, undo: { useMutation: mutation } },
   } };
+});
+
+it.each(["files", "search"] as const)("renders a single-month virtual timeline, including loading and retry states (%s)", (kind) => {
+  state.timeline = true;
+  const source = kind === "files" ? { kind } : { kind, tokens: [] };
+  const render = () => renderToStaticMarkup(createElement(MediaGrid, { source, selection: new Set<string>(), onSelectionChange: vi.fn() }));
+  try {
+    const loading = render();
+    expect(loading).toContain('role="scrollbar"');
+    expect(loading).toContain('class="tl-placeholder"');
+    expect(loading).not.toContain("Nothing here yet");
+    state.failed = true;
+    expect(render()).toContain("Could not load images. offline");
+    expect(render()).toContain("Try again");
+    state.failed = false;
+    state.loadedMonth = true;
+    expect(render()).toContain('data-file-id="ui1"');
+    expect(render()).not.toContain('class="tl-placeholder"');
+  } finally { state.timeline = false; state.loadedMonth = false; state.failed = false; }
 });
 
 import { MediaGrid } from "refr/app/_components/media-grid";
