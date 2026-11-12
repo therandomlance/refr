@@ -456,7 +456,12 @@ function PasswordControls({ hasPassword }: { hasPassword: boolean }) {
   );
 }
 
-function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: string; pretrained: string; tagSuggestionTextWeight: number } }) {
+type MlSettings = {
+  enabled: boolean; port: number; model: string; pretrained: string;
+  tagSuggestionTextWeight: number; tagClassifier: boolean;
+};
+
+function MlControls({ ml }: { ml: MlSettings }) {
   const utils = api.useUtils();
   const patch = api.settings.patch.useMutation({ onSuccess: () => void utils.settings.get.invalidate() });
   const setEnabled = api.ml.setEnabled.useMutation({ onSuccess: () => void utils.ml.status.invalidate() });
@@ -501,6 +506,15 @@ function MlControls({ ml }: { ml: { enabled: boolean; port: number; model: strin
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionTextWeight: Number(e.target.value) } })}
             />
             <span className="text-xs" style={{ color: "var(--text-faint)" }}>0 = image centroid only, 1 = tag name only</span>
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={ml.tagClassifier}
+              onChange={(e) => patch.mutate({ ml: { tagClassifier: e.target.checked } })}
+            />
+            Per-tag classifiers (experimental)
+            <span className="text-xs" style={{ color: "var(--text-faint)" }}>Refines each tag&apos;s vector from its tagged images and ✕ rejections; tags with under 10 images keep the standard vector. Turning it off is instant.</span>
           </label>
           <div>
             <button className="btn" onClick={() => setReembedConfirm(true)}>Re-embed all</button>

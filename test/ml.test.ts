@@ -22,6 +22,7 @@ let releaseImages: (() => void) | undefined;
 let holdTexts = false;
 let releaseTexts: (() => void) | undefined;
 let textBatches = 0;
+const trainRequests: { tag: string; denyIds: string[]; prior?: number[] }[] = [];
 const stub = http.createServer((req, res) => {
   let body = "";
   req.on("data", (c) => (body += c));
@@ -39,6 +40,13 @@ const stub = http.createServer((req, res) => {
       const reply = () => res.end(JSON.stringify({ vectors: paths.map((p) => vec(p.length % 97)), kept: paths.map((_, i) => i) }));
       if (holdImages) releaseImages = reply;
       else reply();
+    } else if (req.url === "/train") {
+      // "weighted" gets a confident classifier pointing at vec(42); other tags are too small
+      const r = parsed as unknown as { tag: string; denyIds: string[] };
+      trainRequests.push(r);
+      res.end(JSON.stringify(r.tag === "weighted"
+        ? { weights: vec(42).map((x) => 20 * x), bias: 0, positives: 12, negatives: 30 }
+        : { weights: null, bias: null, positives: 1, negatives: 0 }));
     } else if (req.url === "/knn") {
       res.end(JSON.stringify([]));
     } else {
@@ -194,6 +202,68 @@ describe("ml (stub sidecar)", () => {
     expect(row!.fileCount).toBeGreaterThan(0);
   });
 
+  it("tag vector mixes the text embedding with a unit image centroid; knobs are part of the cache key", async () => {
+    const tag = await db.tag.findUnique({ where: { name: "weighted" } });
+    const text = vec("weighted".length % 97);
+    const image = vec(42); // the only embedded file tagged "weighted"
+    const expected = (wText: number) => {
+      const mixed = text.map((t, i) => wText * t + (1 - wText) * image[i]!);
+      const n = Math.sqrt(dot(mixed, mixed));
+      return mixed.map((x) => x / n);
+    };
+    try {
+      expect(dot((await ml.tagVector(tag!.id))!, expected(0.5))).toBeCloseTo(1, 4);
+      // changing the text weight makes the cached row stale
+      config.patch({ ml: { tagSuggestionTextWeight: 0 } });
+      expect(dot((await ml.tagVector(tag!.id))!, image)).toBeCloseTo(1, 4);
+      expect((await db.tagVector.findUnique({ where: { tagId: tag!.id } }))!.model).toBe(`${mlModel()}|norm:w=0`);
+    } finally {
+      config.patch({ ml: { tagSuggestionTextWeight: 0.5 } });
+    }
+  });
+
+  it("classifier mode: own table, trained with denials, centroid untouched and instant to turn off", async () => {
+    const tag = await db.tag.findUnique({ where: { name: "weighted" } });
+    await db.file.create({ data: { id: "img-cls", size: 1, mtime: new Date(), mediaType: "image" } });
+    await db.fileEmbedding.create({
+      data: { fileId: "img-cls", vector: Buffer.from(new Float32Array(vec(42)).buffer), model: mlModel() },
+    });
+    const centroid = Buffer.from(vecBytes((await ml.tagVector(tag!.id))!));
+    trainRequests.length = 0;
+    try {
+      config.patch({ ml: { tagClassifier: true } });
+      const v = await ml.tagVectorByName("weighted");
+      expect(dot(v!, vec(42))).toBeCloseTo(1, 4); // classifier direction, not the centroid
+      const row = await db.tagClassifier.findFirst({ where: { tagId: tag!.id } });
+      expect(row?.variant).toBe("anchored-v1|w=0.5");
+      expect(row?.positives).toBe(12);
+      expect(Buffer.from((await db.tagVector.findUnique({ where: { tagId: tag!.id } }))!.vector).equals(centroid)).toBe(true);
+
+      // classifier "yes" ranks ahead of centroid-only tags, scored as a probability
+      const out = await ml.suggestTagsForFile("img-cls");
+      expect(out[0]).toMatchObject({ tag: "weighted" });
+      expect(out[0]!.score).toBeGreaterThan(0.99);
+
+      // a new ✕ denial retrains that tag with the denial as a negative
+      await ml.excludeSuggestion("weighted", "img-cls");
+      await ml.enqueueTagVectors();
+      expect(trainRequests.some((r) => r.tag === "weighted" && r.denyIds.includes("img-cls"))).toBe(true);
+      expect(trainRequests.every((r) => r.prior?.length === 768)).toBe(true); // anchored to the tag vector
+
+      config.patch({ ml: { tagClassifier: false } });
+      expect(Buffer.from(vecBytes((await ml.tagVectorByName("weighted"))!)).equals(centroid)).toBe(true);
+      expect(await db.tagClassifier.count({ where: { tagId: tag!.id } })).toBe(1); // kept for next time
+
+      await ml.invalidateTagVectors(["weighted"]);
+      expect(await db.tagClassifier.count({ where: { tagId: tag!.id } })).toBe(0);
+    } finally {
+      config.patch({ ml: { tagClassifier: false } });
+      await ml.restoreSuggestion("weighted", "img-cls");
+      await db.file.delete({ where: { id: "img-cls" } });
+      await ml.enqueueTagVectors();
+    }
+  });
+
   it("vectorSearch excludes the similar seed id and paginates", async () => {
     for (let i = 0; i < 10; i++) {
       await db.file.create({ data: { id: `vs${i}`, size: 1, mtime: new Date(i), mediaType: "image" } });
@@ -258,11 +328,21 @@ describe("ml (stub sidecar)", () => {
     await db.tag.createMany({ data: names.map((name) => ({ name })) });
     try {
       await ml.enqueueTagVectors();
-      expect(await db.tagVector.count({ where: { model: mlModel(), tag: { name: { in: names } } } })).toBe(501);
+      expect(await db.tagVector.count({ where: { model: `${mlModel()}|norm:w=0.5`, tag: { name: { in: names } } } })).toBe(501);
     } finally { await db.tag.deleteMany({ where: { name: { in: names } } }); }
   });
 });
 
 function mlModel(): string {
   return `${config.get().ml.model}__${config.get().ml.pretrained}`;
+}
+
+function dot(a: ArrayLike<number>, b: ArrayLike<number>): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += a[i]! * b[i]!;
+  return s;
+}
+
+function vecBytes(v: Float32Array): Uint8Array {
+  return new Uint8Array(v.buffer, v.byteOffset, v.byteLength);
 }

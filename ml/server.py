@@ -4,6 +4,7 @@ import ctypes
 import sqlite3
 import sys
 import threading
+import zlib
 
 import numpy as np
 import open_clip
@@ -62,6 +63,7 @@ class KnnCache:
         self.lock = threading.Lock()
         self.matrix = None      # (N, 768) float32, L2-normalized rows
         self.ids = []           # fileId per row
+        self.index = {}         # fileId -> row
         self.stamp = None       # (count, max updatedAt)
 
     def refresh_if_needed(self):
@@ -87,12 +89,29 @@ class KnnCache:
             with self.lock:
                 self.matrix = mat
                 self.ids = ids
+                self.index = {fid: i for i, fid in enumerate(ids)}
                 self.stamp = stamp
         finally:
             conn.close()
 
 
 knn_cache = KnnCache()
+
+
+def tag_file_ids(tag):
+    """fileIds tagged with `tag` or any descendant (§9 matching)."""
+    conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
+    try:
+        esc = tag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+        pat = esc.rstrip("/") + "/%"
+        rows = conn.execute(
+            """SELECT DISTINCT ft.fileId FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+               WHERE t.name = ? OR t.name LIKE ? ESCAPE '\\'""",
+            (tag, pat),
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
 
 
 class Health(BaseModel):
@@ -170,19 +189,8 @@ def knn(req: KnnReq):
     if req.excludeIds:
         exclude_ids.update(req.excludeIds)
     if req.excludeTag:
-        conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
-        try:
-            esc = req.excludeTag.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
-            pat = esc.rstrip("/") + "/%"
-            rows = conn.execute(
-                """SELECT DISTINCT ft.fileId FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
-                   WHERE t.name = ? OR t.name LIKE ? ESCAPE '\\'""",
-                (req.excludeTag, pat),
-            ).fetchall()
-            # union with the ids already excluded (manual denials) — don't clobber
-            exclude_ids.update(r[0] for r in rows)
-        finally:
-            conn.close()
+        # union with the ids already excluded (manual denials) — don't clobber
+        exclude_ids.update(tag_file_ids(req.excludeTag))
 
     # Over-fetch by the exclusion count so filtering out already-tagged/denied
     # files doesn't shrink the returned list below k (pigeonhole: among the top
@@ -197,6 +205,85 @@ def knn(req: KnnReq):
             continue
         out.append({"fileId": fid, "score": float(scores[i])})
     return out[req.skip : req.k + req.skip]
+
+
+# ------------------------------------------------------------------ per-tag classifier
+
+
+class TrainReq(BaseModel):
+    tag: str
+    denyIds: list[str] = []
+    minPositives: int = 10
+    maxPositives: int = 2000
+    randomNegatives: int = 3000
+    denyWeight: float = 3.0
+    l2: float = 3e-2
+    prior: list[float] | None = None  # the tag vector to anchor to
+    priorScale: float = 20.0
+
+
+def train_logreg(x, y, sw, l2, w0):
+    """Weighted logistic regression via L-BFGS (CPU; N is a few thousand), pulled
+    toward w0 by 0.5·l2·|w − w0|² and started there."""
+    X = torch.from_numpy(x)
+    Y = torch.from_numpy(y)
+    SW = torch.from_numpy(sw)
+    W0 = torch.from_numpy(w0)
+    w = W0.clone().requires_grad_(True)
+    b = torch.zeros(1, requires_grad=True)
+    opt = torch.optim.LBFGS([w, b], lr=1, max_iter=200, line_search_fn="strong_wolfe")
+
+    def closure():
+        opt.zero_grad()
+        logits = X @ w + b
+        loss = (SW * torch.nn.functional.binary_cross_entropy_with_logits(logits, Y, reduction="none")).sum()
+        loss = loss + 0.5 * l2 * ((w - W0) ** 2).sum()
+        loss.backward()
+        return loss
+
+    with torch.enable_grad():
+        opt.step(closure)
+    return w.detach().numpy().astype(np.float32), float(b.detach()[0])
+
+
+@app.post("/train")
+def train(req: TrainReq):
+    """Anchored per-tag classifier (see CLASSIFIER in src/server/services/ml.ts).
+    Positives = files tagged with the tag or a descendant (sampled to maxPositives);
+    negatives = manual denials (weighted denyWeight) + a random sample of the rest.
+    Classes are balanced to equal total weight. Sampling is seeded by the tag name
+    so retraining unchanged data is stable. weights=None: too few positives."""
+    knn_cache.refresh_if_needed()
+    with knn_cache.lock:
+        mat = knn_cache.matrix
+        index = knn_cache.index
+    n = 0 if mat is None else len(mat)
+    pos_all = np.array(sorted({index[f] for f in tag_file_ids(req.tag) if f in index}), dtype=np.int64)
+    if len(pos_all) < req.minPositives or n == 0:
+        return {"weights": None, "bias": None, "positives": int(len(pos_all)), "negatives": 0}
+    rng = np.random.default_rng(zlib.crc32(req.tag.encode()))
+    pos = rng.choice(pos_all, req.maxPositives, replace=False) if len(pos_all) > req.maxPositives else pos_all
+    pos_set = set(pos_all.tolist())
+    deny = np.array(sorted({index[f] for f in req.denyIds if f in index} - pos_set), dtype=np.int64)
+    blocked = np.zeros(n, dtype=bool)
+    blocked[pos_all] = True
+    blocked[deny] = True
+    pool = np.flatnonzero(~blocked)
+    rand = rng.choice(pool, req.randomNegatives, replace=False) if len(pool) > req.randomNegatives else pool
+    if len(deny) + len(rand) == 0:
+        return {"weights": None, "bias": None, "positives": int(len(pos_all)), "negatives": 0}
+
+    rows = np.concatenate([pos, deny, rand])
+    y = np.concatenate([np.ones(len(pos)), np.zeros(len(deny) + len(rand))]).astype(np.float32)
+    neg_w = np.concatenate([np.full(len(deny), req.denyWeight), np.ones(len(rand))])
+    sw = np.concatenate([np.full(len(pos), 0.5 / len(pos)), 0.5 * neg_w / neg_w.sum()]).astype(np.float32)
+    w0 = (
+        req.priorScale * np.asarray(req.prior, dtype=np.float32)
+        if req.prior is not None
+        else np.zeros(mat.shape[1], dtype=np.float32)
+    )
+    w, b = train_logreg(mat[rows], y, sw, req.l2, w0)
+    return {"weights": w.tolist(), "bias": b, "positives": int(len(pos_all)), "negatives": int(len(deny) + len(rand))}
 
 
 if __name__ == "__main__":

@@ -33,6 +33,23 @@ export async function register() {
   } catch (e) {
     console.error("[schema] SuggestionDenial fallback failed:", e instanceof Error ? e.message : e);
   }
+  try {
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TagClassifier" (
+    "tagId" INTEGER NOT NULL,
+    "variant" TEXT NOT NULL,
+    "model" TEXT NOT NULL,
+    "weights" BLOB,
+    "bias" REAL,
+    "positives" INTEGER NOT NULL,
+    "negatives" INTEGER NOT NULL,
+
+    PRIMARY KEY ("tagId", "variant", "model"),
+    CONSTRAINT "TagClassifier_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+)`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TagClassifier_variant_model_idx" ON "TagClassifier"("variant", "model")`);
+  } catch (e) {
+    console.error("[schema] TagClassifier fallback failed:", e instanceof Error ? e.message : e);
+  }
 
   const { watch } = await import("./server/services/config");
   watch();

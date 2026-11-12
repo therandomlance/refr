@@ -509,7 +509,7 @@ export async function getExclusions(tagName: string): Promise<Set<string>> {
 }
 
 export async function excludeSuggestion(tagName: string, fileId: string) {
-  return db.$transaction(async (tx) => {
+  const result = await db.$transaction(async (tx) => {
     const previous = await tx.suggestionDenial.findUnique({ where: { tagName_fileId: { tagName, fileId } } });
     await tx.suggestionDenial.upsert({
       where: { tagName_fileId: { tagName, fileId } },
@@ -518,33 +518,45 @@ export async function excludeSuggestion(tagName: string, fileId: string) {
     });
     return { alreadyExcluded: !!previous };
   });
+  if (!result.alreadyExcluded) await invalidateClassifier(tagName); // a new negative
+  return result;
 }
 
 export async function restoreSuggestion(tagName: string, fileId: string) {
-  await db.suggestionDenial.deleteMany({ where: { tagName, fileId } });
+  const { count } = await db.suggestionDenial.deleteMany({ where: { tagName, fileId } });
+  if (count > 0) await invalidateClassifier(tagName);
 }
 
 // ---------------------------------------------------------------- tag vectors
 
-/** Invalidate cached vectors for the given tag names (by resolving to tagIds
- *  and deleting those TagVector rows). Called from setTags on the hot path —
- *  only the touched tag + its ancestors need recompute, not the whole matrix.
- *  Unknown names (no Tag row) are silently skipped. */
+/** Invalidate cached vectors and classifiers for the given tag names. Called
+ *  from setTags on the hot path — only the touched tag + its ancestors need
+ *  recompute, not the whole matrix. Unknown names (no Tag row) are skipped. */
 export async function invalidateTagVectors(tagNames: string[]) {
   if (tagNames.length === 0) return;
   runtime.tagGeneration++;
   const tags = await db.tag.findMany({ where: { name: { in: tagNames } }, select: { id: true } });
   if (tags.length === 0) return;
-  await db.tagVector.deleteMany({ where: { tagId: { in: tags.map((t) => t.id) } } });
+  const tagIds = tags.map((t) => t.id);
+  await db.tagVector.deleteMany({ where: { tagId: { in: tagIds } } });
+  await db.tagClassifier.deleteMany({ where: { tagId: { in: tagIds } } });
   void enqueueTagVectors();
 }
 
-/** Wipe the whole TagVector matrix — for rare bulk admin ops (rename/merge/
+/** Wipe every tag vector and classifier — for rare bulk admin ops (rename/merge/
  *  delete) where computing the precise affected set is more code than it's
  *  worth. Rebuild in the background; readers can use a partial matrix. */
 export async function invalidateAllTagVectors() {
   runtime.tagGeneration++;
   await db.tagVector.deleteMany({});
+  await db.tagClassifier.deleteMany({});
+  void enqueueTagVectors();
+}
+
+/** A denial changes only that tag's classifier negatives (not its centroid). */
+async function invalidateClassifier(tagName: string) {
+  runtime.tagGeneration++;
+  await db.tagClassifier.deleteMany({ where: { tag: { name: tagName } } });
   void enqueueTagVectors();
 }
 
@@ -554,6 +566,14 @@ function normalize(v: Float32Array): Float32Array {
   norm = Math.sqrt(norm) || 1;
   return v.map((x) => x / norm);
 }
+
+function dot(a: Float32Array, b: Float32Array): number {
+  let s = 0;
+  for (let i = 0; i < DIM; i++) s += a[i]! * b[i]!;
+  return s;
+}
+
+const toVec = (b: Uint8Array) => new Float32Array(b.buffer, b.byteOffset, b.length / 4);
 
 function prettify(tag: string): string {
   return tag.split("/").join(" ");
@@ -571,11 +591,25 @@ function parentOf(name: string): string | null {
   return i <= 0 ? null : name.slice(0, i);
 }
 
-/** §13.4: v = normalize(w_text·textEmb(tag) + w_img·centroid(images)); cold start = textEmb. */
+/** The knobs a tag vector was built with. `key` goes in TagVector.model, so rows
+ *  built under another text weight — or the original unnormalized mix, which
+ *  stored the bare model id — read as stale and rebuild in the background. */
+type VectorParams = { key: string; wText: number };
+function vectorParams(modelId = currentModelId()): VectorParams {
+  const wText = config.get().ml.tagSuggestionTextWeight;
+  return { key: `${modelId}|norm:w=${wText}`, wText };
+}
+
+/** §13.4: v = normalize(w_text·textEmb(tag) + (1 − w_text)·unit(centroid(images))).
+ *  The centroid is normalized first: a raw mean of unit vectors is shorter the
+ *  more varied the tag, which silently shifted weight toward the name. (A text
+ *  weight that fades with image count was tried and lost on franchise/character
+ *  tags, where SigLIP knows the name.) Cold start (no images) = textEmb. */
 async function computeTagVector(
   tagName: string,
   textEmb: Float32Array,
   modelId = currentModelId(),
+  params = vectorParams(modelId),
 ): Promise<{ v: Float32Array; fileCount: number }> {
   const samples = await db.$queryRawUnsafe<{ vector: Buffer }[]>(
     `SELECT fe.vector FROM FileEmbedding fe
@@ -591,37 +625,41 @@ async function computeTagVector(
 
   const fileCount = samples.length;
   if (fileCount === 0) return { v: textEmb, fileCount }; // cold start
-  const wText = config.get().ml.tagSuggestionTextWeight;
-  const centroid = new Float32Array(DIM);
+  const sum = new Float32Array(DIM);
   for (const s of samples) {
-    const sv = new Float32Array(s.vector.buffer, s.vector.byteOffset, s.vector.length / 4);
-    for (let i = 0; i < DIM; i++) centroid[i]! += sv[i]!;
+    const sv = toVec(s.vector);
+    for (let i = 0; i < DIM; i++) sum[i]! += sv[i]!;
   }
-  for (let i = 0; i < DIM; i++) centroid[i]! /= fileCount;
+  const centroid = normalize(sum);
+  const wText = params.wText;
   const combined = new Float32Array(DIM);
   for (let i = 0; i < DIM; i++) combined[i] = wText * textEmb[i]! + (1 - wText) * centroid[i]!;
   return { v: normalize(combined), fileCount };
 }
 
-/** Cached tag vector keyed by tagId; invalidated by deletion (invalidateTagVectors)
- *  or model mismatch. Recomputes lazily — presence + matching model = valid. */
+async function writeTagVector(tagId: number, params: VectorParams, v: Float32Array, fileCount: number) {
+  const vector = vecToBytes(v);
+  await db.tagVector.upsert({
+    where: { tagId },
+    create: { tagId, vector, fileCount, linksVersion: 0, model: params.key },
+    update: { vector, fileCount, model: params.key },
+  });
+}
+
+/** Cached centroid tag vector keyed by tagId; invalidated by deletion
+ *  (invalidateTagVectors) or a model/knob change. Recomputes lazily. */
 export async function tagVector(tagId: number): Promise<Float32Array | null> {
   const tag = await db.tag.findUnique({ where: { id: tagId }, select: { name: true } });
   if (!tag) return null;
   const modelId = currentModelId();
+  const params = vectorParams(modelId);
   const cached = await db.tagVector.findUnique({ where: { tagId } });
-  if (cached?.model === modelId) {
-    return new Float32Array(cached.vector.buffer, cached.vector.byteOffset, cached.vector.length / 4);
-  }
+  if (cached?.model === params.key) return toVec(cached.vector);
   if (!(await isReady())) return null;
   const [textEmb] = await embedText([prettify(tag.name)]);
   if (!textEmb) return null;
-  const { v, fileCount } = await computeTagVector(tag.name, textEmb);
-  await db.tagVector.upsert({
-    where: { tagId },
-    create: { tagId, vector: vecToBytes(v), fileCount, linksVersion: 0, model: modelId },
-    update: { vector: vecToBytes(v), fileCount, model: modelId },
-  });
+  const { v, fileCount } = await computeTagVector(tag.name, textEmb, modelId, params);
+  await writeTagVector(tagId, params, v, fileCount);
   return v;
 }
 
@@ -634,29 +672,107 @@ async function computeTagVectorByName(tagName: string): Promise<Float32Array | n
   return v;
 }
 
-/** Tag vector by name — cached TagVector row if the Tag exists, else the
- *  uncached compute path for prefix tree nodes with no Tag row. */
-export async function tagVectorByName(tagName: string): Promise<Float32Array | null> {
-  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true } });
-  return tag ? await tagVector(tag.id) : await computeTagVectorByName(tagName);
+// ---------------------------------------------------------------- per-tag classifiers
+
+/** Experimental (ml.tagClassifier): a logistic regression per tag, trained in the
+ *  sidecar on tagged files (positives) vs ✕ denials + random others (negatives),
+ *  anchored to priorScale·tagVector by an L2 pull of strength l2 — it learns
+ *  corrections to the tag vector rather than starting from zero (unanchored
+ *  lost to the plain vector on held-out tags; anchored won slightly, mostly on
+ *  broad tags). Rows live in TagClassifier only — TagVector is untouched, so
+ *  turning the setting off is instant. Bump `version` when changing the rules:
+ *  old rows stay in the table but are ignored. */
+const CLASSIFIER = {
+  version: "anchored-v1",
+  minPositives: 10, // fewer → no classifier, the tag keeps its centroid vector
+  maxPositives: 2000,
+  randomNegatives: 3000,
+  denyWeight: 3,
+  l2: 3e-2,
+  priorScale: 20,
+} as const;
+
+/** Classifiers depend on the tag vector they're anchored to, so its knobs are part of the key. */
+function classifierVariant(): string {
+  return `${CLASSIFIER.version}|w=${config.get().ml.tagSuggestionTextWeight}`;
 }
 
+/** null = trained, but too few positives (use the centroid). */
+type Classifier = { weights: Float32Array; bias: number } | null;
+
+function classifierEnabled() {
+  return config.get().ml.tagClassifier;
+}
+
+async function trainClassifier(
+  tag: { id: number; name: string },
+  modelId: string,
+  variant = classifierVariant(),
+): Promise<{ c: Classifier; write: () => Promise<void> }> {
+  const prior = await tagVector(tag.id);
+  if (!prior) throw new SidecarError("Tag vector unavailable.");
+  const { minPositives, maxPositives, randomNegatives, denyWeight, l2, priorScale } = CLASSIFIER;
+  const denyIds = [...(await getExclusions(tag.name))];
+  const r = await post<{ weights: number[] | null; bias: number | null; positives: number; negatives: number }>(
+    "/train",
+    { tag: tag.name, denyIds, prior: Array.from(prior), minPositives, maxPositives, randomNegatives, denyWeight, l2, priorScale },
+  );
+  const c = r.weights && r.bias !== null ? { weights: Float32Array.from(r.weights), bias: r.bias } : null;
+  const key = { tagId: tag.id, variant, model: modelId };
+  const data = { weights: c ? vecToBytes(c.weights) : null, bias: c?.bias ?? null, positives: r.positives, negatives: r.negatives };
+  return {
+    c,
+    write: async () => {
+      await db.tagClassifier.upsert({ where: { tagId_variant_model: key }, create: { ...key, ...data }, update: data });
+    },
+  };
+}
+
+/** Cached or freshly trained classifier; undefined if the sidecar can't train. */
+async function classifierFor(tag: { id: number; name: string }): Promise<Classifier | undefined> {
+  const modelId = currentModelId();
+  const row = await db.tagClassifier.findUnique({
+    where: { tagId_variant_model: { tagId: tag.id, variant: classifierVariant(), model: modelId } },
+  });
+  if (row) return row.weights && row.bias !== null ? { weights: toVec(row.weights), bias: row.bias } : null;
+  if (!(await isReady())) return undefined;
+  const generation = runtime.tagGeneration;
+  try {
+    const { c, write } = await trainClassifier(tag, modelId);
+    if (generation === runtime.tagGeneration) await write();
+    return c;
+  } catch (error) {
+    if (error instanceof SidecarError) return undefined;
+    throw error;
+  }
+}
+
+/** Query vector for "images for this tag": the tag's classifier direction when
+ *  enabled and trained (bias doesn't change a ranking), else the centroid vector.
+ *  Prefix tree nodes with no Tag row use the uncached centroid path. */
+export async function tagVectorByName(tagName: string): Promise<Float32Array | null> {
+  const tag = await db.tag.findUnique({ where: { name: tagName }, select: { id: true, name: true } });
+  if (!tag) return computeTagVectorByName(tagName);
+  if (classifierEnabled()) {
+    const c = await classifierFor(tag);
+    if (c) return normalize(c.weights);
+  }
+  return tagVector(tag.id);
+}
+
+// ---------------------------------------------------------------- background warming
+
 /** One batch; invalidation prevents an old centroid from repopulating the cache. */
-async function refreshTagVectors(tags: { id: number; name: string }[], modelId: string, generation: number) {
-  const current = () => generation === runtime.tagGeneration && modelId === currentModelId();
+async function refreshTagVectors(tags: { id: number; name: string }[], modelId: string, params: VectorParams, stale: () => boolean) {
   const textEmbs = await embedText(tags.map((t) => prettify(t.name)));
   for (let i = 0; i < tags.length; i++) {
-    if (!current() || !config.get().ml.enabled || embedJob.running || thumbStatus().running) return false;
+    if (stale() || !canWarm()) return false;
     const textEmb = textEmbs[i]!;
     if (!textEmb) continue;
-    const { v, fileCount } = await computeTagVector(tags[i]!.name, textEmb, modelId);
-    if (!current()) return false;
-    await db.tagVector.upsert({
-      where: { tagId: tags[i]!.id },
-      create: { tagId: tags[i]!.id, vector: vecToBytes(v), fileCount, linksVersion: 0, model: modelId },
-      update: { vector: vecToBytes(v), fileCount, model: modelId },
-    });
-    if (!current()) {
+    const { v, fileCount } = await computeTagVector(tags[i]!.name, textEmb, modelId, params);
+    if (stale()) return false;
+    await writeTagVector(tags[i]!.id, params, v, fileCount);
+    if (stale()) {
       await db.tagVector.deleteMany({ where: { tagId: tags[i]!.id } });
       return false;
     }
@@ -664,27 +780,65 @@ async function refreshTagVectors(tags: { id: number; name: string }[], modelId: 
   return true;
 }
 
-/** Process-wide, best-effort warming. Never await this from a suggestion request. */
+async function refreshClassifiers(tags: { id: number; name: string }[], modelId: string, variant: string, stale: () => boolean) {
+  for (const tag of tags) {
+    if (stale() || !canWarm() || !classifierEnabled()) return false;
+    const { write } = await trainClassifier(tag, modelId, variant);
+    if (stale()) return false;
+    await write();
+    if (stale()) {
+      await db.tagClassifier.deleteMany({ where: { tagId: tag.id, variant, model: modelId } });
+      return false;
+    }
+  }
+  return true;
+}
+
+function canWarm() {
+  return config.get().ml.enabled && !embedJob.running && !thumbStatus().running;
+}
+
+/** Process-wide, best-effort warming: centroid vectors first, then (when enabled)
+ *  classifiers. Never await this from a suggestion request. */
 export function enqueueTagVectors(): Promise<void> {
   if (runtime.tagRefresh) {
     runtime.tagRefreshRequested = true;
     return runtime.tagRefresh;
   }
-  if (!config.get().ml.enabled || embedJob.running || thumbStatus().running) return Promise.resolve();
+  if (!canWarm()) return Promise.resolve();
   runtime.tagRefreshRequested = false;
   const pending = (async () => {
-    let cursor = 0;
-    while (config.get().ml.enabled && !embedJob.running && !thumbStatus().running) {
+    let vectorCursor = 0;
+    let classifierCursor = 0;
+    while (canWarm()) {
       if (!(await isReady())) return;
       const modelId = currentModelId();
+      const params = vectorParams(modelId);
       const generation = runtime.tagGeneration;
+      const stale = () => generation !== runtime.tagGeneration || params.key !== vectorParams().key;
+      const restart = () => { vectorCursor = 0; classifierCursor = 0; };
+
       const tags = await db.tag.findMany({
-        where: { id: { gt: cursor }, OR: [{ vector: { is: null } }, { vector: { is: { model: { not: modelId } } } }] },
+        where: { id: { gt: vectorCursor }, OR: [{ vector: { is: null } }, { vector: { is: { model: { not: params.key } } } }] },
         orderBy: { id: "asc" }, select: { id: true, name: true }, take: 500,
       });
-      if (generation !== runtime.tagGeneration || modelId !== currentModelId()) { cursor = 0; continue; }
-      if (!tags.length) return;
-      cursor = await refreshTagVectors(tags, modelId, generation) ? tags[tags.length - 1]!.id : 0;
+      if (stale()) { restart(); continue; }
+      if (tags.length) {
+        if (await refreshTagVectors(tags, modelId, params, stale)) vectorCursor = tags[tags.length - 1]!.id;
+        else restart();
+        continue;
+      }
+
+      if (!classifierEnabled()) return;
+      const variant = classifierVariant();
+      const untrained = await db.tag.findMany({
+        where: { id: { gt: classifierCursor }, classifiers: { none: { variant, model: modelId } } },
+        orderBy: { id: "asc" }, select: { id: true, name: true }, take: 100,
+      });
+      if (stale()) { restart(); continue; }
+      if (!untrained.length) return;
+      if (await refreshClassifiers(untrained, modelId, variant, stale)) classifierCursor = untrained[untrained.length - 1]!.id;
+      else restart();
     }
   })().catch((error) => {
     console.error("[ml] tag-vector warmup failed:", error);
@@ -764,32 +918,45 @@ export async function suggestImagesOutsideRoot(tagName: string) {
 }
 
 /** Serve the available cache immediately; missing vectors warm off the request path. */
-async function tagMatrix(): Promise<{ tagId: number; name: string; vector: Float32Array }[]> {
+type MatrixRow = { name: string; vector: Float32Array; bias?: number };
+
+async function tagMatrix(): Promise<MatrixRow[]> {
   const modelId = currentModelId();
-  const rows = await db.tagVector.findMany({ where: { model: modelId }, include: { tag: { select: { name: true } } } });
+  const include = { tag: { select: { name: true } } };
+  const rows = new Map<number, MatrixRow>();
+  for (const r of await db.tagVector.findMany({ where: { model: vectorParams(modelId).key }, include })) {
+    rows.set(r.tagId, { name: r.tag.name, vector: toVec(r.vector) });
+  }
+  if (classifierEnabled()) {
+    const trained = await db.tagClassifier.findMany({
+      where: { variant: classifierVariant(), model: modelId, weights: { not: null }, bias: { not: null } }, include,
+    });
+    for (const r of trained) rows.set(r.tagId, { name: r.tag.name, vector: toVec(r.weights!), bias: r.bias! });
+  }
   // ponytail: partial suggestions until the next query; add completion-driven refetch if live refresh matters.
   void enqueueTagVectors();
-  return rows.map((r) => ({
-    tagId: r.tagId,
-    name: r.tag.name,
-    vector: new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4),
-  }));
+  return [...rows.values()];
 }
 
-/** Dot-product `v` against the tag matrix, minus excluded names, top 5. */
-function scoreTags(
-  v: Float32Array,
-  matrix: { name: string; vector: Float32Array }[],
-  excludeNames: Set<string>,
-): { tag: string; score: number }[] {
-  const scored: { tag: string; score: number }[] = [];
+/** Top 5 tags for image vector `v`, minus excluded names. Centroid rows score by
+ *  cosine; classifier rows by probability, which isn't on the same scale — so
+ *  classifier "yes" (p ≥ 0.5) ranks first, then centroid-only tags (too few
+ *  images for a classifier), then classifier "no". Scores are per-kind. */
+function scoreTags(v: Float32Array, matrix: MatrixRow[], excludeNames: Set<string>): { tag: string; score: number }[] {
+  const yes: { tag: string; score: number }[] = [];
+  const centroid: { tag: string; score: number }[] = [];
+  const no: { tag: string; score: number }[] = [];
   for (const r of matrix) {
     if (excludeNames.has(r.name)) continue;
-    let score = 0;
-    for (let i = 0; i < DIM; i++) score += v[i]! * r.vector[i]!;
-    scored.push({ tag: r.name, score });
+    const d = dot(v, r.vector);
+    if (r.bias === undefined) centroid.push({ tag: r.name, score: d });
+    else {
+      const p = 1 / (1 + Math.exp(-(d + r.bias)));
+      (p >= 0.5 ? yes : no).push({ tag: r.name, score: p });
+    }
   }
-  return scored.sort((a, b) => b.score - a.score).slice(0, 5);
+  const desc = (a: { score: number }, b: { score: number }) => b.score - a.score;
+  return [...yes.sort(desc), ...centroid.sort(desc), ...no.sort(desc)].slice(0, 5);
 }
 
 /** Suggested tags for a file: file vector vs TagVector matrix, top 5. */
@@ -838,5 +1005,6 @@ export async function reembedAll() {
   runtime.tagGeneration++;
   await db.fileEmbedding.deleteMany({});
   await db.tagVector.deleteMany({});
+  await db.tagClassifier.deleteMany({});
   await enqueueEmbeddings();
 }

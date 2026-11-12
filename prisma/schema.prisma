@@ -44,6 +44,7 @@ model Tag {
     name  String     @unique
     files FileTag[]
     vector TagVector?
+    classifiers TagClassifier[]
 
     @@index([name])
 }
@@ -75,6 +76,23 @@ model TagVector {
     linksVersion Int
     model        String
     tag          Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+}
+
+/// Experimental per-tag classifiers (ml.tagClassifier). Keyed by rule version
+/// (+ anchoring knobs) and model so new rules never overwrite old rows. Derived cache; TagVector is
+/// independent of it. weights/bias null = too few positives (use TagVector).
+model TagClassifier {
+    tagId     Int
+    variant   String // e.g. "anchored-v1|w=0.5"
+    model     String
+    weights   Bytes? // 768 x float32 LE
+    bias      Float?
+    positives Int
+    negatives Int
+    tag       Tag    @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+    @@id([tagId, variant, model])
+    @@index([variant, model])
 }
 
 model Meta {
