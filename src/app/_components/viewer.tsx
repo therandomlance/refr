@@ -9,6 +9,7 @@ import { ConfirmDialog } from "./dialog";
 import { formatDuration } from "./media-grid";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
 import { useTagEdit } from "./tag-actions";
+import { useActionFeedback } from "./action-feedback";
 
 /**
  * Fullscreen viewer (§10.2). Left panel: metadata + options. Right: tag manager
@@ -28,7 +29,8 @@ export function Viewer({
   onNavigate?: (index: number) => void;
   overlayTop?: React.ReactNode;
 }) {
-  const { items, loadMore } = useViewerList();
+  const { items, loadMore, hasMore } = useViewerList();
+  const notify = useActionFeedback();
   // ponytail: side panels + carousel remember their open/closed state across viewer
   // reopens and reloads. Defaults: left closed, right open on tablet+, closed on phone,
   // carousel open.
@@ -76,6 +78,41 @@ export function Viewer({
       setId(next.id);
       if (listIndex + delta > items.length - 10) loadMore?.();
     }
+  };
+
+  // Warm the browser cache with the neighbouring originals so arrow navigation
+  // doesn't wait on a full download (videos are skipped — too heavy to prefetch).
+  // ponytail: no cancellation — fast scrubbing may leave a few stale fetches running.
+  const prevId = items[listIndex - 1]?.mediaType === "image" ? items[listIndex - 1]!.id : null;
+  const nextId = items[listIndex + 1]?.mediaType === "image" ? items[listIndex + 1]!.id : null;
+  useEffect(() => {
+    if (listIndex < 0) return;
+    for (const id of [nextId, prevId]) {
+      if (!id) continue;
+      const img = new Image();
+      img.decoding = "async";
+      img.src = `/api/file/${id}`;
+    }
+  }, [listIndex, prevId, nextId]);
+
+  const copyPath = (path: string) => {
+    const done = (ok: boolean) => notify(ok ? { message: "Path copied." } : { message: "Could not copy to the clipboard.", error: true });
+    // navigator.clipboard only exists in secure contexts; a LAN instance on plain
+    // http needs the legacy execCommand route
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(path).then(() => done(true), () => done(false));
+      return;
+    }
+    const ta = document.createElement("textarea");
+    ta.value = path;
+    ta.style.position = "fixed";
+    ta.style.opacity = "0";
+    document.body.appendChild(ta);
+    ta.select();
+    let ok = false;
+    try { ok = document.execCommand("copy"); } catch { /* unsupported */ }
+    ta.remove();
+    done(ok);
   };
 
   const keyHandler = useCallback(
@@ -131,9 +168,21 @@ export function Viewer({
           <div className="kv"><span>Date</span><b>{new Date(currentFile.mtime).toLocaleString()}</b></div>
           <div className="kv"><span>Added</span><b>{new Date(currentFile.addedAt).toLocaleString()}</b></div>
           <div className="kv"><span>Type</span><b>{currentFile.mediaType}</b></div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a className="btn" href={`/api/file/${currentFile.id}`} target="_blank" rel="noopener noreferrer">Open original</a>
+            <a className="btn" href={`/api/file/${currentFile.id}`} download={currentFile.paths[0]?.path.split("/").pop() ?? true}>Download</a>
+          </div>
           <h3>Paths</h3>
           {currentFile.paths.map((p) => (
-            <div key={p.id} className="mb-1 text-xs break-all" style={{ color: "var(--text-dim)" }}>{p.path}</div>
+            <button
+              type="button"
+              key={p.id}
+              className="vpath mb-1 block w-full text-left text-xs break-all"
+              title="Copy path"
+              onClick={() => copyPath(p.path)}
+            >
+              {p.path}
+            </button>
           ))}
           <h3>ID</h3>
           <div className="text-xs break-all" style={{ color: "var(--text-faint)" }}>{currentFile.id}</div>
@@ -156,6 +205,9 @@ export function Viewer({
         }}
       >
         {overlayTop}
+        {!onNavigate && listIndex >= 0 && items.length > 1 && (
+          <div className="vpos" aria-live="polite">{listIndex + 1} / {items.length}{hasMore ? "+" : ""}</div>
+        )}
         <button className="vbtn" aria-label="Close viewer" style={{ top: 14, right: 14 }} onClick={onClose}><Icon name="close" /></button>
         <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info" aria-label="Toggle file information" aria-expanded={leftOpen}><Icon name="info" /></button>
         <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags" aria-label="Toggle tags" aria-expanded={rightOpen}><Icon name="tag" /></button>

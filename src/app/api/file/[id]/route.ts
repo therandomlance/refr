@@ -71,6 +71,9 @@ export async function GET(req: Request, ctx: { params: Promise<{ id: string }> }
       "content-type": type,
       "accept-ranges": "bytes",
       "content-length": String(stat.size),
+      // id = sha256 of the content, so a URL never changes meaning; lets viewer
+      // prefetches of neighbouring images actually be reused. private: behind auth.
+      "cache-control": "private, max-age=31536000, immutable",
     },
   });
 }

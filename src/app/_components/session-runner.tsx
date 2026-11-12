@@ -4,16 +4,18 @@ import { useEffect, useMemo, useReducer, useRef } from "react";
 import type { HistoryEntry, SessionTemplate } from "refr/server/services/sessions";
 import { Viewer } from "./viewer";
 import { publishViewerList } from "./viewer-store";
+import { isTypingTarget } from "refr/lib/keyboard";
 
 type FlatItem = { fileId: string; blockIndex: number; seconds: number | null; autoScroll: boolean; tag: string };
 
-type RunState = { index: number; done: boolean; remaining: number | null; flash: boolean };
-type RunAction = { type: "tick" | "next" | "finish" | "replay" }
+type RunState = { index: number; done: boolean; remaining: number | null; flash: boolean; paused?: boolean };
+type RunAction = { type: "tick" | "next" | "finish" | "replay" | "togglePause" }
   | { type: "navigate"; index: number }
   | { type: "snooze"; seconds: number };
 
 export function sessionReducer(state: RunState, action: RunAction, items: readonly Pick<FlatItem, "seconds" | "autoScroll">[]): RunState {
-  const at = (index: number): RunState => ({ index, done: false, remaining: items[index]?.seconds ?? null, flash: false });
+  // pause survives navigation (stepping through images while paused stays paused); replay resets it
+  const at = (index: number, paused = state.paused): RunState => ({ index, done: false, remaining: items[index]?.seconds ?? null, flash: false, ...(paused ? { paused } : {}) });
   const next = () => state.index >= items.length - 1 ? { ...state, done: true } : at(state.index + 1);
   switch (action.type) {
     case "navigate": {
@@ -22,10 +24,11 @@ export function sessionReducer(state: RunState, action: RunAction, items: readon
     }
     case "next": return next();
     case "finish": return { ...state, done: true };
-    case "replay": return at(0);
+    case "replay": return at(0, false);
+    case "togglePause": return state.paused ? { ...state, paused: false } : { ...state, paused: true };
     case "snooze": return { ...state, remaining: Math.max(0, state.remaining ?? 0) + action.seconds, flash: false };
     case "tick": {
-      if (state.done || state.remaining === null || state.remaining <= 0) return state;
+      if (state.done || state.paused || state.remaining === null || state.remaining <= 0) return state;
       const remaining = state.remaining - 1;
       if (remaining === 0 && items[state.index]?.autoScroll) return next();
       return { ...state, remaining, flash: remaining === 0 };
@@ -61,7 +64,7 @@ export function SessionRunner({
     [entry, template],
   );
 
-  const [{ index, done, remaining, flash }, dispatch] = useReducer(
+  const [{ index, done, remaining, flash, paused }, dispatch] = useReducer(
     (state: RunState, action: RunAction) => sessionReducer(state, action, flat),
     { index: 0, done: false, remaining: flat[0]?.seconds ?? null, flash: false },
   );
@@ -79,10 +82,26 @@ export function SessionRunner({
 
   const hasTimer = remaining !== null;
   useEffect(() => {
-    if (!hasTimer || done) return;
+    if (!hasTimer || done || paused) return;
     const t = setInterval(() => dispatch({ type: "tick" }), 1000);
     return () => clearInterval(t);
-  }, [hasTimer, done, index]);
+  }, [hasTimer, done, index, paused]);
+
+  // Space pauses, n skips, + snoozes 60s. ←/→ stay with the Viewer's own handler.
+  useEffect(() => {
+    if (done) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (isTypingTarget(e.target) || document.querySelector('[aria-modal="true"]')) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (e.key === " ") {
+        e.preventDefault(); // don't scroll or re-press a focused button
+        if (hasTimer) dispatch({ type: "togglePause" });
+      } else if (e.key === "n") dispatch({ type: "next" });
+      else if ((e.key === "+" || e.key === "=") && hasTimer) dispatch({ type: "snooze", seconds: 60 });
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [done, hasTimer]);
 
   if (flat.length === 0) {
     return (
@@ -139,10 +158,13 @@ export function SessionRunner({
             <>
               <span
                 className="chip"
-                style={flash ? { animation: "flash 0.6s infinite alternate" } : remaining <= 10 ? { color: "#e66", fontWeight: 700 } : undefined}
+                style={flash ? { animation: "flash 0.6s infinite alternate" } : paused ? { color: "var(--text-faint)" } : remaining <= 10 ? { color: "var(--danger)", fontWeight: 700 } : undefined}
               >
                 ⏱ {Math.floor(Math.max(0, remaining) / 60)}:{String(Math.max(0, remaining) % 60).padStart(2, "0")}
               </span>
+              <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} aria-pressed={!!paused} title="Pause / resume (Space)" onClick={() => dispatch({ type: "togglePause" })}>
+                {paused ? "▶ Resume" : "⏸ Pause"}
+              </button>
               {([30, 60, 300, 600] as const).map((s) => (
                 <button key={s} className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={() => dispatch({ type: "snooze", seconds: s })}>
                   +{s >= 60 ? `${s / 60}m` : `${s}s`}
@@ -150,7 +172,7 @@ export function SessionRunner({
               ))}
             </>
           )}
-          <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={() => dispatch({ type: "next" })}>Skip →</button>
+          <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} title="Skip (n)" onClick={() => dispatch({ type: "next" })}>Skip →</button>
           <button className="chip" style={{ cursor: "pointer", padding: "8px 14px" }} onClick={() => dispatch({ type: "finish" })}>End</button>
         </div>
       }

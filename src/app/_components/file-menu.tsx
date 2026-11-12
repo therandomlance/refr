@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
@@ -21,7 +21,9 @@ export function useFileContextMenu(
   reorder?: { allIds: string[]; onReorder: (next: string[]) => void },
 ) {
   const [menu, setMenu] = useState<{ x: number; y: number; fileIds: string[] } | null>(null);
-  const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[] }>(null);
+  const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[]; fromSelection: boolean }>(null);
+  // set when a tag is actually added from the prompt, so closing it can drop the selection
+  const tagAdded = useRef(false);
   const router = useRouter();
   const utils = api.useUtils();
   const notify = useActionFeedback();
@@ -69,20 +71,29 @@ export function useFileContextMenu(
         <TagPromptDialog
           title={prompt.mode === "add" ? "Add tag" : "Remove tag"}
           label={`Tag to ${prompt.mode} ${prompt.fileIds.length > 1 ? `on ${prompt.fileIds.length} files` : ""}`}
-          onSubmit={(tag) =>
+          suggestFor={prompt.mode === "add" ? prompt.fileIds : undefined}
+          onSubmit={(tag) => {
+            if (prompt.mode === "add") tagAdded.current = true;
             setTags.mutate({
               fileIds: prompt.fileIds,
               add: prompt.mode === "add" ? [tag] : [],
               remove: prompt.mode === "remove" ? [tag] : [],
-            })
-          }
-          onClose={() => setPrompt(null)}
+            });
+          }}
+          onClose={() => {
+            // tagging a selection is usually "done with these" — clear it so the next
+            // batch starts fresh
+            if (tagAdded.current && prompt.fromSelection) onSelectionChange?.(new Set());
+            tagAdded.current = false;
+            setPrompt(null);
+          }}
         />
       )}
     </>
   );
 
   function buildItems(fileIds: string[]): MenuItem[] {
+    const fromSelection = fileIds.length > 0 && fileIds.every((id) => selection.has(id));
     const inQueue = queueQ.data ?? [];
     const allQueued = fileIds.every((id) => inQueue.includes(id));
     const queueLabel = allQueued ? "Remove from queue" : "Add to queue";
@@ -129,8 +140,8 @@ export function useFileContextMenu(
       {
         label: "Tag actions",
         submenu: [
-          { label: "Add tag…", onClick: () => setPrompt({ mode: "add", fileIds }) },
-          { label: "Remove tag…", onClick: () => setPrompt({ mode: "remove", fileIds }) },
+          { label: "Add tag…", onClick: () => { tagAdded.current = false; setPrompt({ mode: "add", fileIds, fromSelection }); } },
+          { label: "Remove tag…", onClick: () => { tagAdded.current = false; setPrompt({ mode: "remove", fileIds, fromSelection }); } },
         ],
       },
     );

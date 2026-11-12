@@ -481,6 +481,16 @@ button, summary { touch-action: manipulation; }
 }
 .carousel img { width: 92px; height: 60px; object-fit: cover; border-radius: 6px; flex: none; opacity: .55; cursor: pointer; }
 .carousel img.cur { opacity: 1; outline: 2px solid var(--accent); }
+.vpos {
+  position: absolute; top: 24px; left: 50%; transform: translateX(-50%); z-index: 2;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-dim);
+  background: var(--hover); padding: 3px 10px; border-radius: 999px; pointer-events: none;
+}
+.vpath {
+  background: transparent; border: 0; padding: 2px 4px; margin-left: -4px; border-radius: 4px;
+  color: var(--text-dim); cursor: copy;
+}
+@media (hover: hover) { .vpath:hover { background: var(--hover); color: var(--text); } }
 .vbtn {
   position: absolute; z-index: 5; width: 44px; height: 44px; border: 0;
   border-radius: 50%; background: var(--hover); color: var(--text); font-size: 18px; cursor: pointer;
@@ -505,6 +515,12 @@ button, summary { touch-action: manipulation; }
   background: var(--hover); border-radius: 999px; font-size: 12px; white-space: nowrap;
 }
 .chip .mod { color: var(--accent); font-weight: 600; }
+/* search chips: invisible button over the label → click to edit; × stays on top */
+.chip:has(> .chip-edit) { position: relative; }
+.chip .chip-edit { position: absolute; inset: 0; border: 0; background: transparent; border-radius: inherit; cursor: text; padding: 0; }
+.chip .chip-edit:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chip:has(> .chip-edit) .x { position: relative; z-index: 1; }
+@media (hover: hover) { .chip:has(> .chip-edit:hover) { background: var(--border); } }
 .chip .x { cursor: pointer; color: var(--text-faint); border-radius: 50%; width: 24px; height: 24px; display: grid; place-items: center; border: 0; background: transparent; font-size: 13px; padding: 0; }
 @media (hover: hover) {
   .chip .x:hover { background: var(--border); color: var(--text); }

@@ -17,6 +17,7 @@ import { TimelineScrubber } from "./timeline-scrubber";
 import { staticSuggestionOptions, useTagEdit } from "./tag-actions";
 import { Icon } from "./icon";
 import { useActionFeedback } from "./action-feedback";
+import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -506,6 +507,7 @@ export function MediaGrid({
   // selection bulk actions (⋮ menu)
   const [selMenu, setSelMenu] = useState<{ x: number; y: number } | null>(null);
   const [tagPrompt, setTagPrompt] = useState<"add" | "remove" | null>(null);
+  const tagAdded = useRef(false);
   const setTags = useTagEdit();
 
   const router = useRouter();
@@ -543,6 +545,21 @@ export function MediaGrid({
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [selection.size, viewerId, selMenu, tagPrompt, onSelectionChange]);
+
+  // Ctrl/Cmd+A selects everything (same as the toolbar's Select all), unless the
+  // user is typing or an overlay owns the keyboard.
+  const selectAllRef = useRef<() => void>(() => undefined);
+  selectAllRef.current = () => void selectAll();
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== "a" || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
+      if (isTypingTarget(e.target) || viewerId || selMenu || tagPrompt || overlayOpen()) return;
+      e.preventDefault();
+      selectAllRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [viewerId, selMenu, tagPrompt]);
 
   const openViewer = (id: string) => {
     const p = new URLSearchParams(params.toString());
@@ -767,7 +784,11 @@ export function MediaGrid({
           </button>
           <button className="btn" disabled={selectingAll} title="Selection actions" aria-label="Selection actions" onClick={(e) => {
             const rect = e.currentTarget.getBoundingClientRect();
-            setSelMenu({ x: rect.left, y: rect.bottom + 8 });
+            const first = selection.values().next().value;
+            // the page's file menu acts on the whole selection when given a selected
+            // id, so this gets queue/send-to/palette/similar too, not just tagging
+            if (onContextMenu && first) onContextMenu({ ...e, clientX: rect.left, clientY: rect.bottom + 8 }, first);
+            else setSelMenu({ x: rect.left, y: rect.bottom + 8 });
           }}>
             <Icon name="more" />
           </button>
@@ -841,11 +862,14 @@ export function MediaGrid({
                       {row.segs.map((s, i) => (
                         <div key={i} className="gseg" style={s.width ? { width: s.width, flex: "none" } : undefined}>
                           <button
+                            type="button"
                             className={`gh-check ${s.ids.every((id) => selection.has(id)) ? "on" : ""}`}
                             title="Select group"
+                            aria-label={`Select all from ${s.label}`}
+                            aria-pressed={s.ids.every((id) => selection.has(id))}
                             onClick={() => toggleGroup(s.ids)}
                           >
-                            {s.ids.every((id) => selection.has(id)) ? "✓" : ""}
+                            {s.ids.every((id) => selection.has(id)) ? <Icon name="check" /> : null}
                           </button>
                           <div className="gseg-label">{s.label}</div>
                         </div>
@@ -889,8 +913,8 @@ export function MediaGrid({
           y={selMenu.y}
           onClose={() => setSelMenu(null)}
           items={[
-            { label: "Add tag…", onClick: () => setTagPrompt("add") },
-            { label: "Remove tag…", onClick: () => setTagPrompt("remove") },
+            { label: "Add tag…", onClick: () => { tagAdded.current = false; setTagPrompt("add"); } },
+            { label: "Remove tag…", onClick: () => { tagAdded.current = false; setTagPrompt("remove"); } },
           ]}
         />
       )}
@@ -899,14 +923,19 @@ export function MediaGrid({
           title={tagPrompt === "add" ? "Add tag" : "Remove tag"}
           label={`Tag to ${tagPrompt} on ${selection.size} file${selection.size === 1 ? "" : "s"}`}
           suggestFor={tagPrompt === "add" ? [...selection] : undefined}
-          onSubmit={(tag) =>
+          onSubmit={(tag) => {
+            if (tagPrompt === "add") tagAdded.current = true;
             setTags.mutate({
               fileIds: [...selection],
               add: tagPrompt === "add" ? [tag] : [],
               remove: tagPrompt === "remove" ? [tag] : [],
-            })
-          }
-          onClose={() => setTagPrompt(null)}
+            });
+          }}
+          onClose={() => {
+            if (tagAdded.current) onSelectionChange(new Set());
+            tagAdded.current = false;
+            setTagPrompt(null);
+          }}
         />
       )}
     </div>

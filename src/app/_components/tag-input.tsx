@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
+import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
 
 /**
  * Autocomplete tag input (§10.3). Debounced 150ms, keyboard navigable,
@@ -16,6 +17,8 @@ export function TagInput({
   autoFocus = false,
   pathAutocomplete = false,
   suggestAutocomplete = false,
+  hotkey = false,
+  seed,
 }: {
   placeholder?: string;
   onCommit: (raw: string, suggestion?: string) => void;
@@ -29,6 +32,10 @@ export function TagInput({
   pathAutocomplete?: boolean;
   /** when true, input starting with `suggest:` offers tag completions (search) */
   suggestAutocomplete?: boolean;
+  /** when true, pressing `/` anywhere (outside inputs/overlays) focuses this input */
+  hotkey?: boolean;
+  /** pre-fill the input and focus it; `key` changes re-apply the same text */
+  seed?: { text: string; key: number } | null;
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
@@ -85,7 +92,34 @@ export function TagInput({
   const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
-  useEffect(() => setHighlight(0), [debounced]);
+  // Prefer the row that matches what was typed exactly (so Enter on a full tag
+  // name — e.g. a chip put back for editing — doesn't pick a longer descendant).
+  const exactRow = rows.findIndex((r) => r.name.toLowerCase() === debounced.toLowerCase());
+  useEffect(() => setHighlight(Math.max(0, exactRow)), [debounced, exactRow]);
+
+  useEffect(() => {
+    if (!hotkey) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (isTypingTarget(e.target) || overlayOpen()) return;
+      e.preventDefault();
+      inputRef.current?.focus();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [hotkey]);
+
+  useEffect(() => {
+    if (!seed) return;
+    setRaw(seed.text);
+    onRawChange?.(seed.text);
+    setOpen(true);
+    requestAnimationFrame(() => {
+      const el = inputRef.current;
+      if (el) { el.focus(); el.setSelectionRange(seed.text.length, seed.text.length); }
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [seed]);
 
   useEffect(() => {
     const onClick = (e: MouseEvent) => {

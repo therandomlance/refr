@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
@@ -25,6 +25,10 @@ export default function SearchPage() {
   const [savePrompt, setSavePrompt] = useState(false);
   const [hideReviewed, setHideReviewed] = useState(false);
   const fileMenu = useFileContextMenu(selection, setSelection);
+  // click-to-edit: the chip leaves the bar and its text goes back into the input;
+  // the next commit is inserted where the chip was.
+  const [seed, setSeed] = useState<{ text: string; key: number } | null>(null);
+  const editAt = useRef<number | null>(null);
 
   const saved = api.searches.list.useQuery();
   const utils = api.useUtils();
@@ -70,26 +74,44 @@ export default function SearchPage() {
 
   const addChip = useCallback(
     (raw: string, suggestion?: string) => {
+      const at = editAt.current;
+      editAt.current = null;
+      const insert = (ts: Token[], token: Token) =>
+        at === null || at > ts.length ? [...ts, token] : [...ts.slice(0, at), token, ...ts.slice(at)];
       // quote-prefixed = semantic text chip from the autocomplete fallback row
+      // (an edited text chip may come back with extra/closing quotes)
       if (raw.startsWith('"')) {
-        const value = raw.slice(1);
+        const value = raw.replace(/^"+/, "").replace(/"$/, "").trim();
+        if (!value) return;
         setTokens((ts) =>
-          ts.some(isVectorToken) ? ts : [...ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }],
+          ts.some(isVectorToken) ? ts : insert(ts, { kind: "text", tag: value, negate: false, exact: false, or: false, wildcard: false }),
         );
         return;
       }
       const token = commitToken(raw, suggestion);
       if (!token) return;
       if (isVectorToken(token)) {
-        setTokens((ts) => (ts.some(isVectorToken) ? ts : [...ts, token]));
+        setTokens((ts) => (ts.some(isVectorToken) ? ts : insert(ts, token)));
         return;
       }
-      setTokens((ts) => [...ts, token]);
+      setTokens((ts) => insert(ts, token));
     },
     [],
   );
 
-  const removeChip = (i: number) => setTokens((ts) => ts.filter((_, j) => j !== i));
+  const removeChip = (i: number) => {
+    if (editAt.current !== null && editAt.current > i) editAt.current--;
+    setTokens((ts) => ts.filter((_, j) => j !== i));
+  };
+  const editChip = (i: number) => {
+    const t = tokens[i];
+    if (!t || t.kind === "similar") return;
+    // text chips keep only the opening quote — that's the input's semantic marker
+    const text = t.kind === "text" ? `"${t.tag}` : serializeQuery([t]);
+    setTokens((ts) => ts.filter((_, j) => j !== i));
+    editAt.current = i;
+    setSeed({ text, key: Date.now() });
+  };
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -106,6 +128,7 @@ export default function SearchPage() {
         <SavedSearches
           nodes={saved.data ?? []}
           onOpen={(s) => {
+            editAt.current = null;
             setTokens(s.tokens);
             if (s.sort) setSort(s.sort);
           }}
@@ -119,6 +142,10 @@ export default function SearchPage() {
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {tokens.map((t, i) => (
             <span key={i} className="chip">
+              {t.kind !== "similar" && (
+                // covers the chip body (not the ×) so the whole label is clickable
+                <button type="button" className="chip-edit" aria-label={`Edit ${t.tag} filter`} title="Click to edit" onClick={() => editChip(i)} />
+              )}
               {t.kind === "similar" ? (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -145,12 +172,14 @@ export default function SearchPage() {
           ))}
           <div className="min-w-0 basis-48 flex-1">
             <TagInput
-              placeholder={tokens.length === 0 ? "Search tags…  (- not, ~ or, = exact, * wildcard, path:<folder|alias> (= exact), suggest: for-tag)" : ""}
+              placeholder={tokens.length === 0 ? "Search tags…  (/ to focus, - not, ~ or, = exact, * wildcard, path:<folder|alias> (= exact), suggest: for-tag)" : ""}
               onCommit={addChip}
               keywords={KEYWORD_NAMES}
               semanticFallback={mlStatus.data?.state === "ready" && !hasVectorChip}
               pathAutocomplete
               suggestAutocomplete
+              hotkey
+              seed={seed}
             />
           </div>
         </div>
