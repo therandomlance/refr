@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import fs from "node:fs";
 import { db } from "refr/server/db";
-import { createFolder, deleteFolder, extract, list, remove, save } from "refr/server/services/palettes";
+import { createFolder, deleteFolder, extract, list, move, remove, renameFolder, save } from "refr/server/services/palettes";
 
 describe("palette median cut", () => {
   it("returns N well-formed hex colors", async () => {
@@ -66,5 +66,23 @@ describe("palette storage", () => {
     expect(list().folders).not.toContain("vitest-folder");
     expect(list().items.find((p) => p.name === "vitest-inf")?.folder).toBe("");
     remove("vitest-inf", "");
+  });
+
+  it("moving into the palette's own folder is a no-op, not a rename to (2)", () => {
+    createFolder("vitest-same");
+    save({ name: "vitest-same-pal", colors: ["#112233"] }, "vitest-same");
+    move("vitest-same-pal", "vitest-same", "vitest-same/");
+    const names = list().items.filter((p) => p.folder === "vitest-same").map((p) => p.name);
+    expect(names).toEqual(["vitest-same-pal"]);
+    deleteFolder("vitest-same");
+    remove("vitest-same-pal", "");
+  });
+
+  it("renameFolder rejects moving a folder into itself and missing sources", () => {
+    createFolder("vitest-rf");
+    expect(() => renameFolder("vitest-rf", "vitest-rf/child")).toThrow(/into itself/);
+    expect(() => renameFolder("vitest-rf-missing", "vitest-rf-x")).toThrow(/not found/);
+    expect(list().folders).toContain("vitest-rf");
+    deleteFolder("vitest-rf");
   });
 });

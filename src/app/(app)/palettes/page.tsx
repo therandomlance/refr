@@ -1,12 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog, Dialog, PromptDialog } from "refr/app/_components/dialog";
 import { SidePanel } from "refr/app/_components/side-panel";
 import { ContextMenu } from "refr/app/_components/context-menu";
-import { reorderColor } from "refr/lib/palette-colors";
+import { MAX_PALETTE_COLORS, contrast, exportPng, normalizeHex, reorderColor } from "refr/lib/palette-colors";
+import { copyText } from "refr/lib/clipboard";
+import { useActionFeedback } from "refr/app/_components/action-feedback";
 
 type Editing = {
   name: string;
@@ -17,9 +19,14 @@ type Editing = {
   orig?: { name: string; folder: string };
 };
 
+const PALETTE_DRAG = "application/x-refr-palette";
+
 export default function PalettesPage() {
   const params = useSearchParams();
-  const [folder, setFolder] = useState<string>("");
+  const router = useRouter();
+  const notify = useActionFeedback();
+  // null = all palettes, "" = unfiled
+  const [folder, setFolder] = useState<string | null>(null);
   const [sort, setSort] = useState<"name" | "date">("name");
   const [editing, setEditing] = useState<Editing | null>(null);
   const [menu, setMenu] = useState<{ p: { name: string; folder: string }; x: number; y: number } | null>(null);
@@ -29,6 +36,8 @@ export default function PalettesPage() {
   const [folderMenu, setFolderMenu] = useState<{ folder: string; x: number; y: number } | null>(null);
   const [renameFolderOf, setRenameFolderOf] = useState<string | null>(null);
   const [deleteFolderOf, setDeleteFolderOf] = useState<string | null>(null);
+  const [filter, setFilter] = useState("");
+  const [dropOn, setDropOn] = useState<string | null>(null);
   const dragPal = useRef<{ name: string; folder: string } | null>(null);
 
   const utils = api.useUtils();
@@ -46,26 +55,49 @@ export default function PalettesPage() {
   const items = palettes.data?.items ?? [];
   const folders = palettes.data?.folders ?? [];
 
-  // context action from grids: /palettes?extract=<fileId>
+  // context action from grids: /palettes?extract=<fileId>. The param is dropped once
+  // handled so refresh / back-navigation doesn't re-extract and reopen the editor.
   const extractId = params.get("extract");
   useEffect(() => {
     if (!extractId) return;
-    void extract.mutateAsync({ fileId: extractId, n: 4 }).then((colors) => {
-      setEditing({ name: "new palette", colors, folder: "", sourceFileId: extractId });
+    extract.mutate({ fileId: extractId, n: 4 }, {
+      onSuccess: (colors) => setEditing({ name: "new palette", colors, folder: folder ?? "", sourceFileId: extractId }),
+      onSettled: () => router.replace("/palettes"),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extractId]);
 
+  const q = filter.trim().toLowerCase();
   const shown = items
-    .filter((p) => p.folder === folder)
+    .filter((p) => (folder === null || p.folder === folder) && (!q || p.name.toLowerCase().includes(q)))
     .sort((a, b) => (sort === "name" ? a.name.localeCompare(b.name) : b.mtime - a.mtime));
 
+  const copy = (hex: string) =>
+    void copyText(hex).then((ok) => notify(ok ? { message: `Copied ${hex}` } : { message: "Could not copy to the clipboard.", error: true }));
+
+  const open = (p: (typeof items)[number]) =>
+    setEditing({ name: p.name, colors: p.colors, folder: p.folder, sourceFileId: p.sourceFileId, orig: { name: p.name, folder: p.folder } });
+
   // drag a palette card onto a sidebar folder row to move it
-  const dropTo = (toFolder: string) => {
-    const d = dragPal.current;
-    dragPal.current = null;
-    if (d && d.folder !== toFolder) move.mutate({ name: d.name, fromFolder: d.folder, toFolder });
-  };
+  const dropProps = (toFolder: string) => ({
+    onDragOver: (e: React.DragEvent) => {
+      if (!e.dataTransfer.types.includes(PALETTE_DRAG)) return;
+      e.preventDefault();
+      setDropOn(toFolder);
+    },
+    onDragLeave: () => setDropOn((d) => (d === toFolder ? null : d)),
+    onDrop: (e: React.DragEvent) => {
+      const d = dragPal.current;
+      dragPal.current = null;
+      setDropOn(null);
+      if (!e.dataTransfer.types.includes(PALETTE_DRAG)) return;
+      e.preventDefault();
+      if (d && d.folder !== toFolder) move.mutate({ name: d.name, fromFolder: d.folder, toFolder });
+    },
+  });
+
+  // folders under `root` (or root itself) follow a rename/delete of root
+  const under = (f: string, root: string) => f === root || f.startsWith(root + "/");
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -76,27 +108,27 @@ export default function PalettesPage() {
           </button>
         </>}>
         <div className="flex-1 px-2 pb-4">
-          <div
-            className={`trow ${folder === "" ? "sel" : ""}`}
-            onClick={() => setFolder("")}
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={() => dropTo("")}
-          >
-            All / unfiled
+          <div className={`trow ${folder === null ? "sel" : ""}`} onClick={() => setFolder(null)}>
+            All palettes
+            <span className="count">{items.length}</span>
+          </div>
+          <div className={`trow ${folder === "" ? "sel" : ""} ${dropOn === "" ? "drop" : ""}`} onClick={() => setFolder("")} {...dropProps("")}>
+            Unfiled
           </div>
           {folders.map((f) => (
             <div
               key={f}
-              className={`trow ${folder === f ? "sel" : ""}`}
+              className={`trow ${folder === f ? "sel" : ""} ${dropOn === f ? "drop" : ""}`}
+              style={{ paddingLeft: 8 + 14 * (f.split("/").length - 1) }}
+              title={f}
               onClick={() => setFolder(f)}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setFolderMenu({ folder: f, x: e.clientX, y: e.clientY });
               }}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={() => dropTo(f)}
+              {...dropProps(f)}
             >
-              {f}
+              {f.split("/").pop()}
             </div>
           ))}
         </div>
@@ -104,15 +136,22 @@ export default function PalettesPage() {
 
       <main className="scroll-thin min-w-0 flex-1 overflow-y-auto p-6">
         <header className="page-header page-header-inset">
-          <div><h1>Palettes</h1><p>{folder || "Unfiled"} · {shown.length} palettes</p></div>
+          <div>
+            <h1>Palettes</h1>
+            <p>
+              {folder === null ? "All" : folder || "Unfiled"} · {shown.length} {shown.length === 1 ? "palette" : "palettes"}
+              {extract.isPending && " · Extracting colors…"}
+            </p>
+          </div>
           <div className="flex flex-wrap items-center gap-3">
+          <input className="input" type="search" placeholder="Filter…" aria-label="Filter palettes" value={filter} onChange={(e) => setFilter(e.target.value)} />
           <select className="input" aria-label="Sort palettes" value={sort} onChange={(e) => setSort(e.target.value as "name" | "date")}>
             <option value="name">Name</option>
             <option value="date">Date</option>
           </select>
           <button
             className="btn primary ml-auto"
-            onClick={() => setEditing({ name: "new palette", colors: ["#888888", "#aaaaaa", "#cccccc", "#eeeeee"], folder })}
+            onClick={() => setEditing({ name: "new palette", colors: ["#888888", "#aaaaaa", "#cccccc", "#eeeeee"], folder: folder ?? "" })}
           >
             New palette
           </button>
@@ -124,11 +163,16 @@ export default function PalettesPage() {
               key={`${p.folder}/${p.name}`}
               className="pcard"
               draggable
-              onDragStart={() => (dragPal.current = { name: p.name, folder: p.folder })}
-              title="Double-click to open"
-              onDoubleClick={() =>
-                setEditing({ name: p.name, colors: p.colors, folder: p.folder, sourceFileId: p.sourceFileId, orig: { name: p.name, folder: p.folder } })
-              }
+              tabIndex={0}
+              aria-label={`Open palette ${p.name}`}
+              onDragStart={(e) => {
+                dragPal.current = { name: p.name, folder: p.folder };
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData(PALETTE_DRAG, `${p.folder}/${p.name}`);
+              }}
+              onDragEnd={() => { dragPal.current = null; setDropOn(null); }}
+              onDoubleClick={() => open(p)}
+              onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) open(p); }}
               onContextMenu={(e) => {
                 e.preventDefault();
                 setMenu({ p, x: e.clientX, y: e.clientY });
@@ -138,22 +182,27 @@ export default function PalettesPage() {
                 {p.colors.map((c, i) => (
                   <div
                     key={i}
-                    style={{ background: c }}
+                    style={{ background: c, color: contrast(c) }}
                     title={`Copy ${c}`}
                     onClick={(e) => {
                       e.stopPropagation();
-                      void navigator.clipboard.writeText(c);
+                      copy(c);
                     }}
-                  />
+                  >
+                    <span>{c}</span>
+                  </div>
                 ))}
               </div>
-              <div className="pname">{p.name}</div>
+              <button type="button" className="pname" title="Open" onClick={() => open(p)}>
+                <span className="truncate">{p.name}</span>
+                {folder === null && p.folder && <span className="pfolder">{p.folder}</span>}
+              </button>
             </div>
           ))}
         </div>
         {shown.length === 0 && (
           <p className="text-sm" style={{ color: "var(--text-faint)" }}>
-            No palettes here. Right-click an image anywhere → Create palette.
+            {q ? "No palettes match the filter." : "No palettes here. Right-click an image anywhere → Create palette."}
           </p>
         )}
       </main>
@@ -163,11 +212,14 @@ export default function PalettesPage() {
           editing={editing}
           folders={folders}
           saving={saving}
+          extracting={extract.isPending}
+          onExtract={(n) => extract.mutateAsync({ fileId: editing.sourceFileId!, n })}
           onSave={async (e) => {
             const isEdit = !!e.orig && e.orig.name === e.name && e.orig.folder === e.folder;
             try {
-              await save.mutateAsync({ name: e.name, colors: e.colors, folder: e.folder, sourceFileId: e.sourceFileId, overwrite: isEdit });
+              const saved = await save.mutateAsync({ name: e.name, colors: e.colors, folder: e.folder, sourceFileId: e.sourceFileId, overwrite: isEdit });
               if (e.orig && !isEdit) await del.mutateAsync(e.orig);
+              if (saved !== e.name) notify({ message: `Name taken, saved as “${saved}”.` });
               setEditing(null);
             } catch { /* mutation feedback reports failures; keep the editor open */ }
           }}
@@ -192,6 +244,7 @@ export default function PalettesPage() {
       {moveOf && (
         <FolderPicker
           folders={folders}
+          current={moveOf.folder}
           onPick={(f) => move.mutate({ name: moveOf.name, fromFolder: moveOf.folder, toFolder: f })}
           onClose={() => setMoveOf(null)}
         />
@@ -228,11 +281,14 @@ export default function PalettesPage() {
       {renameFolderOf && (
         <PromptDialog
           title="Rename folder"
-          label="New name"
+          label="New name (use / for nesting)"
           initial={renameFolderOf}
           onSubmit={(to) => {
-            if (folder === renameFolderOf) setFolder(to);
-            renameFolder.mutate({ from: renameFolderOf, to });
+            const from = renameFolderOf;
+            // follow the selection only once the rename actually happened
+            renameFolder.mutate({ from, to }, {
+              onSuccess: () => setFolder((cur) => (cur !== null && under(cur, from) ? to + cur.slice(from.length) : cur)),
+            });
           }}
           onClose={() => setRenameFolderOf(null)}
         />
@@ -240,12 +296,14 @@ export default function PalettesPage() {
       {deleteFolderOf && (
         <ConfirmDialog
           title="Delete folder"
-          body={<>Delete folder <b>{deleteFolderOf}</b>? Its palettes move to unfiled.</>}
+          body={<>Delete folder <b>{deleteFolderOf}</b>? Its palettes (including subfolders) move to unfiled.</>}
           confirmLabel="Delete"
           danger
           onConfirm={() => {
-            if (folder === deleteFolderOf) setFolder("");
-            deleteFolder.mutate({ folder: deleteFolderOf });
+            const f = deleteFolderOf;
+            deleteFolder.mutate({ folder: f }, {
+              onSuccess: () => setFolder((cur) => (cur !== null && under(cur, f) ? "" : cur)),
+            });
           }}
           onClose={() => setDeleteFolderOf(null)}
         />
@@ -254,12 +312,12 @@ export default function PalettesPage() {
   );
 }
 
-function FolderPicker({ folders, onPick, onClose }: { folders: string[]; onPick: (f: string) => void; onClose: () => void }) {
+function FolderPicker({ folders, current, onPick, onClose }: { folders: string[]; current: string; onPick: (f: string) => void; onClose: () => void }) {
   const [custom, setCustom] = useState("");
   return (
     <Dialog title="Move to folder" onClose={onClose}>
       <div className="mb-2 flex flex-col gap-1">
-        {["" as string, ...folders].map((f) => (
+        {["" as string, ...folders].filter((f) => f !== current).map((f) => (
           <button key={f} className="btn" style={{ textAlign: "left" }} onClick={() => { onPick(f); onClose(); }}>
             {f === "" ? "(unfiled)" : f}
           </button>
@@ -283,21 +341,36 @@ function PaletteEditor({
   editing,
   folders,
   saving,
+  extracting,
+  onExtract,
   onSave,
   onClose,
 }: {
   editing: Editing;
   folders: string[];
   saving: boolean;
+  extracting: boolean;
+  onExtract: (n: number) => Promise<string[]>;
   onSave: (e: Editing) => Promise<void>;
   onClose: () => void;
 }) {
+  const notify = useActionFeedback();
   const [e, setE] = useState(editing);
   const [picking, setPicking] = useState<number | null>(null);
+  const [canvasReady, setCanvasReady] = useState(false);
   const [editHex, setEditHex] = useState<number | null>(null);
   const [hexDraft, setHexDraft] = useState("");
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+  const [extractN, setExtractN] = useState(editing.colors.length);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const dragColor = useRef<number | null>(null);
+
+  const hasEyeDropper = typeof window !== "undefined" && "EyeDropper" in window;
+  const canPick = hasEyeDropper || !!e.sourceFileId;
+  const hexInvalid = editHex !== null && normalizeHex(hexDraft) === null;
+  const dirty = e.name !== editing.name || e.folder !== editing.folder || e.colors.join() !== editing.colors.join();
+
+  const setColor = (i: number, hex: string) => setE((s) => ({ ...s, colors: s.colors.map((c, j) => (j === i ? hex : c)) }));
 
   const reorder = (from: number, to: number) => {
     setE((s) => ({ ...s, colors: reorderColor(s.colors, from, to) }));
@@ -305,42 +378,56 @@ function PaletteEditor({
     setPicking(null);
   };
 
-  // draw source image for eyedropper fallback (canvas overlays the thumb, so no swap/flicker)
+  // Escape / Cancel: back out of picking first, then confirm before dropping edits
+  const requestClose = () => {
+    if (picking !== null) { setPicking(null); return; }
+    if (saving) return;
+    if (dirty) setConfirmDiscard(true);
+    else onClose();
+  };
+
+  // draw source image for eyedropper fallback (canvas overlays the thumb, so no swap/flicker).
+  // Samples the same thumbnail that's displayed; clicks are ignored until it's drawn.
   useEffect(() => {
+    setCanvasReady(false);
     if (picking === null || !e.sourceFileId || !canvasRef.current) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
     if (!ctx) return;
+    let live = true;
     const img = new Image();
     img.onload = () => {
+      if (!live) return;
       canvas.width = Math.min(img.naturalWidth, 600);
       canvas.height = Math.round((canvas.width / img.naturalWidth) * img.naturalHeight);
       ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+      setCanvasReady(true);
     };
-    img.src = `/api/file/${e.sourceFileId}`;
+    img.src = `/api/thumb/${e.sourceFileId}`;
+    return () => { live = false; };
   }, [picking, e.sourceFileId]);
 
   const pickFromCanvas = (ev: React.MouseEvent<HTMLCanvasElement>) => {
     const canvas = canvasRef.current;
     const ctx = canvas?.getContext("2d", { willReadFrequently: true });
-    if (!canvas || !ctx || picking === null) return;
+    if (!canvas || !ctx || picking === null || !canvasReady) return;
     const rect = canvas.getBoundingClientRect();
     const x = Math.floor(((ev.clientX - rect.left) / rect.width) * canvas.width);
     const y = Math.floor(((ev.clientY - rect.top) / rect.height) * canvas.height);
     const [r, g, b] = ctx.getImageData(x, y, 1, 1).data;
-    const hex = `#${[r, g, b].map((v) => (v ?? 0).toString(16).padStart(2, "0")).join("")}`;
-    setE((s) => ({ ...s, colors: s.colors.map((c, i) => (i === picking ? hex : c)) }));
+    setColor(picking, `#${[r, g, b].map((v) => (v ?? 0).toString(16).padStart(2, "0")).join("")}`);
     setPicking(null);
   };
 
   const pickWithEyeDropper = async (i: number) => {
-    if ("EyeDropper" in window) {
+    if (hasEyeDropper) {
       try {
         const EyeDropperCtor = (
           window as unknown as { EyeDropper: new () => { open(): Promise<{ sRGBHex: string }> } }
         ).EyeDropper;
         const res = await new EyeDropperCtor().open();
-        setE((s) => ({ ...s, colors: s.colors.map((c, j) => (j === i ? res.sRGBHex : c)) }));
+        const hex = normalizeHex(res.sRGBHex);
+        if (hex) setColor(i, hex);
         return;
       } catch {
         return; // cancelled
@@ -349,19 +436,33 @@ function PaletteEditor({
     if (e.sourceFileId) setPicking(i);
   };
 
-  const commitHex = () => {
+  /** Enter commits only valid hex; blur commits valid hex and otherwise reverts. */
+  const commitHex = (revertInvalid: boolean) => {
     if (editHex === null) return;
-    const v = hexDraft.startsWith("#") ? hexDraft : `#${hexDraft}`;
-    if (/^#[0-9a-fA-F]{6}$/.test(v)) setE({ ...e, colors: e.colors.map((x, j) => (j === editHex ? v : x)) });
-    setEditHex(null);
+    const hex = normalizeHex(hexDraft);
+    if (hex) setColor(editHex, hex);
+    if (hex || revertInvalid) setEditHex(null);
   };
 
+  const reExtract = async () => {
+    try {
+      const colors = await onExtract(extractN);
+      setE((s) => ({ ...s, colors }));
+      setEditHex(null);
+      setPicking(null);
+    } catch { /* mutation feedback reports failures */ }
+  };
+
+  const copy = (hex: string) =>
+    void copyText(hex).then((ok) => notify(ok ? { message: `Copied ${hex}` } : { message: "Could not copy to the clipboard.", error: true }));
+
   return (
-    <Dialog title="Palette" onClose={onClose} wide={1620} dismissOnBackdrop={false}>
+    <>
+    <Dialog title="Palette" onClose={requestClose} wide={1620} dismissOnBackdrop={false}>
       <fieldset disabled={saving} inert={saving} className="contents">
       <div className="mb-3 flex gap-2">
-        <input className="input flex-1" value={e.name} onChange={(ev) => setE({ ...e, name: ev.target.value })} />
-        <select className="input" value={e.folder} onChange={(ev) => setE({ ...e, folder: ev.target.value })}>
+        <input className="input flex-1" aria-label="Palette name" value={e.name} onChange={(ev) => setE({ ...e, name: ev.target.value })} />
+        <select className="input" aria-label="Folder" value={e.folder} onChange={(ev) => setE({ ...e, folder: ev.target.value })}>
           <option value="">(unfiled)</option>
           {folders.map((f) => <option key={f} value={f}>{f}</option>)}
         </select>
@@ -422,14 +523,17 @@ function PaletteEditor({
               </button>
               {editHex === i ? (
                 <input
-                  className="w-20 bg-transparent font-mono text-[11px] outline-none"
-                  style={{ color: "inherit" }}
+                  className="w-20 rounded bg-transparent font-mono text-[11px] outline-none"
+                  style={{ color: "inherit", boxShadow: hexInvalid ? "0 0 0 2px var(--danger)" : undefined }}
+                  aria-label={`Hex for color ${i + 1}`}
+                  aria-invalid={hexInvalid}
+                  title={hexInvalid ? "Enter a hex color like #a1b2c3 or abc" : undefined}
                   value={hexDraft}
                   autoFocus
                   onChange={(ev) => setHexDraft(ev.target.value)}
-                  onBlur={commitHex}
+                  onBlur={() => commitHex(true)}
                   onKeyDown={(ev) => {
-                    if (ev.key === "Enter") commitHex();
+                    if (ev.key === "Enter") commitHex(false);
                     if (ev.key === "Escape") {
                       ev.stopPropagation(); // don't close the dialog
                       setEditHex(null);
@@ -440,10 +544,35 @@ function PaletteEditor({
                 <span className="font-mono text-[11px]">{c}</span>
               )}
               <span className="ml-auto flex gap-1">
-                <StripeBtn label="Copy hex" onClick={() => void navigator.clipboard.writeText(c)}><CopyIcon /></StripeBtn>
+                <StripeBtn label="Copy hex" onClick={() => copy(c)}><CopyIcon /></StripeBtn>
                 <StripeBtn label="Edit hex" onClick={() => { setHexDraft(c); setEditHex(i); }}><PencilIcon /></StripeBtn>
-                <StripeBtn label="Pick color" onClick={() => void pickWithEyeDropper(i)}><DropperIcon /></StripeBtn>
-                <StripeBtn label="Remove" disabled={e.colors.length <= 1} onClick={() => { setEditHex(null); setE({ ...e, colors: e.colors.filter((_, j) => j !== i) }); }}><XIcon /></StripeBtn>
+                {/* native picker: works in every browser and needs no source image */}
+                <label
+                  title="Choose color"
+                  className="relative grid h-8 w-8 shrink-0 cursor-pointer place-items-center rounded opacity-70 hover:opacity-100 [&>svg]:h-4 [&>svg]:w-4"
+                  style={{ background: "rgba(0,0,0,.25)" }}
+                >
+                  <input
+                    type="color"
+                    aria-label={`Choose color ${i + 1}`}
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                    value={c}
+                    onChange={(ev) => setColor(i, ev.target.value.toLowerCase())}
+                  />
+                  <SwatchIcon />
+                </label>
+                {canPick && (
+                  <StripeBtn label={e.sourceFileId && !hasEyeDropper ? "Pick from image" : "Eyedropper"} onClick={() => void pickWithEyeDropper(i)}><DropperIcon /></StripeBtn>
+                )}
+                <StripeBtn
+                  label="Remove"
+                  disabled={e.colors.length <= 1}
+                  onClick={() => {
+                    setEditHex(null);
+                    setPicking(null);
+                    setE({ ...e, colors: e.colors.filter((_, j) => j !== i) });
+                  }}
+                ><XIcon /></StripeBtn>
               </span>
             </div>
           ))}
@@ -455,27 +584,67 @@ function PaletteEditor({
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={`/api/thumb/${e.sourceFileId}`} className="h-full w-auto max-w-full rounded object-contain" alt="" />
             {picking !== null && (
-              <canvas ref={canvasRef} className="absolute inset-0 h-full w-full cursor-crosshair rounded" onClick={pickFromCanvas} />
+              <>
+                <canvas
+                  ref={canvasRef}
+                  className="absolute inset-0 h-full w-full rounded"
+                  style={{ cursor: canvasReady ? "crosshair" : "progress" }}
+                  onClick={pickFromCanvas}
+                />
+                <div
+                  className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-xs"
+                  style={{ background: "var(--panel)", color: "var(--text-dim)" }}
+                >
+                  {canvasReady ? `Click to pick color ${picking + 1} · Esc to cancel` : "Loading…"}
+                </div>
+              </>
             )}
           </div>
         )}
       </div>
       </fieldset>
 
-      <div className="flex flex-wrap gap-2">
+      <div className="flex flex-wrap items-center gap-2">
         <button
           className="btn"
-          disabled={saving || e.colors.length >= 10}
+          disabled={saving || e.colors.length >= MAX_PALETTE_COLORS}
           onClick={() => setE({ ...e, colors: [...e.colors, "#888888"] })}
         >
           + Add color
         </button>
+        {e.sourceFileId && (
+          <span className="flex items-center gap-1">
+            <select
+              className="input"
+              aria-label="Number of colors to extract"
+              value={extractN}
+              disabled={saving || extracting}
+              onChange={(ev) => setExtractN(Number(ev.target.value))}
+            >
+              {Array.from({ length: MAX_PALETTE_COLORS }, (_, k) => k + 1).map((n) => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <button className="btn" disabled={saving || extracting} onClick={() => void reExtract()}>
+              {extracting ? "Extracting…" : "Re-extract"}
+            </button>
+          </span>
+        )}
         <button className="btn" disabled={saving} onClick={() => exportPng(e.name, e.colors)}>Export PNG</button>
         <div className="flex-1" />
-        <button className="btn" aria-disabled={saving} onClick={onClose}>Cancel</button>
+        <button className="btn" aria-disabled={saving} onClick={requestClose}>Cancel</button>
         <button className="btn primary" disabled={saving || !e.name.trim()} onClick={() => void onSave(e)}>{saving ? "Saving…" : "Save"}</button>
       </div>
     </Dialog>
+    {confirmDiscard && (
+      <ConfirmDialog
+        title="Discard changes?"
+        body="This palette has unsaved changes."
+        confirmLabel="Discard"
+        danger
+        onConfirm={onClose}
+        onClose={() => setConfirmDiscard(false)}
+      />
+    )}
+    </>
   );
 }
 
@@ -531,6 +700,14 @@ function DropperIcon() {
     </svg>
   );
 }
+function SwatchIcon() {
+  return (
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 3a9 9 0 0 0 0 18Z" fill="currentColor" />
+    </svg>
+  );
+}
 function XIcon() {
   return (
     <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
@@ -539,30 +716,3 @@ function XIcon() {
   );
 }
 
-/** Striped rectangle PNG via canvas → download. Hex codes drawn on the stripes like the preview. */
-function exportPng(name: string, colors: string[]) {
-  const canvas = document.createElement("canvas");
-  canvas.width = 800;
-  canvas.height = 800;
-  const ctx = canvas.getContext("2d")!;
-  const h = 800 / colors.length;
-  colors.forEach((c, i) => {
-    ctx.fillStyle = c;
-    ctx.fillRect(0, i * h, 800, h);
-    ctx.fillStyle = contrast(c);
-    ctx.font = `${Math.max(12, Math.round(h * 0.35))}px monospace`;
-    ctx.textBaseline = "middle";
-    ctx.fillText(c, 12, i * h + h / 2);
-  });
-  const a = document.createElement("a");
-  a.href = canvas.toDataURL("image/png");
-  a.download = `${name}.png`;
-  a.click();
-}
-
-/** readable text color on a hex swatch */
-function contrast(hex: string): string {
-  const n = parseInt(hex.slice(1), 16);
-  const l = 0.2126 * (n >> 16) + 0.7152 * ((n >> 8) & 255) + 0.0722 * (n & 255);
-  return l > 140 ? "#000" : "#fff";
-}

@@ -25,7 +25,7 @@ vi.mock("react/jsx-dev-runtime", async (original) => {
   };
   return { ...runtime, jsxDEV: capture };
 });
-vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams() }));
+vi.mock("next/navigation", () => ({ useSearchParams: () => new URLSearchParams(), useRouter: () => ({ replace: vi.fn() }) }));
 vi.mock("refr/app/_components/side-panel", () => ({ SidePanel: () => null }));
 vi.mock("refr/app/_components/dialog", () => ({
   Dialog: ({ children }: { children: React.ReactNode }) => children,

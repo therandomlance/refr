@@ -1,17 +1,15 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as palettes from "refr/server/services/palettes";
+import { MAX_PALETTE_COLORS } from "refr/lib/palette-colors";
 
 export const palettesRouter = createTRPCRouter({
   list: protectedProcedure.query(() => palettes.list()),
 
   save: protectedProcedure
     .input(
-      z.object({
-        name: z.string().min(1),
-        colors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).min(1).max(10),
+      palettes.paletteSchema.extend({
         folder: z.string().default(""),
-        sourceFileId: z.string().optional(),
         overwrite: z.boolean().default(false),
       }),
     )
@@ -36,7 +34,7 @@ export const palettesRouter = createTRPCRouter({
     .mutation(({ input }) => palettes.remove(input.name, input.folder)),
 
   extract: protectedProcedure
-    .input(z.object({ fileId: z.string(), n: z.number().int().min(1).max(10).default(4) }))
+    .input(z.object({ fileId: z.string(), n: z.number().int().min(1).max(MAX_PALETTE_COLORS).default(4) }))
     .mutation(({ input }) => palettes.extract(input.fileId, input.n)),
 
   move: protectedProcedure

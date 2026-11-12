@@ -5,10 +5,11 @@ import { z } from "zod";
 import { paths } from "./dataDir";
 import { readJson, safeName, writeJson } from "./jsonStore";
 import { db } from "refr/server/db";
+import { MAX_PALETTE_COLORS } from "refr/lib/palette-colors";
 
 export const paletteSchema = z.object({
   name: z.string().min(1),
-  colors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).min(1).max(10),
+  colors: z.array(z.string().regex(/^#[0-9a-f]{6}$/i)).min(1).max(MAX_PALETTE_COLORS),
   sourceFileId: z.string().optional(),
 });
 
@@ -72,7 +73,14 @@ export function remove(name: string, folder: string) {
   fs.rmSync(fileFor(folder, name), { force: true });
 }
 
+/** normalized folder key ("a//b/" → "a/b") so same-folder checks compare like with like */
+function normFolder(folder: string) {
+  return folder.split("/").filter(Boolean).join("/");
+}
+
 export function move(name: string, fromFolder: string, toFolder: string) {
+  // same folder: uniqueName would see the palette's own file and rename it to "name (2)"
+  if (normFolder(fromFolder) === normFolder(toFolder)) return;
   const src = fileFor(fromFolder, name);
   const data = readJson(src, paletteSchema);
   if (!data) throw new Error(`palette '${name}' not found`);
@@ -86,6 +94,10 @@ export function createFolder(folder: string) {
 }
 
 export function renameFolder(from: string, to: string) {
+  const f = normFolder(from), t = normFolder(to);
+  if (f === t) return;
+  if (t.startsWith(f + "/")) throw new Error(`can't move folder '${from}' into itself`);
+  if (!fs.existsSync(folderPath(from))) throw new Error(`folder '${from}' not found`);
   const dst = folderPath(to);
   if (fs.existsSync(dst)) throw new Error(`folder '${to}' already exists`);
   fs.mkdirSync(path.dirname(dst), { recursive: true });
@@ -169,7 +181,7 @@ export async function extract(fileId: string, n: number): Promise<string[]> {
   for (let i = 0; i < data.length; i += info.channels) {
     pixels.push([data[i]!, data[i + 1]!, data[i + 2]!]);
   }
-  return medianCut(pixels, Math.max(1, Math.min(10, n)))
+  return medianCut(pixels, Math.max(1, Math.min(MAX_PALETTE_COLORS, n)))
     .sort((a, b) => luminance(b) - luminance(a))
     .map(([r, g, b]) => toHex(r, g, b));
 }

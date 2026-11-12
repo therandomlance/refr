@@ -662,3 +662,13 @@ select.input { cursor: pointer; }
   .tile .thumb-wait { animation: none; opacity: .5; }
   .tile img, .tile .ovl, .tile .check, .tile .deny, .tile .badge, .tile-menu { transition: none; }
 }
+
+/* palette cards: hover hex label, name button, folder drop target */
+.pcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.pcard .stripes > div { display: flex; align-items: center; padding-left: 10px; }
+.pcard .stripes > div span { font: 11px ui-monospace, monospace; opacity: 0; transition: opacity .1s; }
+.pcard .stripes > div:hover span { opacity: 1; }
+.pcard .pname { display: flex; width: 100%; gap: 6px; align-items: baseline; text-align: left; background: none; border: 0; cursor: pointer; }
+.pcard .pname:hover { color: var(--text); }
+.pcard .pfolder { margin-left: auto; flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text-faint); }
+.trow.drop { outline: 2px dashed var(--accent); outline-offset: -2px; }

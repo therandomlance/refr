@@ -10,6 +10,7 @@ import { formatDuration } from "./media-grid";
 import { usePersistentBoolean } from "refr/lib/persistent-state";
 import { useTagEdit } from "./tag-actions";
 import { useActionFeedback } from "./action-feedback";
+import { copyText } from "refr/lib/clipboard";
 
 /**
  * Fullscreen viewer (§10.2). Left panel: metadata + options. Right: tag manager
@@ -96,23 +97,9 @@ export function Viewer({
   }, [listIndex, prevId, nextId]);
 
   const copyPath = (path: string) => {
-    const done = (ok: boolean) => notify(ok ? { message: "Path copied." } : { message: "Could not copy to the clipboard.", error: true });
-    // navigator.clipboard only exists in secure contexts; a LAN instance on plain
-    // http needs the legacy execCommand route
-    if (navigator.clipboard) {
-      navigator.clipboard.writeText(path).then(() => done(true), () => done(false));
-      return;
-    }
-    const ta = document.createElement("textarea");
-    ta.value = path;
-    ta.style.position = "fixed";
-    ta.style.opacity = "0";
-    document.body.appendChild(ta);
-    ta.select();
-    let ok = false;
-    try { ok = document.execCommand("copy"); } catch { /* unsupported */ }
-    ta.remove();
-    done(ok);
+    void copyText(path).then((ok) =>
+      notify(ok ? { message: "Path copied." } : { message: "Could not copy to the clipboard.", error: true }),
+    );
   };
 
   const keyHandler = useCallback(
