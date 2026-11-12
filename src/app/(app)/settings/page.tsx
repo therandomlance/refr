@@ -467,7 +467,10 @@ function MlControls({ ml }: { ml: MlSettings }) {
   const setEnabled = api.ml.setEnabled.useMutation({ onSuccess: () => void utils.ml.status.invalidate() });
   const reembed = api.ml.reembedAll.useMutation();
   const status = api.ml.status.useQuery(undefined, {
-    refetchInterval: (q) => (q.state.data?.state === "bootstrapping" || q.state.data?.state === "starting" ? 2000 : false),
+    refetchInterval: (q) => {
+      const d = q.state.data;
+      return d?.state === "bootstrapping" || d?.state === "starting" || d?.tags?.warming ? 2000 : false;
+    },
   });
   const [reembedConfirm, setReembedConfirm] = useState(false);
   const st = status.data;
@@ -488,6 +491,18 @@ function MlControls({ ml }: { ml: MlSettings }) {
           {st.device && <div className="kv"><span>Device</span><b>{st.device}</b></div>}
           {st.model && <div className="kv"><span>Model</span><b>{st.model}</b></div>}
           <div className="kv"><span>Embedded</span><b>{st.embedded} / {st.total}</b></div>
+          {st.tags && (
+            <div className="kv"><span>Tag vectors</span><b>{st.tags.vectors} / {st.tags.total}{st.tags.warming ? " — building…" : ""}</b></div>
+          )}
+          {st.tags?.classifiers && (
+            <div className="kv">
+              <span>Classifiers</span>
+              <b>
+                {st.tags.classifiers.trained} trained, {st.tags.classifiers.tooSmall} too small
+                {" "}/ {st.tags.total}{st.tags.warming ? " — training…" : ""}
+              </b>
+            </div>
+          )}
           {(st.state === "bootstrapping" || st.state === "starting") && st.log.length > 0 && (
             <pre className="scroll-thin mt-2 max-h-32 overflow-y-auto text-[10px]" style={{ color: "var(--text-faint)" }}>
               {st.log.slice(-8).join("\n")}
@@ -511,7 +526,7 @@ function MlControls({ ml }: { ml: MlSettings }) {
             <input
               type="checkbox"
               checked={ml.tagClassifier}
-              onChange={(e) => patch.mutate({ ml: { tagClassifier: e.target.checked } })}
+              onChange={(e) => patch.mutate({ ml: { tagClassifier: e.target.checked } }, { onSuccess: () => void utils.ml.status.invalidate() })}
             />
             Per-tag classifiers (experimental)
             <span className="text-xs" style={{ color: "var(--text-faint)" }}>Refines each tag&apos;s vector from its tagged images and ✕ rejections; tags with under 10 images keep the standard vector. Turning it off is instant.</span>

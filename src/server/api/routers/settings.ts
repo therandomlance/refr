@@ -5,6 +5,7 @@ import * as config from "refr/server/services/config";
 import * as auth from "refr/server/services/auth";
 import { scanNow, scanStatus } from "refr/server/services/scanner";
 import { thumbStatus } from "refr/server/services/thumbs";
+import { enqueueTagVectors } from "refr/server/services/ml";
 
 export const settingsRouter = createTRPCRouter({
   get: protectedProcedure.query(() => {
@@ -43,6 +44,8 @@ export const settingsRouter = createTRPCRouter({
     )
     .mutation(({ input }) => {
       config.patch(input);
+      // a text-weight change makes tag vectors stale; enabling classifiers needs them trained
+      if (input.ml?.tagSuggestionTextWeight !== undefined || input.ml?.tagClassifier) void enqueueTagVectors();
       const { passwordHash, ...rest } = config.get();
       return { ...rest, hasPassword: passwordHash !== null };
     }),

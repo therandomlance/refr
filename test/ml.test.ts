@@ -249,8 +249,13 @@ describe("ml (stub sidecar)", () => {
       await ml.enqueueTagVectors();
       expect(trainRequests.some((r) => r.tag === "weighted" && r.denyIds.includes("img-cls"))).toBe(true);
       expect(trainRequests.every((r) => r.prior?.length === 768)).toBe(true); // anchored to the tag vector
+      const tags = (await ml.status()).tags!;
+      expect(tags.warming).toBe(false);
+      expect(tags.classifiers!.trained).toBeGreaterThanOrEqual(1); // "weighted"
+      expect(tags.classifiers!.trained + tags.classifiers!.tooSmall).toBe(tags.total);
 
       config.patch({ ml: { tagClassifier: false } });
+      expect((await ml.status()).tags!.classifiers).toBeUndefined();
       expect(Buffer.from(vecBytes((await ml.tagVectorByName("weighted"))!)).equals(centroid)).toBe(true);
       expect(await db.tagClassifier.count({ where: { tagId: tag!.id } })).toBe(1); // kept for next time
 

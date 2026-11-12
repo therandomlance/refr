@@ -32,6 +32,14 @@ export type MlStatus = {
   embeddingRunning: boolean;
   log: string[];
   error?: string;
+  /** Tag-vector / classifier cache coverage, for the settings panel. */
+  tags?: {
+    total: number;
+    vectors: number;
+    /** present when ml.tagClassifier is on */
+    classifiers?: { trained: number; tooSmall: number };
+    warming: boolean;
+  };
 };
 
 type MlRuntime = {
@@ -109,7 +117,26 @@ export async function status(): Promise<MlStatus> {
     embeddingRunning,
     log: runtime.bootLog.slice(-50),
     error: live === "error" ? runtime.lastError : undefined,
+    tags: await tagStats(),
   };
+}
+
+async function tagStats(): Promise<MlStatus["tags"]> {
+  const modelId = currentModelId();
+  const [total, vectors] = await Promise.all([
+    db.tag.count(),
+    db.tagVector.count({ where: { model: vectorParams(modelId).key } }),
+  ]);
+  let classifiers: { trained: number; tooSmall: number } | undefined;
+  if (classifierEnabled()) {
+    const where = { variant: classifierVariant(), model: modelId };
+    const [trained, tooSmall] = await Promise.all([
+      db.tagClassifier.count({ where: { ...where, weights: { not: null } } }),
+      db.tagClassifier.count({ where: { ...where, weights: null } }),
+    ]);
+    classifiers = { trained, tooSmall };
+  }
+  return { total, vectors, classifiers, warming: runtime.tagRefresh !== null };
 }
 
 async function pythonBin(): Promise<string> {
