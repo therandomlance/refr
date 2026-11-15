@@ -156,7 +156,8 @@ describe("scanner", () => {
     try {
       expect(other.scanNow()).toBe(run);
       expect(other.scanStatus().running).toBe(true);
-      expect(read).toHaveBeenCalledTimes(1);
+      // library roots are probed (async) before the path query
+      await expect.poll(() => read.mock.calls.length).toBe(1);
     } finally {
       release();
       await run;

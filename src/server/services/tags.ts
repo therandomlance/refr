@@ -100,6 +100,37 @@ export async function undoTags(changes: TagChange[]): Promise<void> {
   await invalidateTags(changes.flatMap((c) => [...c.before, ...c.after]));
 }
 
+const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => "\\" + c);
+
+/** ✕ suggestion denials are keyed by tag *name* (any tree node, Tag row or
+ *  not), so tag renames/merges must carry them along. `rewrite` maps an old
+ *  name to its new name, or null to drop it. */
+async function rewriteDenials(
+  tx: Prisma.TransactionClient,
+  names: { exact: string[]; prefix?: string },
+  rewrite: (name: string) => string | null,
+) {
+  const clauses = names.exact.map(() => "tagName = ?");
+  const params: string[] = [...names.exact];
+  if (names.prefix) {
+    clauses.push("tagName LIKE ? ESCAPE '\\'");
+    params.push(escapeLike(names.prefix) + "/%");
+  }
+  if (clauses.length === 0) return;
+  const where = clauses.join(" OR ");
+  const rows = await tx.$queryRawUnsafe<{ tagName: string; fileId: string }[]>(
+    `SELECT tagName, fileId FROM SuggestionDenial WHERE ${where}`, ...params,
+  );
+  await tx.$executeRawUnsafe(`DELETE FROM SuggestionDenial WHERE ${where}`, ...params);
+  for (const r of rows) {
+    const next = rewrite(r.tagName);
+    if (next === null) continue;
+    await tx.$executeRawUnsafe(
+      `INSERT OR IGNORE INTO SuggestionDenial (tagName, fileId) VALUES (?, ?)`, next, r.fileId,
+    );
+  }
+}
+
 /** Rename a tag and rewrite every descendant. Merges collisions. */
 export async function rename(oldName: string, newName: string) {
   const from = normalize(oldName);
@@ -129,6 +160,7 @@ export async function rename(oldName: string, newName: string) {
         await tx.tag.update({ where: { id: tag.id }, data: { name: target } });
       }
     }
+    await rewriteDenials(tx, { exact: [from], prefix: from }, (name) => to + name.slice(from.length));
   });
   invalidateTreeCache();
   await invalidateAllTagVectors();
@@ -138,9 +170,12 @@ export async function rename(oldName: string, newName: string) {
 export async function merge(sources: string[], target: string) {
   const to = normalize(target);
   if (!to) return;
+  const srcNames = [...new Set(sources.map(normalize).filter((s) => s && s !== to))];
   await db.$transaction(async (tx) => {
     const targetTag = await tx.tag.upsert({ where: { name: to }, create: { name: to }, update: {} });
-    for (const src of sources.map(normalize).filter((s) => s && s !== to)) {
+    // merge moves only the exact source tags' links, so only their denials
+    await rewriteDenials(tx, { exact: srcNames }, () => to);
+    for (const src of srcNames) {
       const tag = await tx.tag.findUnique({ where: { name: src } });
       if (!tag) continue;
       const links = await tx.fileTag.findMany({ where: { tagId: tag.id } });
@@ -161,7 +196,11 @@ export async function merge(sources: string[], target: string) {
 /** Delete a tag and all descendants. */
 export async function deleteTag(name: string) {
   const n = normalize(name);
-  await db.tag.deleteMany({ where: { OR: [{ name: n }, { name: { startsWith: n + "/" } }] } });
+  if (!n) return;
+  await db.$transaction(async (tx) => {
+    await tx.tag.deleteMany({ where: { OR: [{ name: n }, { name: { startsWith: n + "/" } }] } });
+    await rewriteDenials(tx, { exact: [n], prefix: n }, () => null);
+  });
   invalidateTreeCache();
   await invalidateAllTagVectors();
 }

@@ -29,7 +29,7 @@ const stub = http.createServer((req, res) => {
   req.on("end", () => {
     const parsed = JSON.parse(body || "{}") as { texts?: string[]; paths?: string[] };
     if (req.url === "/health") {
-      res.end(JSON.stringify({ status: "ready", device: "cpu", model: "test" }));
+      res.end(JSON.stringify({ status: "ready", device: "cpu", model: mlModel() }));
     } else if (req.url === "/embed/text") {
       textBatches++;
       const reply = () => res.end(JSON.stringify({ vectors: (parsed.texts ?? []).map((t) => vec(t.length % 97)) }));
@@ -92,6 +92,7 @@ describe("ml (stub sidecar)", () => {
       await expect.poll(() => !!releaseImages).toBe(true);
       expect((await ml.status()).embeddingRunning).toBe(true);
       await ml.enqueueEmbeddings(); // already running: must not start a second worker
+      expect(releaseImages).toBeDefined(); // …only queue a follow-up sweep
     } finally {
       holdImages = false;
       releaseImages?.();
@@ -99,8 +100,9 @@ describe("ml (stub sidecar)", () => {
       await run;
       fs.rmSync(thumb, { force: true });
     }
+    // the queued follow-up sweep finds nothing new and exits
+    await expect.poll(async () => (await ml.status()).embeddingRunning).toBe(false);
     const after = await ml.status();
-    expect(after.embeddingRunning).toBe(false);
     expect(after.embedded).toBe(before.embedded + 1);
     expect(after.embedded).toBeLessThan(after.total);
     expect(await db.fileEmbedding.findUnique({ where: { fileId: ids[1]! } })).toBeNull();

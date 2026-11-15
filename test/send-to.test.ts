@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { expect, it } from "vitest";
@@ -8,7 +9,7 @@ import { filesRouter } from "refr/server/api/routers/files";
 import { settingsRouter } from "refr/server/api/routers/settings";
 
 it("sends the whole selection, skips existing filenames, and keeps going after missing files", async () => {
-  const root = fs.mkdtempSync("/tmp/opencode/refr-send-to-");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "refr-send-to-"));
   const dest = path.join(root, "destination");
   const previous = config.get().sendToPaths;
   const ctx = { db, authed: true, headers: new Headers() };

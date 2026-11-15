@@ -16,7 +16,7 @@ it("serves cached bytes and returns 404 when the thumbnail is absent", async () 
   try {
     const response = await get();
     expect(await response.text()).toBe("cached-thumb");
-    expect(response.headers.get("cache-control")).toBe("public, max-age=31536000, immutable");
+    expect(response.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
     await fs.rm(thumbPath(id));
     expect((await get()).status).toBe(404);
   } finally { await fs.rm(thumbPath(id), { force: true }); }

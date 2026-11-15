@@ -17,8 +17,23 @@ export function readJson<S extends z.ZodTypeAny>(file: string, schema: S): z.inf
   try {
     const raw = fs.readFileSync(file, "utf8");
     return schema.parse(JSON.parse(raw)) as z.infer<S>;
-  } catch {
+  } catch (error) {
+    backupInvalid(file, error);
     return null;
+  }
+}
+
+/** Callers treat null as "empty" and the next write replaces the file, so
+ *  preserve an unparseable/invalid one first (once per file version). The
+ *  suffix doesn't end in .json, so listings ignore the copy. */
+function backupInvalid(file: string, error: unknown) {
+  try {
+    const backup = `${file}.invalid-${Math.trunc(fs.statSync(file).mtimeMs)}`;
+    if (fs.existsSync(backup)) return;
+    fs.copyFileSync(file, backup);
+    console.error(`[store] ${file} is invalid; kept a copy at ${backup}:`, error instanceof Error ? error.message : error);
+  } catch {
+    // best effort — file vanished or dir unwritable
   }
 }
 

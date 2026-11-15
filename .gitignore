@@ -25,3 +25,6 @@ data
 
 # python venv for the CLIP sidecar (auto-created on first enable)
 ml/.venv
+
+# python bytecode
+__pycache__/

@@ -1,5 +1,6 @@
 import "server-only";
 import crypto from "node:crypto";
+import { promisify } from "node:util";
 import * as config from "./config";
 import { getSecret } from "./dataDir";
 
@@ -13,11 +14,13 @@ export function isOpen(): boolean {
   return config.get().passwordHash === null;
 }
 
-export function setPassword(password: string) {
+const scrypt = promisify(crypto.scrypt) as (
+  password: string, salt: string, keylen: number, options: crypto.ScryptOptions,
+) => Promise<Buffer>;
+
+export async function setPassword(password: string) {
   const salt = crypto.randomBytes(16).toString("hex");
-  const hash = crypto
-    .scryptSync(password, salt, KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P })
-    .toString("hex");
+  const hash = (await scrypt(password, salt, KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P })).toString("hex");
   config.patch({ passwordHash: `scrypt:${SCRYPT_N}:${SCRYPT_R}:${SCRYPT_P}:${salt}:${hash}` });
 }
 
@@ -25,18 +28,42 @@ export function clearPassword() {
   config.patch({ passwordHash: null });
 }
 
-export function verifyPassword(password: string): boolean {
+/** Async scrypt so a burst of attempts can't stall the event loop. */
+export async function verifyPassword(password: string): Promise<boolean> {
   const stored = config.get().passwordHash;
   if (stored === null) return true;
   const [scheme, n, r, p, salt, hash] = stored.split(":");
   if (scheme !== "scrypt" || !n || !r || !p || !salt || !hash) return false;
-  const candidate = crypto.scryptSync(password, salt, KEYLEN, {
-    N: Number(n),
-    r: Number(r),
-    p: Number(p),
-  });
+  const candidate = await scrypt(password, salt, KEYLEN, { N: Number(n), r: Number(r), p: Number(p) });
   const expected = Buffer.from(hash, "hex");
   return candidate.length === expected.length && crypto.timingSafeEqual(candidate, expected);
+}
+
+const FAILURE_DELAY_MS = 1000;
+const MAX_QUEUED = 10;
+const globalForAuth = globalThis as typeof globalThis & {
+  refrLoginGate?: { tail: Promise<unknown>; queued: number };
+};
+const loginGate = globalForAuth.refrLoginGate ??= { tail: Promise.resolve(), queued: 0 };
+
+/** Login check: attempts run one at a time and a failure holds the gate for
+ *  FAILURE_DELAY_MS, capping guessing at ~1/s process-wide (no per-IP state:
+ *  forwarded-for headers are spoofable). Returns null when too many attempts
+ *  are already waiting (caller answers 429). */
+export function checkLogin(password: string): Promise<boolean> | null {
+  if (loginGate.queued >= MAX_QUEUED) return null;
+  loginGate.queued++;
+  const run = loginGate.tail.then(async () => {
+    try {
+      const ok = await verifyPassword(password);
+      if (!ok) await new Promise((resolve) => setTimeout(resolve, FAILURE_DELAY_MS));
+      return ok;
+    } finally {
+      loginGate.queued--;
+    }
+  });
+  loginGate.tail = run.catch(() => undefined);
+  return run;
 }
 
 function hmac(value: string): string {

@@ -48,7 +48,7 @@ type MlRuntime = {
   lastError?: string;
   child: ChildProcess | null;
   healthInfo: { device?: string; model?: string };
-  healthCache: { ready: boolean; t: number } | null;
+  healthCache: { ready: boolean; t: number; model: string } | null;
   restarts: number;
   stopping: boolean;
   starting: Promise<void> | null;
@@ -60,7 +60,7 @@ type MlRuntime = {
 };
 const globalForMl = globalThis as typeof globalThis & {
   refrMl?: MlRuntime;
-  refrEmbedJob?: { running: boolean };
+  refrEmbedJob?: { running: boolean; rerun?: boolean };
 };
 // Next's instrumentation and request graphs share the actual process owner.
 const runtime = globalForMl.refrMl ??= {
@@ -100,8 +100,9 @@ export async function status(): Promise<MlStatus> {
   }
   // Live health also covers a functional sidecar reused after a dev restart.
   const h = await health();
+  if (h) checkModel(h);
   const live: MlStatus["state"] = h
-    ? h.status === "ready"
+    ? h.status === "ready" && h.model === currentModelId()
       ? "ready"
       : "starting"
     : runtime.state === "disabled"
@@ -213,7 +214,8 @@ async function waitReady(timeoutMs = 600_000): Promise<boolean> {
     if (runtime.stopping || !config.get().ml.enabled || runtime.child?.exitCode !== null) return false;
     const h = await health();
     if (runtime.stopping || !config.get().ml.enabled) return false;
-    if (h?.status === "ready") {
+    // model check: a dying predecessor (other model) can still answer /health
+    if (h?.status === "ready" && h.model === currentModelId()) {
       runtime.healthInfo = { device: h.device, model: h.model };
       return true;
     }
@@ -243,12 +245,29 @@ async function isReady(): Promise<boolean> {
   // enqueueEmbeddings right after the sidecar comes up (waitReady polls
   // health() directly, bypassing this cache, so the cache can hold a stale
   // false from the loading phase).
-  if (runtime.healthCache?.ready && now - runtime.healthCache.t < HEALTH_TTL) return true;
+  const modelId = currentModelId();
+  if (runtime.healthCache?.ready && runtime.healthCache.model === modelId && now - runtime.healthCache.t < HEALTH_TTL) return true;
   const h = await health();
-  const ready = h?.status === "ready";
-  runtime.healthCache = { ready, t: now };
+  if (h) checkModel(h);
+  // A sidecar still serving another model is not ready: its vectors would be
+  // stored under the configured model's id.
+  const ready = h?.status === "ready" && h.model === modelId;
+  runtime.healthCache = { ready, t: now, model: modelId };
   if (ready && !runtime.stopping && config.get().ml.enabled) runtime.state = "ready";
   return ready;
+}
+
+/** config.yaml's ml.model/pretrained changed under a running sidecar → restart
+ *  it with the new model (the sidecar takes the model as a CLI arg). */
+function checkModel(h: { status: string; model?: string }) {
+  if (h.status !== "ready" || !h.model || h.model === currentModelId()) return;
+  if (runtime.starting || runtime.stopping || !config.get().ml.enabled) return;
+  log(`model changed (${h.model} → ${currentModelId()}); restarting sidecar…`);
+  const child = runtime.child;
+  runtime.child = null; // detach first so its exit isn't treated as a crash
+  runtime.healthCache = null;
+  child?.kill();
+  void start();
 }
 
 /** Quick POST to verify the sidecar is actually functional (not just /health). */
@@ -305,6 +324,10 @@ async function startSidecar() {
       // Stale sidecar responds to /health but POSTs fail (orphaned process from
       // a crashed/killed previous server). Evict it before spawning our own.
       log("evicting stale sidecar on port…");
+      await killPort(config.get().ml.port);
+    } else if (h?.model && h.model !== currentModelId()) {
+      // a sidecar for another model (orphan, or ours mid-shutdown) holds the port
+      log("evicting sidecar for a different model…");
       await killPort(config.get().ml.port);
     }
 
@@ -401,8 +424,15 @@ const embedJob = globalForMl.refrEmbedJob ??= { running: false };
 
 /** Background: embed files lacking a current-model embedding, batches of 8 thumbnails. */
 export async function enqueueEmbeddings() {
-  if (!config.get().ml.enabled || embedJob.running || thumbStatus().running) return;
+  if (!config.get().ml.enabled || thumbStatus().running) return;
+  if (embedJob.running) {
+    // the running pass's keyset cursor may already be past newly missing rows
+    // (e.g. after reembedAll) — sweep again once it finishes
+    embedJob.rerun = true;
+    return;
+  }
   embedJob.running = true;
+  embedJob.rerun = false;
   try {
     if (!(await isReady())) return;
     const modelId = currentModelId();
@@ -441,6 +471,10 @@ export async function enqueueEmbeddings() {
     }
   } finally {
     embedJob.running = false;
+    if (embedJob.rerun) {
+      embedJob.rerun = false;
+      void enqueueEmbeddings();
+    }
     void enqueueTagVectors();
   }
 }

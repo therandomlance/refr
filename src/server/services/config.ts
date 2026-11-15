@@ -152,7 +152,12 @@ export function watch() {
   if (watcher) return;
   initDataDir();
   if (!fs.existsSync(paths.config)) get(); // create it
-  watcher = fs.watch(paths.config, () => {
+  // Watch the directory, not the file: write() replaces config.yaml via
+  // rename, and a file watch follows the old inode (it goes silent after the
+  // first save).
+  const base = path.basename(paths.config);
+  watcher = fs.watch(path.dirname(paths.config), (_event, filename) => {
+    if (filename !== null && filename.toString() !== base) return;
     if (debounce) clearTimeout(debounce);
     debounce = setTimeout(() => {
       try {

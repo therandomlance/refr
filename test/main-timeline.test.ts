@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import crypto from "node:crypto";
 import { expect, it } from "vitest";
@@ -10,7 +11,7 @@ import { searchRouter } from "refr/server/api/routers/search";
 import { filesRouter } from "refr/server/api/routers/files";
 
 it("indexes excluded libraries without showing them in the main timeline", async () => {
-  const root = fs.mkdtempSync("/tmp/opencode/refr-timeline-");
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "refr-timeline-"));
   const visible = path.join(root, "visible_%");
   const hidden = path.join(root, "hidden");
   const previous = config.get().libraries;

@@ -61,17 +61,17 @@ export const settingsRouter = createTRPCRouter({
 
   setPassword: protectedProcedure
     .input(z.object({ current: z.string().optional(), next: z.string().min(1) }))
-    .mutation(({ input }) => {
-      if (!auth.isOpen() && !auth.verifyPassword(input.current ?? "")) {
+    .mutation(async ({ input }) => {
+      if (!auth.isOpen() && !(await auth.verifyPassword(input.current ?? ""))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "current password incorrect" });
       }
-      auth.setPassword(input.next);
+      await auth.setPassword(input.next);
     }),
 
   clearPassword: protectedProcedure
     .input(z.object({ current: z.string().optional() }))
-    .mutation(({ input }) => {
-      if (!auth.isOpen() && !auth.verifyPassword(input.current ?? "")) {
+    .mutation(async ({ input }) => {
+      if (!auth.isOpen() && !(await auth.verifyPassword(input.current ?? ""))) {
         throw new TRPCError({ code: "FORBIDDEN", message: "current password incorrect" });
       }
       auth.clearPassword();

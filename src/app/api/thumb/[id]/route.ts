@@ -20,7 +20,7 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   return new NextResponse(new Uint8Array(buf), {
     headers: {
       "content-type": "image/webp",
-      "cache-control": "public, max-age=31536000, immutable",
+      "cache-control": "private, max-age=31536000, immutable",
     },
   });
 }

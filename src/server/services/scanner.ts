@@ -131,7 +131,22 @@ async function runScan() {
   progress.phase = "scanning";
   const touchedFiles = new Set<string>();
   try {
-    const libraries = config.libraryRoots();
+    const allLibraries = config.libraryRoots();
+    // A missing/unreadable/empty root is far more likely an unmounted share
+    // than a deliberately emptied library — leave its paths alone this scan
+    // instead of orphaning every file (and exposing their tags to a purge).
+    // ponytail: a library emptied on purpose keeps stale paths until removed from settings.
+    const unavailable = new Set<string>();
+    for (const lib of allLibraries) {
+      const entries = await fsp.readdir(lib).catch(() => null);
+      if (!entries?.length) {
+        unavailable.add(lib);
+        console.warn(`[scan] library unavailable or empty, skipping: ${lib}`);
+      }
+    }
+    const libraries = allLibraries.filter((l) => !unavailable.has(l));
+    const inUnavailable = (p: string) =>
+      [...unavailable].some((l) => p === l || p.startsWith(l + path.sep));
 
     // Pass 1: reconcile known paths (all libraries at once, batched)
     const known = await db.filePath.findMany({ select: { id: true, path: true, size: true, mtime: true } });
@@ -139,9 +154,14 @@ async function runScan() {
     const knownPaths = new Set<string>();
     for (const k of known) {
       knownPaths.add(k.path);
-      const st = await fsp.stat(k.path).catch(() => null);
-      if (!st) {
-        await db.filePath.delete({ where: { id: k.id } });
+      if (inUnavailable(k.path)) continue;
+      let st: fs.Stats;
+      try {
+        st = await fsp.stat(k.path);
+      } catch (error) {
+        // only a definite "gone" unlinks the path; EACCES/EIO etc. may be transient
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "ENOENT" || code === "ENOTDIR") await db.filePath.delete({ where: { id: k.id } });
         continue;
       }
       if (BigInt(st.size) !== k.size || st.mtime.getTime() !== k.mtime.getTime()) {
