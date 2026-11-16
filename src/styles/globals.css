@@ -476,8 +476,13 @@ button, summary { touch-action: manipulation; }
   position: fixed; inset: 0; z-index: 50; display: flex;
   background: var(--viewer-bg); color: var(--text);
 }
-.viewer .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; }
-.viewer .stage img, .viewer .stage video { max-width: 100%; max-height: 100%; object-fit: contain; }
+.viewer .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden; }
+/* swipe track: current pane fills the stage, neighbours wait just off either edge */
+.vtrack { position: absolute; inset: 0; will-change: transform; touch-action: pan-y pinch-zoom; }
+.vpane { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.vpane.prev { transform: translateX(calc(-100% - 16px)); }
+.vpane.next { transform: translateX(calc(100% + 16px)); }
+.vpane img, .vpane video { max-width: 100%; max-height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
 .viewer .nav {
   position: absolute; top: 50%; transform: translateY(-50%); width: 44px; height: 64px;
   border: 0; border-radius: var(--radius); background: var(--hover); color: var(--text);
@@ -518,6 +523,33 @@ button, summary { touch-action: manipulation; }
 @media (hover: hover) {
   .viewer .nav:hover { opacity: 1; }
 }
+
+/* phone: thumbnail strip lives in a bottom sheet */
+.vsheet-toggle { bottom: calc(14px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); }
+.vsheet-bg {
+  position: absolute; inset: 0; z-index: 6; background: rgba(0,0,0,.5);
+  display: flex; align-items: flex-end; animation: vsheet-fade .18s ease;
+}
+.vsheet {
+  width: 100%; max-height: 65dvh; display: flex; flex-direction: column;
+  background: var(--panel); border-top: 1px solid var(--border); border-radius: 14px 14px 0 0;
+  padding: 8px 16px calc(16px + env(safe-area-inset-bottom)); animation: vsheet-up .24s cubic-bezier(.2,.75,.3,1);
+}
+.vsheet-head {
+  display: flex; align-items: center; justify-content: space-between; flex: none;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-dim);
+}
+.vsheet-head .vbtn { position: static; background: transparent; }
+.vsheet-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px;
+  overflow-y: auto; overscroll-behavior: contain; padding: 2px;
+}
+.vsheet-grid button { aspect-ratio: 1; padding: 0; border: 0; background: var(--hover); border-radius: 6px; overflow: hidden; cursor: pointer; }
+.vsheet-grid img { width: 100%; height: 100%; object-fit: cover; display: block; opacity: .7; }
+.vsheet-grid button.cur { outline: 2px solid var(--accent); outline-offset: -2px; }
+.vsheet-grid button.cur img { opacity: 1; }
+@keyframes vsheet-up { from { transform: translateY(100%); } }
+@keyframes vsheet-fade { from { opacity: 0; } }
 
 /* ponytail: on narrow screens the side panels overlay the stage instead of squeezing it */
 @media (max-width: 640px) {
@@ -683,6 +715,7 @@ select.input { cursor: pointer; }
 @media (prefers-reduced-motion: reduce) {
   .tile .thumb-wait { animation: none; opacity: .5; }
   .tile img, .tile .ovl, .tile .check, .tile .deny, .tile .badge, .tile-menu { transition: none; }
+  .vsheet, .vsheet-bg { animation: none; }
 }
 
 /* palette cards: hover hex label, name button, folder drop target */

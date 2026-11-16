@@ -8,6 +8,7 @@ const shapes = {
   info: <><circle cx="12" cy="12" r="9" /><path d="M12 11v6M12 7h.01" /></>,
   tag: <><path d="M3 3h8l10 10-8 8L3 11Z" /><circle cx="7.5" cy="7.5" r=".5" /></>,
   check: <path d="m5 12 4 4L19 6" />,
+  grid: <><rect x="4" y="4" width="6" height="6" rx="1" /><rect x="14" y="4" width="6" height="6" rx="1" /><rect x="4" y="14" width="6" height="6" rx="1" /><rect x="14" y="14" width="6" height="6" rx="1" /></>,
 };
 
 export function Icon({ name }: { name: keyof typeof shapes }) {

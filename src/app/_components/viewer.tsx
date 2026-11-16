@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "./icon";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "refr/trpc/react";
 import { useViewerList } from "./viewer-store";
 import { TagInput } from "./tag-input";
@@ -11,6 +11,23 @@ import { usePersistentBoolean } from "refr/lib/persistent-state";
 import { useTagEdit } from "./tag-actions";
 import { useActionFeedback } from "./action-feedback";
 import { copyText } from "refr/lib/clipboard";
+import type { FileSummary } from "refr/server/services/search";
+
+/** gap between adjacent panes in the swipe track, px */
+const PANE_GAP = 16;
+const SNAP_MS = 220;
+
+function useMediaQuery(query: string): boolean {
+  return useSyncExternalStore(
+    (cb) => {
+      const mq = window.matchMedia(query);
+      mq.addEventListener("change", cb);
+      return () => mq.removeEventListener("change", cb);
+    },
+    () => window.matchMedia(query).matches,
+    () => false,
+  );
+}
 
 /**
  * Fullscreen viewer (§10.2). Left panel: metadata + options. Right: tag manager
@@ -42,8 +59,22 @@ export function Viewer({
   const [carouselOpen, setCarouselOpen] = usePersistentBoolean("refr:viewer-carousel", () => true);
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
 
-  // ponytail: swipe to navigate on touch — horizontal delta >50px beats vertical
-  const touchStart = useRef<{ x: number; y: number } | null>(null);
+  // phone layout: the thumbnail strip lives in a bottom-sheet popup instead of over the image
+  const isPhone = useMediaQuery("(max-width: 640px)");
+  const reduceMotion = useMediaQuery("(prefers-reduced-motion: reduce)");
+  const [sheetOpen, setSheetOpen] = useState(false);
+  useEffect(() => { if (!isPhone) setSheetOpen(false); }, [isPhone]);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (sheetOpen) sheetRef.current?.querySelector<HTMLElement>('[aria-current="true"]')?.scrollIntoView({ block: "center" });
+  }, [sheetOpen]);
+
+  // Swipe track: prev / current / next panes slide with the finger. Transforms are
+  // written straight to the DOM during a drag so moves don't re-render React.
+  const trackRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{ x: number; y: number; axis: "x" | "y" | null; dx: number; lastX: number; lastT: number; v: number } | null>(null);
+  const pendingNav = useRef<number | null>(null);
+  const settling = useRef(false);
 
   // local id state lets us swap images without re-mounting the viewer
   const [localId, setLocalId] = useState(fileId);
@@ -69,6 +100,10 @@ export function Viewer({
 
   // index of current file in the surrounding list
   const listIndex = items.findIndex((i) => i.id === currentId);
+  // session mode may repeat a file, so trust the controlled index there
+  const baseIndex = onNavigate && controlledIndex !== undefined ? controlledIndex : listIndex;
+  const prevItem = baseIndex > 0 ? items[baseIndex - 1] : undefined;
+  const nextItem = baseIndex >= 0 ? items[baseIndex + 1] : undefined;
   const nav = (delta: number) => {
     if (onNavigate && controlledIndex !== undefined) {
       onNavigate(controlledIndex + delta);
@@ -105,6 +140,10 @@ export function Viewer({
   const keyHandler = useCallback(
     (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+      if (sheetOpen) {
+        if (e.key === "Escape") setSheetOpen(false);
+        return;
+      }
       if (e.key === "ArrowLeft") nav(-1);
       else if (e.key === "ArrowRight") nav(1);
       else if (e.key === "Escape") onClose();
@@ -117,7 +156,7 @@ export function Viewer({
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, listIndex, onClose, controlledIndex, onNavigate],
+    [items, listIndex, onClose, controlledIndex, onNavigate, sheetOpen],
   );
   useEffect(() => {
     window.addEventListener("keydown", keyHandler);
@@ -125,7 +164,100 @@ export function Viewer({
   }, [keyHandler]);
 
   const currentFile = file.data;
-  const isVideo = currentFile?.mediaType === "video";
+  // Fall back to the list's media type so a swiped-in image shows immediately instead of
+  // flashing "Loading…". Session lists claim "image" for everything; a video there just
+  // shows its thumbnail (PaneImage's error fallback) until the file query resolves.
+  const mediaType = currentFile?.mediaType ?? items[baseIndex]?.mediaType;
+  const isVideo = mediaType === "video";
+
+  const setTrack = (px: number, ms = 0) => {
+    const el = trackRef.current;
+    if (!el) return;
+    el.style.transition = ms ? `transform ${ms}ms cubic-bezier(.2,.75,.3,1)` : "none";
+    el.style.transform = px ? `translate3d(${px}px,0,0)` : "";
+  };
+  const finishSwipe = () => {
+    const dir = pendingNav.current;
+    if (dir == null) return;
+    pendingNav.current = null;
+    nav(dir); // the layout effect below re-centres the track once the new id renders
+    // safety net if navigation didn't actually change the item
+    window.setTimeout(() => {
+      if (!settling.current) return;
+      settling.current = false;
+      setTrack(0);
+    }, 300);
+  };
+  // after navigation commits, the pane that slid into the middle is now the "cur" pane
+  // at 0 — reset the track in the same frame so nothing visibly jumps
+  useLayoutEffect(() => {
+    if (!settling.current) return;
+    settling.current = false;
+    setTrack(0);
+  }, [currentId, controlledIndex]);
+
+  const onTouchStart = (e: React.TouchEvent) => {
+    const t = e.target as HTMLElement;
+    if (
+      pendingNav.current != null || e.touches.length > 1 ||
+      (window.visualViewport?.scale ?? 1) > 1.01 || // pinch-zoomed: let the browser pan
+      t.closest("button, input, a, .carousel")
+    ) {
+      drag.current = null;
+      return;
+    }
+    const p = e.touches[0]!;
+    drag.current = { x: p.clientX, y: p.clientY, axis: null, dx: 0, lastX: p.clientX, lastT: e.timeStamp, v: 0 };
+  };
+  const onTouchMove = (e: React.TouchEvent) => {
+    const d = drag.current;
+    if (!d) return;
+    if (e.touches.length > 1) {
+      drag.current = null;
+      setTrack(0, SNAP_MS);
+      return;
+    }
+    const p = e.touches[0]!;
+    const dx = p.clientX - d.x;
+    const dy = p.clientY - d.y;
+    if (!d.axis) {
+      if (Math.max(Math.abs(dx), Math.abs(dy)) < 8) return;
+      d.axis = Math.abs(dx) > Math.abs(dy) ? "x" : "y";
+    }
+    if (d.axis !== "x") return;
+    const dt = e.timeStamp - d.lastT;
+    if (dt > 0) d.v = 0.8 * ((p.clientX - d.lastX) / dt) + 0.2 * d.v;
+    d.lastX = p.clientX;
+    d.lastT = e.timeStamp;
+    // rubber-band past either end of the list
+    d.dx = (dx < 0 ? nextItem : prevItem) ? dx : dx * 0.25;
+    setTrack(d.dx);
+  };
+  const onTouchEnd = () => {
+    const d = drag.current;
+    drag.current = null;
+    if (d?.axis !== "x") return;
+    const width = trackRef.current?.clientWidth ?? window.innerWidth;
+    const dir = d.dx < 0 ? 1 : -1;
+    const target = dir > 0 ? nextItem : prevItem;
+    const flung = Math.abs(d.v) > 0.45 && Math.sign(d.v) === Math.sign(d.dx) && Math.abs(d.dx) > 24;
+    if (!target || !(Math.abs(d.dx) > width * 0.22 || flung)) {
+      setTrack(0, SNAP_MS);
+      return;
+    }
+    pendingNav.current = dir;
+    settling.current = true;
+    if (reduceMotion) {
+      finishSwipe();
+      return;
+    }
+    // finish the slide at the finger's speed (clamped) so a fast fling doesn't decelerate
+    const remaining = width + PANE_GAP - Math.abs(d.dx);
+    const ms = Math.round(Math.min(SNAP_MS, Math.max(120, remaining / Math.max(Math.abs(d.v), 0.1))));
+    setTrack(-dir * (width + PANE_GAP), ms);
+    // transitionend can be skipped (hidden tab, interrupted transition)
+    window.setTimeout(finishSwipe, ms + 80);
+  };
 
   const removeTag = (tag: string) => {
     if (settings.data?.skipTagRemoveConfirm) {
@@ -139,6 +271,11 @@ export function Viewer({
     Math.max(0, listIndex - 10),
     Math.min(items.length, listIndex + 11),
   );
+  // ponytail: the phone sheet shows a wider window around the current item, not the whole list
+  const sheetStart = Math.max(0, baseIndex - 60);
+  const sheetItems = sheetOpen ? items.slice(sheetStart, Math.min(items.length, baseIndex + 61)) : [];
+  const jumpTo = (id: string, index = items.findIndex((x) => x.id === id)) =>
+    onNavigate ? onNavigate(index) : setId(id);
 
   return (
     <div className="viewer">
@@ -180,17 +317,41 @@ export function Viewer({
           not in session mode (onNavigate) — a misclick shouldn't kill a timed session */}
       <div
         className="stage"
-        onClick={(e) => !onNavigate && e.target === e.currentTarget && onClose()}
-        onTouchStart={(e) => { touchStart.current = { x: e.touches[0]!.clientX, y: e.touches[0]!.clientY }; }}
-        onTouchEnd={(e) => {
-          if (!touchStart.current) return;
-          const t = e.changedTouches[0]!;
-          const dx = t.clientX - touchStart.current.x;
-          const dy = t.clientY - touchStart.current.y;
-          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(dy)) nav(dx < 0 ? 1 : -1);
-          touchStart.current = null;
-        }}
+        data-backdrop=""
+        onClick={(e) => !onNavigate && (e.target as HTMLElement).dataset.backdrop !== undefined && onClose()}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={() => { if (drag.current) { drag.current = null; setTrack(0, SNAP_MS); } }}
       >
+        <div
+          className="vtrack"
+          ref={trackRef}
+          data-backdrop=""
+          onTransitionEnd={(e) => { if (e.target === e.currentTarget) finishSwipe(); }}
+        >
+          {/* keyed by list position so the pane sliding in keeps its <img> element when it
+              becomes current — no reload/flash at the end of a swipe */}
+          {prevItem && (
+            <div key={baseIndex - 1} className="vpane prev" aria-hidden="true">
+              <PaneImage key={prevItem.id} id={prevItem.id} mediaType={prevItem.mediaType} />
+            </div>
+          )}
+          <div key={baseIndex} className="vpane cur" data-backdrop="">
+            {mediaType === "image" ? (
+              <PaneImage key={currentId} id={currentId} mediaType="image" />
+            ) : file.isLoading ? <p role="status" className="state-message">Loading image…</p> : file.isError ? (
+              <div role="alert" className="state-message">Could not load this file. <button className="btn" onClick={() => void file.refetch()}>Try again</button></div>
+            ) : isVideo ? (
+              <video key={currentId} src={`/api/file/${currentId}`} controls autoPlay />
+            ) : null}
+          </div>
+          {nextItem && (
+            <div key={baseIndex + 1} className="vpane next" aria-hidden="true">
+              <PaneImage key={nextItem.id} id={nextItem.id} mediaType={nextItem.mediaType} />
+            </div>
+          )}
+        </div>
         {overlayTop}
         {!onNavigate && listIndex >= 0 && items.length > 1 && (
           <div className="vpos" aria-live="polite">{listIndex + 1} / {items.length}{hasMore ? "+" : ""}</div>
@@ -199,23 +360,15 @@ export function Viewer({
         <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info" aria-label="Toggle file information" aria-expanded={leftOpen}><Icon name="info" /></button>
         <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags" aria-label="Toggle tags" aria-expanded={rightOpen}><Icon name="tag" /></button>
         <button className="nav prev" aria-label="Previous image" style={{ left: 18 }} onClick={() => nav(-1)}><Icon name="left" /></button>
-        {file.isLoading ? <p role="status" className="state-message">Loading image…</p> : file.isError ? (
-          <div role="alert" className="state-message">Could not load this file. <button className="btn" onClick={() => void file.refetch()}>Try again</button></div>
-        ) : isVideo ? (
-          <video key={currentId} src={`/api/file/${currentId}`} controls autoPlay />
-        ) : (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img key={currentId} src={`/api/file/${currentId}`} alt="" />
-        )}
         <button className="nav next" aria-label="Next image" style={{ right: 18 }} onClick={() => nav(1)}><Icon name="right" /></button>
-        {carouselOpen && items.length > 1 && (
+        {!isPhone && carouselOpen && items.length > 1 && (
           <div className="carousel" onClick={(e) => e.stopPropagation()}>
             {carouselItems.map((it) => (
               <button type="button"
                 key={it.id}
                 aria-label={`Open image ${items.indexOf(it) + 1}`}
                 aria-current={it.id === currentId ? "true" : undefined}
-                onClick={() => (onNavigate ? onNavigate(items.findIndex((x) => x.id === it.id)) : setId(it.id))}
+                onClick={() => jumpTo(it.id)}
               >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img
@@ -227,16 +380,62 @@ export function Viewer({
             ))}
           </div>
         )}
-        <button
-          className="vbtn"
-          style={{ bottom: carouselOpen ? 100 : 14, left: "50%", transform: "translateX(-50%)", width: 30, height: 20, borderRadius: 4, fontSize: 11 }}
-          onClick={() => setCarouselOpen(!carouselOpen)}
-          aria-label="Toggle image strip"
-          aria-expanded={carouselOpen}
-        >
-          <Icon name={carouselOpen ? "down" : "up"} />
-        </button>
+        {isPhone ? (
+          items.length > 1 && (
+            <button
+              className="vbtn vsheet-toggle"
+              onClick={() => setSheetOpen(true)}
+              aria-label="Show all images"
+              aria-haspopup="dialog"
+              aria-expanded={sheetOpen}
+            >
+              <Icon name="grid" />
+            </button>
+          )
+        ) : (
+          <button
+            className="vbtn"
+            style={{ bottom: carouselOpen ? 100 : 14, left: "50%", transform: "translateX(-50%)", width: 30, height: 20, borderRadius: 4, fontSize: 11 }}
+            onClick={() => setCarouselOpen(!carouselOpen)}
+            aria-label="Toggle image strip"
+            aria-expanded={carouselOpen}
+          >
+            <Icon name={carouselOpen ? "down" : "up"} />
+          </button>
+        )}
       </div>
+
+      {sheetOpen && (
+        <div className="vsheet-bg" onClick={() => setSheetOpen(false)}>
+          <div className="vsheet" role="dialog" aria-modal="true" aria-label="Images" onClick={(e) => e.stopPropagation()}>
+            <div className="vsheet-head">
+              <span>{baseIndex + 1} / {items.length}{hasMore ? "+" : ""}</span>
+              <button className="vbtn" aria-label="Close image list" onClick={() => setSheetOpen(false)}><Icon name="close" /></button>
+            </div>
+            <div className="vsheet-grid" ref={sheetRef}>
+              {sheetItems.map((it, j) => {
+                const i = sheetStart + j;
+                const cur = i === baseIndex;
+                return (
+                  <button type="button"
+                    key={`${i}`}
+                    aria-label={`Open image ${i + 1}`}
+                    aria-current={cur ? "true" : undefined}
+                    className={cur ? "cur" : ""}
+                    onClick={() => { jumpTo(it.id, i); setSheetOpen(false); }}
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={`/api/thumb/${it.id}`} alt="" loading="lazy" />
+                  </button>
+                );
+              })}
+            </div>
+            {hasMore && loadMore && (
+              <button className="btn mt-3 w-full" onClick={() => loadMore()}>Load more</button>
+            )}
+          </div>
+        </div>
+      )}
 
       {rightOpen && (
         <div className="vside" onClick={(e) => e.stopPropagation()}>
@@ -285,6 +484,26 @@ export function Viewer({
         />
       )}
     </div>
+  );
+}
+
+/** Image in a swipe-track pane: the original for images (neighbours are already
+ *  prefetched), the thumbnail for anything else or if the original can't render.
+ *  Used for the current AND neighbour panes so the element survives becoming current. */
+function PaneImage({ id, mediaType }: { id: string; mediaType: FileSummary["mediaType"] }) {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={mediaType === "image" ? `/api/file/${id}` : `/api/thumb/${id}`}
+      alt=""
+      draggable={false}
+      onError={(e) => {
+        const img = e.currentTarget;
+        if (img.dataset.fallback) return;
+        img.dataset.fallback = "1";
+        img.src = `/api/thumb/${id}`;
+      }}
+    />
   );
 }
 
