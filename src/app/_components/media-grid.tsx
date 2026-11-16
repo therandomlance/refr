@@ -808,7 +808,11 @@ export function MediaGrid({
     <div className="flex min-h-0 flex-1 flex-col">
       {toolbar && (
         <div className="gallery-toolbar">
-          {toolbarSearch ? <><div className="gallery-search">{toolbarSearch}</div>{selectionControls}{viewControls}</> : <>{viewControls}{selectionControls}</>}
+          {toolbarSearch && <div className="gallery-search">{toolbarSearch}</div>}
+          {/* ponytail: display:contents on desktop; one horizontally scrolling row on phones */}
+          <div className="gallery-controls">
+            {toolbarSearch ? <>{selectionControls}{viewControls}</> : <>{viewControls}{selectionControls}</>}
+          </div>
         </div>
       )}
       <div className="flex min-h-0 flex-1">

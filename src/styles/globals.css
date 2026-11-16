@@ -293,6 +293,8 @@ button, summary { touch-action: manipulation; }
 .gallery-toolbar .seg button { padding: 6px 10px; }
 .gallery-toolbar .taginput { min-height: 36px; }
 .gallery-toolbar-end > .btn { display: grid; place-items: center; }
+.gallery-controls { display: contents; }
+.gallery-toolbar label { white-space: nowrap; }
 .settings-layout { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 24px; max-width: 1000px; }
 .settings-nav { position: sticky; top: 0; align-self: start; display: flex; flex-direction: column; gap: 4px; }
 .settings-nav a { padding: 9px 12px; border-radius: var(--radius); font-size: 13px; color: var(--text-dim); }
@@ -308,6 +310,23 @@ button, summary { touch-action: manipulation; }
 .maintenance-panel > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
 @media (max-width: 640px) {
   .gallery-search { flex-basis: 100%; }
+  /* phone: compact header + one swipeable control row instead of 2–3 wrapped rows */
+  .page-header { padding: 8px 12px 4px; min-height: 44px; }
+  .page-header h1 { font-size: 16px; }
+  .page-header .page-tagline { display: none; }
+  .page-header h1:has(+ .page-breadcrumbs) { display: none; }
+  .page-breadcrumbs { font-size: 14px; }
+  .sidepanel-collapsed ~ main > .page-header:not(.page-header-inset) { padding-left: 52px; }
+  .sidepanel-collapsed ~ main > .page-header-inset { padding-left: 28px; }
+  .gallery-toolbar { padding: 6px 12px 8px; gap: 8px; }
+  .gallery-controls {
+    display: flex; flex: 1 1 100%; flex-wrap: nowrap; align-items: center; gap: 8px;
+    overflow-x: auto; scrollbar-width: none; margin: 0 -12px; padding: 0 12px;
+  }
+  .gallery-controls::-webkit-scrollbar { display: none; }
+  .gallery-controls > * { flex: none; flex-wrap: nowrap; }
+  .gallery-controls > .gallery-toolbar-end { order: 1; }
+  .gallery-toolbar .seg button { padding: 6px 9px; }
   .settings-layout { grid-template-columns: minmax(0, 1fr); gap: 16px; }
   .settings-nav { position: static; flex-direction: row; flex-wrap: wrap; }
   .settings-group { padding: 16px; }
@@ -600,9 +619,12 @@ select.input { cursor: pointer; }
     bottom: calc(60px + env(safe-area-inset-bottom));
     background: rgba(0,0,0,.5); z-index: 30;
   }
+  /* sits in the page header's left gutter (see .page-header padding-left above) */
   .sidepanel-collapsed {
-    position: fixed; top: 8px; left: 8px; z-index: 46; height: auto;
+    position: fixed; top: 6px; left: 8px; z-index: 46; width: 36px; height: 36px; padding: 0;
+    justify-content: center; border: 1px solid var(--border); border-radius: var(--radius);
   }
+  .sidepanel-collapsed .rail-btn { width: 100% !important; height: 100% !important; }
 }
 
 /* ---------- palette cards ---------- */

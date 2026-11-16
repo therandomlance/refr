@@ -136,7 +136,7 @@ export default function SearchPage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="page-header"><div><h1>Search</h1><p>Find references by tag, path, or similarity.</p></div></header>
+        <header className="page-header"><div><h1>Search</h1><p className="page-tagline">Find references by tag, path, or similarity.</p></div></header>
         <MediaGrid
           toolbarSearch={
         <div className="flex min-w-0 flex-wrap items-center gap-2">

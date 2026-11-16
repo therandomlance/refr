@@ -20,7 +20,7 @@ export default function SettingsPage() {
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
-      <header className="page-header page-header-inset"><div><h1>Settings</h1><p>Your workspace, libraries, and background services.</p></div></header>
+      <header className="page-header page-header-inset"><div><h1>Settings</h1><p className="page-tagline">Your workspace, libraries, and background services.</p></div></header>
       <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#maintenance">Maintenance</a>
