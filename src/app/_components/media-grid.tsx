@@ -566,17 +566,30 @@ export function MediaGrid({
   // Grid shortcuts: Ctrl/Cmd+A select all, Ctrl/Cmd+I invert, Space toggle / Enter open
   // the key-target tile, everything else → onFileKey. Skipped while the user is typing
   // or an overlay owns the keyboard.
-  // Key target: the hovered tile or the keyboard-focused tile, whichever was entered
-  // last. Both are read from the live DOM (:hover / :focus-visible) so a tile that
-  // scrolled away, unmounted, or only holds invisible mouse-click focus is never targeted.
+  // Key target: the hovered tile, or a tile the user Tabbed to, whichever was entered
+  // last. Hover is read from the live DOM (:hover) so a tile that scrolled away or
+  // unmounted is never targeted. Focus only counts when it arrived via Tab — not mouse-click
+  // focus, and not focus a closing menu/dialog restores (:focus-visible can't tell those
+  // apart: any keypress flips it on).
   const hoverAt = useRef(0);
   const focusAt = useRef(0);
+  const tabAt = useRef(0);
+  const tabFocused = useRef<string | null>(null);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Tab") tabAt.current = performance.now(); };
+    const onPointer = () => { tabFocused.current = null; };
+    window.addEventListener("keydown", onKey, true);
+    window.addEventListener("pointerdown", onPointer, true);
+    return () => {
+      window.removeEventListener("keydown", onKey, true);
+      window.removeEventListener("pointerdown", onPointer, true);
+    };
+  }, []);
   const resolveKeyTarget = (): string | null => {
     const hovered = document.querySelector<HTMLElement>("[data-file-id]:hover")?.dataset.fileId ?? null;
     const active = document.activeElement as HTMLElement | null;
-    const focused = active?.matches(":focus-visible")
-      ? active.closest<HTMLElement>("[data-file-id]")?.dataset.fileId ?? null
-      : null;
+    const activeTile = active?.closest<HTMLElement>("[data-file-id]")?.dataset.fileId ?? null;
+    const focused = activeTile && activeTile === tabFocused.current ? activeTile : null;
     if (hovered && focused) return hoverAt.current > focusAt.current ? hovered : focused;
     return hovered ?? focused;
   };
@@ -685,7 +698,12 @@ export function MediaGrid({
         onDragOver={(e) => onReorder && e.preventDefault()}
         onDrop={() => drop(f.id)}
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id, gridActions))}
-        onFocus={() => (focusAt.current = performance.now())}
+        onFocus={() => {
+          const now = performance.now();
+          // ponytail: "arrived via Tab" = a Tab keydown just before this focus event
+          tabFocused.current = now - tabAt.current < 100 ? f.id : null;
+          focusAt.current = now;
+        }}
         onPointerDown={(e) => {
           if (!(e.target as HTMLElement).closest(".tile-open")) return;
           suppressClick.current = false;
