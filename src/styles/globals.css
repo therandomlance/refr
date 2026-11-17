@@ -66,17 +66,17 @@
 }
 [data-theme="midnight"] {
   color-scheme: dark;
-  --surface-0: #0b0e14; --surface-1: #10141c; --surface-2: #161b25; --surface-3: #1d2330;
-  --surface-sunken: #080a0f;
-  --fg: #e8ecf4; --fg-muted: #9ca6ba; --fg-subtle: #8692aa;
-  --viewer-bg: #05070b;
+  --surface-0: #0d1424; --surface-1: #131c30; --surface-2: #1a253d; --surface-3: #212e4a;
+  --surface-sunken: #090f1c;
+  --fg: #e6ecf8; --fg-muted: #a3b1cc; --fg-subtle: #8b9bbb;
+  --viewer-bg: #070b15;
 }
 [data-theme="dusk"] {
   color-scheme: dark;
-  --surface-0: #121012; --surface-1: #191619; --surface-2: #211d21; --surface-3: #2a252a;
-  --surface-sunken: #0d0b0d;
-  --fg: #f1ebef; --fg-muted: #b3a7b0; --fg-subtle: #9c8f9a;
-  --viewer-bg: #080608;
+  --surface-0: #1a1219; --surface-1: #231822; --surface-2: #2d1f2c; --surface-3: #382736;
+  --surface-sunken: #140d13;
+  --fg: #f6eaf2; --fg-muted: #c7adbf; --fg-subtle: #b096a8;
+  --viewer-bg: #0f0a0f;
 }
 [data-theme="fog"] {
   color-scheme: light;

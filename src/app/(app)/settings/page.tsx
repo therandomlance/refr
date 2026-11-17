@@ -114,8 +114,8 @@ export default function SettingsPage() {
 
 const THEME_BLURB: Record<Theme, string> = {
   obsidian: "Neutral near-black",
-  midnight: "Cool blue-black",
-  dusk: "Warm plum-black",
+  midnight: "Deep navy",
+  dusk: "Rich plum",
   fog: "Soft neutral light",
   paper: "Warm paper light",
 };
