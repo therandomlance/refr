@@ -501,6 +501,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   background: linear-gradient(to bottom, rgba(0,0,0,.38), transparent 34%, transparent 66%, rgba(0,0,0,.45));
 }
 .tile.sel .ovl { opacity: 1; }
+.tile.sel img { transform: scale(.88); }
 .tile .check, .tile .deny {
   position: absolute; top: 8px; width: 22px; height: 22px; border-radius: 50%; z-index: 2;
   border: 1.5px solid rgba(255,255,255,.9); background: rgba(0,0,0,.3);
@@ -530,7 +531,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   .tile:hover .check { opacity: 1; }
   .tile:hover .badge { opacity: 1; }
   .tile:hover img { transform: scale(1.035); filter: brightness(1.06); }
-  .tile.sel:hover img { transform: none; }
+  .tile.sel:hover img { transform: scale(.88); filter: none; }
 }
 
 /* =====================================================================
@@ -836,6 +837,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   *, *::before, *::after { animation-duration: 1ms !important; animation-iteration-count: 1 !important; transition-duration: 1ms !important; }
   .tile .thumb-wait { animation: none; opacity: .5; }
   .tile:hover img { transform: none; }
+  .tile.sel img, .tile.sel:hover img { transform: scale(.88); }
 }
 
 /* ---------- browse: breadcrumbs + folder/tag cards ---------- */
