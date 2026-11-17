@@ -59,10 +59,10 @@
 /* ---------- base themes ---------- */
 :root, [data-theme="obsidian"] {
   color-scheme: dark;
-  --surface-0: #0e0e10; --surface-1: #151517; --surface-2: #1c1c1f; --surface-3: #232327;
-  --surface-sunken: #0a0a0b;
+  --surface-0: #050506; --surface-1: #0b0b0d; --surface-2: #121214; --surface-3: #1a1a1d;
+  --surface-sunken: #020203;
   --fg: #ededef; --fg-muted: #a1a1a8; --fg-subtle: #8e8e97;
-  --viewer-bg: #060607;
+  --viewer-bg: #000000;
 }
 [data-theme="midnight"] {
   color-scheme: dark;
