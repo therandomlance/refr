@@ -566,7 +566,20 @@ export function MediaGrid({
   // Grid shortcuts: Ctrl/Cmd+A select all, Ctrl/Cmd+I invert, Space toggle / Enter open
   // the key-target tile, everything else → onFileKey. Skipped while the user is typing
   // or an overlay owns the keyboard.
-  const keyTarget = useRef<string | null>(null);
+  // Key target: the hovered tile or the keyboard-focused tile, whichever was entered
+  // last. Both are read from the live DOM (:hover / :focus-visible) so a tile that
+  // scrolled away, unmounted, or only holds invisible mouse-click focus is never targeted.
+  const hoverAt = useRef(0);
+  const focusAt = useRef(0);
+  const resolveKeyTarget = (): string | null => {
+    const hovered = document.querySelector<HTMLElement>("[data-file-id]:hover")?.dataset.fileId ?? null;
+    const active = document.activeElement as HTMLElement | null;
+    const focused = active?.matches(":focus-visible")
+      ? active.closest<HTMLElement>("[data-file-id]")?.dataset.fileId ?? null
+      : null;
+    if (hovered && focused) return hoverAt.current > focusAt.current ? hovered : focused;
+    return hovered ?? focused;
+  };
   const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
   shortcutRef.current = (e) => {
     if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
@@ -579,12 +592,17 @@ export function MediaGrid({
       void invertSelection();
       return;
     }
-    const target = keyTarget.current;
-    if ((e.key === " " || e.key === "Enter") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
-      // a focused control outside the tiles (toolbar etc.) keeps its native Space/Enter
+    const target = resolveKeyTarget();
+    if (e.key === " " || e.key === "Enter") {
+      // Other focused controls (toolbar, tile checkbox, tile ⋮) keep their native
+      // Space/Enter. A focused .tile-open never gets native activation: that would
+      // "click" it, which opens or toggles depending on selection state.
       const active = document.activeElement as HTMLElement | null;
-      if (!target || (active?.closest("button, a, [role='button']") && !active.closest("[data-file-id]"))) return;
+      const onTileOpen = !!active?.classList.contains("tile-open");
+      if (!onTileOpen && active?.closest("button, a, input, select, [role='button']")) return;
+      if (!target && !onTileOpen) return; // nothing targeted: Space scrolls as usual
       e.preventDefault();
+      if (!target || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.key === "Enter") openViewer(target);
       else {
         anchor.current = indexOf.get(target) ?? -1;
@@ -667,7 +685,7 @@ export function MediaGrid({
         onDragOver={(e) => onReorder && e.preventDefault()}
         onDrop={() => drop(f.id)}
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id, gridActions))}
-        onFocus={() => (keyTarget.current = f.id)}
+        onFocus={() => (focusAt.current = performance.now())}
         onPointerDown={(e) => {
           if (!(e.target as HTMLElement).closest(".tile-open")) return;
           suppressClick.current = false;
@@ -726,11 +744,8 @@ export function MediaGrid({
             longPressTimer.current = null;
           }
         }}
-        onPointerLeave={(e) => {
-          if (e.pointerType !== "touch" && keyTarget.current === f.id) keyTarget.current = null;
-        }}
         onPointerEnter={(e) => {
-          if (e.pointerType !== "touch") keyTarget.current = f.id;
+          if (e.pointerType !== "touch") hoverAt.current = performance.now();
           // mouse/pen drag-select; touch scroll fires pointerenter too but dragFrom
           // stays -1 on touch (long-press branch), so this never fires for touch
           if (dragFrom.current >= 0 && (e.buttons & 1) === 1 && dragFrom.current !== index && e.pointerType !== "touch") {
@@ -745,6 +760,10 @@ export function MediaGrid({
           className="tile-open"
           aria-label={`Open ${f.mediaType} ${index + 1}`}
           onClick={(e) => onTileClick(e, f, index)}
+          // Space must never activate (= open) the tile; the grid handles Space itself.
+          // keyup too: Firefox fires the Space click on keyup.
+          onKeyDown={(e) => e.key === " " && e.preventDefault()}
+          onKeyUp={(e) => e.key === " " && e.preventDefault()}
         >
           <ThumbImg id={f.id} />
           <span className="ovl" />
