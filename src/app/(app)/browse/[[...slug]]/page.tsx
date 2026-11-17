@@ -95,7 +95,7 @@ export default function BrowsePage() {
   const folderChildren = useCallback(
     async (key: string): Promise<TreeNodeData[]> => {
       const client = await utils.browse.children.fetch({ path: key });
-      return client.map((c) => ({ name: c.name, key: c.path, hasChildren: c.hasChildren }));
+      return client.map((c) => ({ name: c.name, key: c.path, hasChildren: c.hasChildren, count: c.count }));
     },
     [utils],
   );
@@ -104,7 +104,7 @@ export default function BrowsePage() {
   const [childCards, setChildCards] = useState<TreeNodeData[]>([]);
   const rootCards: TreeNodeData[] = useMemo(() => {
     if (mode === "folders") {
-      return (folders.data ?? []).map((f) => ({ name: f.name, key: f.path, hasChildren: f.hasChildren }));
+      return (folders.data ?? []).map((f) => ({ name: f.name, key: f.path, hasChildren: f.hasChildren, count: f.count }));
     }
     return childSegments(tagNames, null).map((n) => ({ ...n, count: tagCounts.get(n.key) }));
   }, [mode, folders.data, tagNames, tagCounts]);

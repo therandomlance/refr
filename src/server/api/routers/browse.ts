@@ -6,8 +6,10 @@ import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
 import { tree as tagTreeService } from "refr/server/services/tags";
 import { EXTENSIONS } from "refr/server/services/scanner";
+import { folderFileCount, subfolderFileCounts } from "refr/server/services/fileQuery";
 
-export type FolderNode = { name: string; path: string; hasChildren: boolean };
+/** `count` = indexed files anywhere under the folder (recursive). */
+export type FolderNode = { name: string; path: string; hasChildren: boolean; count: number };
 
 async function childrenOf(dir: string): Promise<FolderNode[]> {
   let entries;
@@ -18,11 +20,12 @@ async function childrenOf(dir: string): Promise<FolderNode[]> {
   }
   const out: FolderNode[] = [];
   const dirs = entries.filter((e) => e.isDirectory());
+  const counts = await subfolderFileCounts(dir);
   for (let i = 0; i < dirs.length; i += 8) {
     out.push(
       ...await Promise.all(dirs.slice(i, i + 8).map(async (e) => {
         const full = path.join(dir, e.name);
-        return { name: e.name, path: full, hasChildren: await hasMediaOrSubdirs(full) };
+        return { name: e.name, path: full, hasChildren: await hasMediaOrSubdirs(full), count: counts.get(e.name) ?? 0 };
       })),
     );
   }
@@ -54,6 +57,7 @@ export const browseRouter = createTRPCRouter({
           name: lib.alias ?? (path.basename(root) || root),
           path: root,
           hasChildren: await hasMediaOrSubdirs(root),
+          count: await folderFileCount(root),
         });
       }
     }

@@ -224,3 +224,39 @@ export async function listByOrderedIds(ids: string[]): Promise<FileSummary[]> {
   }
   return ids.map((id) => byId.get(id)).filter((r): r is FileSummary => r !== undefined);
 }
+
+/** Half-open path range covering every descendant of `dir` — index-friendly,
+ *  unlike LIKE ("0" is the character after "/"). */
+function descendantRange(dir: string): [string, string] {
+  const base = dir.endsWith("/") ? dir.slice(0, -1) : dir;
+  return [base + "/", base + "0"];
+}
+
+/** Distinct files anywhere under `dir` (recursive, like tag counts). */
+export async function folderFileCount(dir: string): Promise<number> {
+  const [lo, hi] = descendantRange(dir);
+  const rows = await db.$queryRawUnsafe<{ c: bigint | number }[]>(
+    `SELECT COUNT(DISTINCT fileId) AS c FROM FilePath WHERE path >= ? AND path < ?`,
+    lo,
+    hi,
+  );
+  return Number(rows[0]?.c ?? 0);
+}
+
+/** Recursive distinct-file counts for each immediate subfolder of `dir`, keyed
+ *  by subfolder name — one range scan instead of a query per child. */
+export async function subfolderFileCounts(dir: string): Promise<Map<string, number>> {
+  const [lo, hi] = descendantRange(dir);
+  const start = lo.length + 1; // 1-based offset of the segment after "<dir>/"
+  const rows = await db.$queryRawUnsafe<{ seg: string; c: bigint | number }[]>(
+    `SELECT substr(path, ?, instr(substr(path, ?), '/') - 1) AS seg, COUNT(DISTINCT fileId) AS c
+     FROM FilePath WHERE path >= ? AND path < ? AND instr(substr(path, ?), '/') > 0
+     GROUP BY seg`,
+    start,
+    start,
+    lo,
+    hi,
+    start,
+  );
+  return new Map(rows.map((r) => [r.seg, Number(r.c)]));
+}
