@@ -386,6 +386,21 @@ function PaletteEditor({
     else onClose();
   };
 
+  // Escape while focus is outside the dialog (e.g. on the page body after a
+  // click on a stripe) — the Dialog's own handler only sees focused keys
+  const requestCloseRef = useRef(requestClose);
+  requestCloseRef.current = requestClose;
+  useEffect(() => {
+    if (confirmDiscard) return;
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key !== "Escape" || ev.defaultPrevented) return;
+      if (document.activeElement?.closest(".dialog")) return;
+      requestCloseRef.current();
+    };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [confirmDiscard]);
+
   // draw source image for eyedropper fallback (canvas overlays the thumb, so no swap/flicker).
   // Samples the same thumbnail that's displayed; clicks are ignored until it's drawn.
   useEffect(() => {
@@ -458,7 +473,7 @@ function PaletteEditor({
 
   return (
     <>
-    <Dialog title="Palette" onClose={requestClose} wide={1620} dismissOnBackdrop={false}>
+    <Dialog title="Palette" onClose={requestClose} wide={1620}>
       <fieldset disabled={saving} inert={saving} className="contents">
       <div className="mb-3 flex gap-2">
         <input className="input flex-1" aria-label="Palette name" value={e.name} onChange={(ev) => setE({ ...e, name: ev.target.value })} />

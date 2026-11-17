@@ -19,13 +19,23 @@ export function Dialog({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const titleId = useId();
+  // only a press that starts *and* ends on the backdrop dismisses — a text
+  // selection or drag that wanders outside the dialog must not close it
+  const pressedBg = useRef(false);
   useEffect(() => {
     const previous = document.activeElement as HTMLElement | null;
     ref.current?.querySelector<HTMLElement>("input, button, [tabindex='0']")?.focus();
     return () => { if (previous?.isConnected) previous.focus(); };
   }, []);
   return (
-    <div className="dialog-bg" onClick={dismissOnBackdrop ? onClose : undefined}>
+    <div
+      className="dialog-bg"
+      onMouseDown={(e) => { pressedBg.current = e.target === e.currentTarget; }}
+      onClick={(e) => {
+        if (dismissOnBackdrop && pressedBg.current && e.target === e.currentTarget) onClose();
+        pressedBg.current = false;
+      }}
+    >
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={titleId} className="dialog" style={wide ? { maxWidth: typeof wide === "number" ? wide : 1080, width: "calc(100vw - 32px)", maxHeight: "calc(100dvh - 32px)", overflowY: "auto" } : undefined} onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => {
           if (e.key === "Escape") { e.stopPropagation(); onClose(); }
