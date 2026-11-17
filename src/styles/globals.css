@@ -512,6 +512,17 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .tile .check { left: 8px; }
 .tile .deny { right: 8px; }
 .tile.sel .check { opacity: 1; background: var(--accent); border-color: var(--accent); color: var(--fg-on-accent); transform: scale(1.08); }
+/* queue drag-reorder: dim the source, insertion bar on the landing side */
+.tile.dragging { opacity: .35; }
+.tile.dragging img { transform: scale(.92); }
+.tile.drop-before::before, .tile.drop-after::before {
+  content: ""; position: absolute; top: 0; bottom: 0; width: 4px; z-index: 3; pointer-events: none;
+  background: var(--accent); box-shadow: 0 0 12px var(--accent);
+}
+.tile.drop-before::before { left: 0; }
+.tile.drop-after::before { right: 0; }
+.tile.drop-before img { transform: translateX(10px) scale(.94); }
+.tile.drop-after img { transform: translateX(-10px) scale(.94); }
 .tile .thumb-wait {
   width: 100%; height: 100%;
   background: linear-gradient(100deg, transparent 30%, var(--fill-strong) 50%, transparent 70%) var(--surface-2);

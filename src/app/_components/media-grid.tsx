@@ -19,6 +19,7 @@ import { Icon } from "./icon";
 import { useActionFeedback } from "./action-feedback";
 import { FILE_SHORTCUTS, isTypingTarget, overlayOpen } from "refr/lib/keyboard";
 import type { GridMenuActions } from "./file-menu";
+import { moveQueueItemTo } from "refr/lib/queue-order";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -191,8 +192,11 @@ export function MediaGrid({
   );
   const idsQ = api.files.list.useQuery(
     { ids: source.kind === "ids" ? source.ids : [] },
-    { enabled: source.kind === "ids" },
+    // a reorder changes the key; keep showing the old rows (re-sorted below)
+    // instead of flashing an empty grid until the refetch lands
+    { enabled: source.kind === "ids", placeholderData: (prev) => prev },
   );
+  const sourceIds = source.kind === "ids" ? source.ids : null;
 
   const filesData = filesQ.data;
   const searchData = searchQ.data;
@@ -230,10 +234,10 @@ export function MediaGrid({
   const items: FileSummary[] = useMemo(() => {
     return (
       timelineMode ? monthQueries.flatMap((q) => q.items ?? []) : source.kind === "ids"
-        ? (idsQ.data?.items ?? [])
+        ? inIdOrder(idsQ.data?.items ?? [], sourceIds ?? [])
         : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? [])
     );
-  }, [timelineMode, monthQueries, source.kind, idsQ.data, filesData, searchData]);
+  }, [timelineMode, monthQueries, source.kind, idsQ.data, sourceIds, filesData, searchData]);
   const visibleItems = useMemo(() => hiddenIds?.size ? items.filter((f) => !hiddenIds.has(f.id)) : items, [items, hiddenIds]);
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
@@ -673,17 +677,37 @@ export function MediaGrid({
   };
 
   // ---------------- dnd reorder (queue)
+  // The hovered tile shows an insertion bar on the half the pointer is over
+  // (left = before, right = after); the dragged tile dims in place.
   const dragId = useRef<string | null>(null);
-  const drop = (targetId: string) => {
-    const src = dragId.current;
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropAt, setDropAt] = useState<{ id: string; after: boolean } | null>(null);
+  const endDrag = () => {
     dragId.current = null;
-    if (!src || !onReorder || src === targetId) return;
+    setDraggingId(null);
+    setDropAt(null);
+  };
+  const dragOver = (e: React.DragEvent, targetId: string) => {
+    const src = dragId.current;
+    if (!onReorder || !src) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = "move";
+    const r = e.currentTarget.getBoundingClientRect();
+    const after = e.clientX > r.left + r.width / 2;
     const ids = items.map((i) => i.id);
-    const from = ids.indexOf(src);
-    const to = ids.indexOf(targetId);
-    if (from < 0 || to < 0) return;
-    ids.splice(to, 0, ...ids.splice(from, 1));
-    onReorder(ids);
+    // a drop that wouldn't move anything (on itself / its own neighbour edge) shows no bar
+    const next = moveQueueItemTo(ids, src, targetId, after) === ids ? null : { id: targetId, after };
+    setDropAt((cur) => (cur?.id === next?.id && cur?.after === next?.after ? cur : next));
+  };
+  const drop = (e: React.DragEvent, targetId: string) => {
+    const src = dragId.current;
+    const at = dropAt;
+    endDrag();
+    if (!src || !onReorder || at?.id !== targetId) return;
+    e.preventDefault();
+    const ids = items.map((i) => i.id);
+    const next = moveQueueItemTo(ids, src, targetId, at.after);
+    if (next !== ids) onReorder(next);
   };
 
   const renderTile = (f: FileSummary) => {
@@ -692,11 +716,23 @@ export function MediaGrid({
       <div
         key={f.id}
         data-file-id={f.id}
-        className={`tile ${f.mediaType === "video" ? "vid" : ""} ${selection.has(f.id) ? "sel" : ""}`}
+        className={`tile ${f.mediaType === "video" ? "vid" : ""} ${selection.has(f.id) ? "sel" : ""} ${draggingId === f.id ? "dragging" : ""} ${dropAt?.id === f.id ? (dropAt.after ? "drop-after" : "drop-before") : ""}`}
         draggable={!!onReorder}
-        onDragStart={() => (dragId.current = f.id)}
-        onDragOver={(e) => onReorder && e.preventDefault()}
-        onDrop={() => drop(f.id)}
+        onDragStart={(e) => {
+          if (!onReorder) return;
+          // a native drag ends any pending click-drag range selection
+          dragFrom.current = -1;
+          dragId.current = f.id;
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", f.id);
+          setDraggingId(f.id);
+        }}
+        onDragOver={(e) => dragOver(e, f.id)}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropAt((cur) => (cur?.id === f.id ? null : cur));
+        }}
+        onDrop={(e) => drop(e, f.id)}
+        onDragEnd={endDrag}
         onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id, gridActions))}
         onFocus={() => {
           const now = performance.now();
@@ -1121,4 +1157,10 @@ export function formatDuration(d: number | null): string {
   const m = Math.floor(d / 60);
   const s = Math.floor(d % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+/** `items` in the order of `ids` (ids without a loaded row are skipped). */
+function inIdOrder(items: FileSummary[], ids: string[]): FileSummary[] {
+  const byId = new Map(items.map((f) => [f.id, f]));
+  return ids.flatMap((id) => byId.get(id) ?? []);
 }

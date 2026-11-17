@@ -21,7 +21,17 @@ export default function QueuePage() {
   const utils = api.useUtils();
   const queue = api.queue.get.useQuery();
   const saved = api.queue.listSaved.useQuery();
-  const setQueue = api.queue.set.useMutation({ onSuccess: () => void utils.queue.get.invalidate() });
+  // optimistic: reorders show immediately instead of snapping back until the refetch
+  const setQueue = api.queue.set.useMutation({
+    onMutate: async ({ fileIds }) => {
+      await utils.queue.get.cancel();
+      const prev = utils.queue.get.getData();
+      utils.queue.get.setData(undefined, fileIds);
+      return { prev };
+    },
+    onError: (_e, _v, ctx) => utils.queue.get.setData(undefined, ctx?.prev),
+    onSettled: () => void utils.queue.get.invalidate(),
+  });
   const clear = api.queue.clear.useMutation({ onSuccess: () => void utils.queue.get.invalidate() });
   const save = api.queue.save.useMutation({ onSuccess: () => void utils.queue.listSaved.invalidate() });
   const load = api.queue.load.useMutation({ onSuccess: () => void utils.queue.get.invalidate() });
