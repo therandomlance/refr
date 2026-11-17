@@ -13,7 +13,8 @@ export type TreeNodeData = {
 
 /**
  * Lazy expandable tree (§10.2). Caller supplies loadChildren(key) → child nodes;
- * results are cached per key for the component's lifetime.
+ * results are cached per node until `loadChildren` changes identity, which
+ * reloads every already-loaded node (keep it memoized on its data).
  */
 export function Tree({
   roots,
@@ -91,6 +92,22 @@ function TreeNode({
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [shouldAutoExpand]);
+
+  // a new loader means the underlying data changed (e.g. a tag was created):
+  // refresh already-loaded children so new nodes and counts show up. Unloaded
+  // nodes stay lazy.
+  const loadedWith = useRef(loadChildren);
+  const hasLoaded = children !== null;
+  useEffect(() => {
+    if (loadedWith.current === loadChildren) return;
+    loadedWith.current = loadChildren;
+    if (!hasLoaded) return;
+    let cancelled = false;
+    void loadChildren(node.key).then((c) => {
+      if (!cancelled) setChildren(c);
+    });
+    return () => { cancelled = true; };
+  }, [loadChildren, hasLoaded, node.key]);
 
   const toggle = async () => {
     if (!open && children === null) {
