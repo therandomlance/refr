@@ -19,9 +19,17 @@ type Prompt =
 export function SavedSearches({
   nodes,
   onOpen,
+  onEdit,
+  editing,
+  onRenamed,
 }: {
   nodes: SavedNode[];
   onOpen: (s: SavedSearchNode) => void;
+  /** load the search into the bar so saving overwrites it */
+  onEdit?: (s: SavedSearchNode) => void;
+  /** name of the search currently being edited (highlighted) */
+  editing?: string | null;
+  onRenamed?: (oldName: string, newName: string) => void;
 }) {
   const utils = api.useUtils();
   const invalidate = () => void utils.searches.list.invalidate();
@@ -87,6 +95,7 @@ export function SavedSearches({
       : undefined;
 
   const searchMenu = (s: SavedSearchNode): MenuItem[] => [
+    ...(onEdit ? [{ label: "Edit search", onClick: () => onEdit(s) }] : []),
     { label: "Rename…", onClick: () => setPrompt({ kind: "renameSearch", name: s.name }) },
     { label: "Delete…", onClick: () => setConfirmDelete({ kind: "search", ref: s.name }), danger: true },
   ];
@@ -104,7 +113,7 @@ export function SavedSearches({
         return (
           <div
             key={key}
-            className="trow"
+            className={`trow ${editing === n.name ? "sel" : ""}`}
             draggable
             onDragStart={dragStart(key)}
             onDragEnd={resetDrag}
@@ -233,7 +242,10 @@ export function SavedSearches({
           title="Rename search"
           label="New name"
           initial={prompt.name}
-          onSubmit={(newName) => renameM.mutate({ oldName: prompt.name, newName })}
+          onSubmit={(newName) => {
+            const oldName = prompt.name;
+            renameM.mutate({ oldName, newName }, { onSuccess: () => onRenamed?.(oldName, newName) });
+          }}
           onClose={() => setPrompt(null)}
         />
       )}

@@ -13,6 +13,7 @@ import { commitToken, isVectorToken, parseQuery, serializeQuery, tokenSchema, ty
 import { KEYWORD_NAMES } from "refr/lib/keywords";
 import { useSuggestionActions } from "refr/app/_components/tag-actions";
 import { Icon } from "refr/app/_components/icon";
+import type { SavedNode } from "refr/lib/saved-searches";
 
 export default function SearchPage() {
   const router = useRouter();
@@ -23,6 +24,8 @@ export default function SearchPage() {
   const [sort, setSort] = useState<Sort>("date");
   const [selection, setSelection] = useState<Set<string>>(new Set());
   const [savePrompt, setSavePrompt] = useState(false);
+  // name of the saved search loaded via "Edit search" — Update overwrites it
+  const [editingSaved, setEditingSaved] = useState<string | null>(null);
   const [hideReviewed, setHideReviewed] = useState(false);
   const fileMenu = useFileContextMenu(selection, setSelection);
   // click-to-edit: the chip leaves the bar and its text goes back into the input;
@@ -33,6 +36,15 @@ export default function SearchPage() {
   const saved = api.searches.list.useQuery();
   const utils = api.useUtils();
   const saveM = api.searches.save.useMutation({ onSuccess: () => void utils.searches.list.invalidate() });
+
+  // a deleted (or externally renamed) search ends edit mode
+  useEffect(() => {
+    if (editingSaved && saved.data && !hasSearch(saved.data, editingSaved)) setEditingSaved(null);
+  }, [saved.data, editingSaved]);
+  const updateSaved = () => {
+    if (!editingSaved || tokens.length === 0) return;
+    saveM.mutate({ name: editingSaved, tokens, sort }, { onSuccess: () => setEditingSaved(null) });
+  };
 
   // suggest:<tag> chip → tiles get the same accept/deny actions as the browse
   // suggestion strips, scoped to that tag.
@@ -119,7 +131,7 @@ export default function SearchPage() {
         head={
           <>
             <h2 className="text-[13px] font-semibold">Saved searches</h2>
-            <button className="btn" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setSavePrompt(true)} disabled={tokens.length === 0}>
+            <button className="btn" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setSavePrompt(true)} disabled={tokens.length === 0} title={editingSaved ? "Save as a new search" : undefined}>
               Save
             </button>
           </>
@@ -129,14 +141,32 @@ export default function SearchPage() {
           nodes={saved.data ?? []}
           onOpen={(s) => {
             editAt.current = null;
+            setEditingSaved(null);
             setTokens(s.tokens);
             if (s.sort) setSort(s.sort);
           }}
+          onEdit={(s) => {
+            editAt.current = null;
+            setEditingSaved(s.name);
+            setTokens(s.tokens);
+            if (s.sort) setSort(s.sort);
+          }}
+          editing={editingSaved}
+          onRenamed={(oldName, newName) => setEditingSaved((cur) => (cur === oldName ? newName : cur))}
         />
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="page-header"><div><h1>Search</h1><p className="page-tagline">Find references by tag, path, or similarity.</p></div></header>
+        <header className="page-header">
+          <div><h1>Search</h1><p className="page-tagline">Find references by tag, path, or similarity.</p></div>
+          {editingSaved && (
+            <div role="status" className="flex items-center gap-2 text-xs text-fg-muted">
+              <span>Editing saved search <b className="text-fg">{editingSaved}</b></span>
+              <button className="btn primary" style={{ padding: "3px 10px", fontSize: 12 }} title={`Overwrite “${editingSaved}” with the current search`} onClick={updateSaved} disabled={tokens.length === 0 || saveM.isPending}>Update</button>
+              <button className="btn" style={{ padding: "3px 10px", fontSize: 12 }} onClick={() => setEditingSaved(null)}>Cancel</button>
+            </div>
+          )}
+        </header>
         <MediaGrid
           toolbarSearch={
         <div className="flex min-w-0 flex-wrap items-center gap-2">
@@ -242,6 +272,10 @@ export default function SearchPage() {
       )}
     </div>
   );
+}
+
+function hasSearch(nodes: SavedNode[], name: string): boolean {
+  return nodes.some((n) => (n.t === "search" ? n.name === name : hasSearch(n.children, name)));
 }
 
 function tokensFromUrl(params: URLSearchParams): Token[] {
