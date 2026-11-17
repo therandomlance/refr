@@ -191,6 +191,7 @@ export default function SearchPage() {
           selection={selection}
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
+          onFileKey={fileMenu.handleKey}
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
           hiddenIds={suggestTag && hideReviewed ? decisions.hiddenIds : undefined}
           toolbarActions={suggestTag ? (

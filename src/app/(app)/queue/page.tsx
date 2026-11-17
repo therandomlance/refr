@@ -87,6 +87,7 @@ export default function QueuePage() {
           selection={selection}
           onSelectionChange={setSelection}
           onContextMenu={fileMenu.open}
+          onFileKey={fileMenu.handleKey}
           onReorder={(next) => setQueue.mutate({ fileIds: next })}
             emptyState="Queue is empty. Open an image’s actions menu elsewhere to add it."
         />

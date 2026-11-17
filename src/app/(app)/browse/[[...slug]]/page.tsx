@@ -288,6 +288,7 @@ export default function BrowsePage() {
               selection={selection}
               onSelectionChange={setSelection}
               onContextMenu={fileMenu.open}
+              onFileKey={fileMenu.handleKey}
               header={
                 childCards.length > 0 ? (
                   <div className="folder-card-grid pb-3 pt-1">

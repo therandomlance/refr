@@ -4,10 +4,14 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
-import { TagPromptDialog } from "./dialog";
+import { Dialog, TagPromptDialog } from "./dialog";
 import { useTagEdit } from "./tag-actions";
 import { moveQueueItems } from "refr/lib/queue-order";
 import { useActionFeedback } from "./action-feedback";
+import { FILE_SHORTCUTS, matchFileShortcut } from "refr/lib/keyboard";
+
+/** Grid-owned actions the grid hands the menu when it opens (e.g. invert needs all IDs). */
+export type GridMenuActions = { invertSelection: () => void };
 
 /**
  * Shared context actions (§10.2) for grid tiles + viewer: queue, palette,
@@ -20,7 +24,8 @@ export function useFileContextMenu(
   // menu entries as a fallback. Desktop drag still works.
   reorder?: { allIds: string[]; onReorder: (next: string[]) => void },
 ) {
-  const [menu, setMenu] = useState<{ x: number; y: number; fileIds: string[] } | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; fileIds: string[]; grid?: GridMenuActions } | null>(null);
+  const [sendPicker, setSendPicker] = useState<{ fileIds: string[] } | null>(null);
   const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[]; fromSelection: boolean }>(null);
   // set when a tag is actually added from the prompt, so closing it can drop the selection
   const tagAdded = useRef(false);
@@ -50,11 +55,61 @@ export function useFileContextMenu(
   });
   const setTags = useTagEdit();
 
-  const open = (e: React.MouseEvent, fileId: string) => {
+  const open = (e: React.MouseEvent, fileId: string, grid?: GridMenuActions) => {
     // Actions on an unselected tile act on it alone; selected tiles act on the selection.
     const fileIds = selection.has(fileId) ? [...selection] : [fileId];
     if (!selection.has(fileId) && selection.size > 0) onSelectionChange?.(new Set([fileId]));
-    setMenu({ x: e.clientX, y: e.clientY, fileIds });
+    setMenu({ x: e.clientX, y: e.clientY, fileIds, grid });
+  };
+
+  const dests = settings.data?.sendToPaths ?? [];
+  const destLabel = (d: (typeof dests)[number]) => d.alias ?? d.path.split("/").filter(Boolean).pop() ?? d.path;
+  const isFromSelection = (fileIds: string[]) => fileIds.length > 0 && fileIds.every((id) => selection.has(id));
+
+  const toggleQueue = (fileIds: string[]) => {
+    const inQueue = queueQ.data ?? [];
+    const set = new Set(inQueue);
+    if (fileIds.every((id) => inQueue.includes(id))) fileIds.forEach((id) => set.delete(id));
+    else fileIds.forEach((id) => set.add(id));
+    setQueue.mutate({ fileIds: [...set] });
+  };
+  const openTagPrompt = (mode: "add" | "remove", fileIds: string[]) => {
+    tagAdded.current = false;
+    setPrompt({ mode, fileIds, fromSelection: isFromSelection(fileIds) });
+  };
+  const createPalette = (fileIds: string[]) => router.push(`/palettes?extract=${fileIds[0]}`);
+  const openSendPicker = (fileIds: string[]) => {
+    if (dests.length === 0) notify({ message: "No Send-to destinations configured.", error: true });
+    else setSendPicker({ fileIds });
+  };
+  const reorderMoves = reorder && (() => {
+    const all = reorder.allIds;
+    const move = (fileIds: string[], fn: (rest: string[], sel: string[]) => string[]) =>
+      reorder.onReorder(fn(all.filter((id) => !fileIds.includes(id)), all.filter((id) => fileIds.includes(id))));
+    return {
+      moveUp: (fileIds: string[]) => reorder.onReorder(moveQueueItems(all, new Set(fileIds), -1)),
+      moveDown: (fileIds: string[]) => reorder.onReorder(moveQueueItems(all, new Set(fileIds), 1)),
+      moveStart: (fileIds: string[]) => move(fileIds, (rest, sel) => [...sel, ...rest]),
+      moveEnd: (fileIds: string[]) => move(fileIds, (rest, sel) => [...rest, ...sel]),
+    };
+  })();
+
+  /** Grid keyboard shortcuts; returns true when the key was handled. Invert is grid-owned. */
+  const handleKey = (e: KeyboardEvent, fileIds: string[]): boolean => {
+    if (fileIds.length === 0) return false;
+    const action = matchFileShortcut(e);
+    switch (action) {
+      case "queue": toggleQueue(fileIds); return true;
+      case "addTag": openTagPrompt("add", fileIds); return true;
+      case "removeTag": openTagPrompt("remove", fileIds); return true;
+      case "palette": createPalette(fileIds); return true;
+      case "sendTo": openSendPicker(fileIds); return true;
+      case "moveUp": case "moveDown": case "moveStart": case "moveEnd":
+        if (!reorderMoves) return false;
+        reorderMoves[action](fileIds);
+        return true;
+      default: return false;
+    }
   };
 
   const element = (
@@ -64,8 +119,38 @@ export function useFileContextMenu(
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={buildItems(menu.fileIds)}
+          items={buildItems(menu.fileIds, menu.grid)}
         />
+      )}
+      {sendPicker && (
+        <Dialog title={`Send ${sendPicker.fileIds.length} file${sendPicker.fileIds.length === 1 ? "" : "s"} to`} onClose={() => setSendPicker(null)}>
+          <div
+            className="flex flex-col gap-2"
+            onKeyDown={(e) => {
+              if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+              e.preventDefault();
+              const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+              const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+              buttons[(i + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+            }}
+          >
+            {dests.map((d, i) => (
+              <button
+                key={i}
+                type="button"
+                className="btn flex-col items-start text-left"
+                style={{ height: "auto", padding: "8px 12px" }}
+                onClick={() => {
+                  sendTo.mutate({ fileIds: sendPicker.fileIds, destIndex: i });
+                  setSendPicker(null);
+                }}
+              >
+                <span>{destLabel(d)}</span>
+                <span className="text-xs text-fg-subtle">{d.path}</span>
+              </button>
+            ))}
+          </div>
+        </Dialog>
       )}
       {prompt && (
         <TagPromptDialog
@@ -92,25 +177,12 @@ export function useFileContextMenu(
     </>
   );
 
-  function buildItems(fileIds: string[]): MenuItem[] {
-    const fromSelection = fileIds.length > 0 && fileIds.every((id) => selection.has(id));
+  function buildItems(fileIds: string[], grid?: GridMenuActions): MenuItem[] {
     const inQueue = queueQ.data ?? [];
     const allQueued = fileIds.every((id) => inQueue.includes(id));
-    const queueLabel = allQueued ? "Remove from queue" : "Add to queue";
     const items: MenuItem[] = [
-      {
-        label: queueLabel,
-        onClick: () => {
-          const set = new Set(inQueue);
-          if (allQueued) fileIds.forEach((id) => set.delete(id));
-          else fileIds.forEach((id) => set.add(id));
-          setQueue.mutate({ fileIds: [...set] });
-        },
-      },
-      {
-        label: "Create palette",
-        onClick: () => router.push(`/palettes?extract=${fileIds[0]}`),
-      },
+      { label: allQueued ? "Remove from queue" : "Add to queue", hint: FILE_SHORTCUTS.queue.hint(), onClick: () => toggleQueue(fileIds) },
+      { label: "Create palette", hint: FILE_SHORTCUTS.palette.hint(), onClick: () => createPalette(fileIds) },
     ];
     if (mlStatus.data?.state === "ready") {
       items.push({
@@ -125,40 +197,35 @@ export function useFileContextMenu(
           ),
       });
     }
-    const dests = settings.data?.sendToPaths ?? [];
     if (dests.length > 0) {
       items.push({
         label: "Send to",
+        hint: FILE_SHORTCUTS.sendTo.hint(),
         submenu: dests.map((d, i) => ({
-          label: d.alias ?? d.path.split("/").filter(Boolean).pop() ?? d.path,
+          label: destLabel(d),
           onClick: () => sendTo.mutate({ fileIds, destIndex: i }),
         })),
       });
     }
     items.push(
       "sep",
-      {
-        label: "Tag actions",
-        submenu: [
-          { label: "Add tag…", onClick: () => { tagAdded.current = false; setPrompt({ mode: "add", fileIds, fromSelection }); } },
-          { label: "Remove tag…", onClick: () => { tagAdded.current = false; setPrompt({ mode: "remove", fileIds, fromSelection }); } },
-        ],
-      },
+      { label: "Add tag…", hint: FILE_SHORTCUTS.addTag.hint(), onClick: () => openTagPrompt("add", fileIds) },
+      { label: "Remove tag…", hint: FILE_SHORTCUTS.removeTag.hint(), onClick: () => openTagPrompt("remove", fileIds) },
     );
-    if (reorder) {
-      const all = reorder.allIds;
-      const move = (fn: (rest: string[], sel: string[]) => string[]) =>
-        reorder.onReorder(fn(all.filter((id) => !fileIds.includes(id)), all.filter((id) => fileIds.includes(id))));
+    if (grid) {
+      items.push("sep", { label: "Invert selection", hint: FILE_SHORTCUTS.invert.hint(), onClick: grid.invertSelection });
+    }
+    if (reorderMoves) {
       items.push(
         "sep",
-        { label: "Move up", onClick: () => reorder.onReorder(moveQueueItems(all, new Set(fileIds), -1)) },
-        { label: "Move down", onClick: () => reorder.onReorder(moveQueueItems(all, new Set(fileIds), 1)) },
-        { label: "Move to start", onClick: () => move((rest, sel) => [...sel, ...rest]) },
-        { label: "Move to end", onClick: () => move((rest, sel) => [...rest, ...sel]) },
+        { label: "Move up", hint: FILE_SHORTCUTS.moveUp.hint(), onClick: () => reorderMoves.moveUp(fileIds) },
+        { label: "Move down", hint: FILE_SHORTCUTS.moveDown.hint(), onClick: () => reorderMoves.moveDown(fileIds) },
+        { label: "Move to start", hint: FILE_SHORTCUTS.moveStart.hint(), onClick: () => reorderMoves.moveStart(fileIds) },
+        { label: "Move to end", hint: FILE_SHORTCUTS.moveEnd.hint(), onClick: () => reorderMoves.moveEnd(fileIds) },
       );
     }
     return items;
   }
 
-  return { open, element };
+  return { open, element, handleKey };
 }

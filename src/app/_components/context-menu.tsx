@@ -3,8 +3,8 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export type MenuItem =
-  | { label: string; onClick: () => void; danger?: boolean }
-  | { label: string; submenu: { label: string; onClick: () => void }[] }
+  | { label: string; onClick: () => void; danger?: boolean; hint?: string }
+  | { label: string; submenu: { label: string; onClick: () => void }[]; hint?: string }
   | "sep";
 
 export function ContextMenu({
@@ -78,7 +78,11 @@ export function ContextMenu({
           const flipLeft = pos.x > window.innerWidth / 2;
           return (
             <div key={i} className="relative" onMouseEnter={() => setSub(i)} onMouseLeave={() => setSub(null)}>
-              <button aria-expanded={sub === i} onClick={(e) => { e.stopPropagation(); setSub(sub === i ? null : i); }}>{item.label} ▸</button>
+              <button aria-expanded={sub === i} onClick={(e) => { e.stopPropagation(); setSub(sub === i ? null : i); }}>
+                <span>{item.label}</span>
+                {item.hint && <kbd className="ctx-hint">{item.hint}</kbd>}
+                <span className={item.hint ? undefined : "ml-auto"}>▸</span>
+              </button>
               {sub === i && (
                 <div
                   className="ctxmenu"
@@ -99,7 +103,8 @@ export function ContextMenu({
             onMouseEnter={() => setSub(null)}
             onClick={() => { item.onClick(); onClose(); }}
           >
-            {item.label}
+            <span>{item.label}</span>
+            {item.hint && <kbd className="ctx-hint">{item.hint}</kbd>}
           </button>
         );
       })}

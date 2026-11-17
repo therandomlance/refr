@@ -17,7 +17,8 @@ import { TimelineScrubber } from "./timeline-scrubber";
 import { staticSuggestionOptions, useTagEdit } from "./tag-actions";
 import { Icon } from "./icon";
 import { useActionFeedback } from "./action-feedback";
-import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
+import { FILE_SHORTCUTS, isTypingTarget, overlayOpen } from "refr/lib/keyboard";
+import type { GridMenuActions } from "./file-menu";
 
 export type GridSource =
   | { kind: "files"; pathPrefix?: string; tag?: string }
@@ -33,6 +34,7 @@ export function MediaGrid({
   selection,
   onSelectionChange,
   onContextMenu,
+  onFileKey,
   onReorder,
   toolbar = true,
   toolbarActions,
@@ -47,7 +49,9 @@ export function MediaGrid({
   source: GridSource;
   selection: Set<string>;
   onSelectionChange: (s: Set<string>) => void;
-  onContextMenu?: (e: React.MouseEvent, fileId: string) => void;
+  onContextMenu?: (e: React.MouseEvent, fileId: string, grid?: GridMenuActions) => void;
+  /** Tile-action shortcut hook (selection, else the hovered/focused tile); returns true if handled. */
+  onFileKey?: (e: KeyboardEvent, fileIds: string[]) => boolean;
   onReorder?: (ids: string[]) => void;
   toolbar?: boolean;
   toolbarActions?: React.ReactNode;
@@ -389,31 +393,30 @@ export function MediaGrid({
     setSelectingAll(false);
     return () => selectAllAbort.current?.abort();
   }, [filterKey, selection]);
-  const selectAll = async () => {
-    if (source.kind !== "files") {
-      onSelectionChange(new Set(visibleItems.map((f) => f.id)));
-      return;
-    }
-    if (selectAllAbort.current && !selectAllAbort.current.signal.aborted) return;
+  // All IDs for the current source (excluding hidden), or null if aborted/failed.
+  const fetchAllIds = async (): Promise<Set<string> | null> => {
+    if (source.kind !== "files") return new Set(visibleItems.map((f) => f.id));
+    if (selectAllAbort.current && !selectAllAbort.current.signal.aborted) return null;
     const controller = new AbortController();
     selectAllAbort.current = controller;
     setSelectingAll(true);
     try {
       // ponytail: keep explicit IDs for existing bulk actions; use filter-based
       // selections if the complete ID set becomes too large for the browser.
-      const selected = new Set<string>();
+      const all = new Set<string>();
       let cursor: string | null = null;
       do {
         const page = await utils.client.files.ids.query({
           pathPrefix: source.pathPrefix, tag: source.tag, recursive: includeKids, cursor,
         }, { signal: controller.signal });
-        if (controller.signal.aborted) return;
-        for (const id of page.ids) if (!hiddenIds?.has(id)) selected.add(id);
+        if (controller.signal.aborted) return null;
+        for (const id of page.ids) if (!hiddenIds?.has(id)) all.add(id);
         cursor = page.nextCursor;
       } while (cursor);
-      onSelectionChange(selected);
+      return all;
     } catch (error) {
-      if (!controller.signal.aborted) notify({ message: error instanceof Error ? error.message : "Could not select all images. Please try again.", error: true });
+      if (!controller.signal.aborted) notify({ message: error instanceof Error ? error.message : "Could not load all images. Please try again.", error: true });
+      return null;
     } finally {
       if (selectAllAbort.current === controller) {
         selectAllAbort.current = null;
@@ -421,6 +424,18 @@ export function MediaGrid({
       }
     }
   };
+  const selectAll = async () => {
+    const all = await fetchAllIds();
+    if (all) onSelectionChange(all);
+  };
+  const invertSelection = async () => {
+    const current = selection;
+    const all = await fetchAllIds();
+    if (!all) return;
+    for (const id of current) all.delete(id);
+    onSelectionChange(all);
+  };
+  const gridActions: GridMenuActions = { invertSelection: () => void invertSelection() };
   const anchor = useRef<number>(-1);
   const toggle = useCallback(
     (id: string) => {
@@ -548,16 +563,43 @@ export function MediaGrid({
     return () => window.removeEventListener("keydown", onKey);
   }, [selection.size, viewerId, selMenu, tagPrompt, onSelectionChange]);
 
-  // Ctrl/Cmd+A selects everything (same as the toolbar's Select all), unless the
-  // user is typing or an overlay owns the keyboard.
-  const selectAllRef = useRef<() => void>(() => undefined);
-  selectAllRef.current = () => void selectAll();
+  // Grid shortcuts: Ctrl/Cmd+A select all, Ctrl/Cmd+I invert, Space toggle / Enter open
+  // the key-target tile, everything else → onFileKey. Skipped while the user is typing
+  // or an overlay owns the keyboard.
+  const keyTarget = useRef<string | null>(null);
+  const shortcutRef = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  shortcutRef.current = (e) => {
+    if (e.key.toLowerCase() === "a" && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+      e.preventDefault();
+      void selectAll();
+      return;
+    }
+    if (FILE_SHORTCUTS.invert.match(e)) {
+      e.preventDefault();
+      void invertSelection();
+      return;
+    }
+    const target = keyTarget.current;
+    if ((e.key === " " || e.key === "Enter") && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+      // a focused control outside the tiles (toolbar etc.) keeps its native Space/Enter
+      const active = document.activeElement as HTMLElement | null;
+      if (!target || (active?.closest("button, a, [role='button']") && !active.closest("[data-file-id]"))) return;
+      e.preventDefault();
+      if (e.key === "Enter") openViewer(target);
+      else {
+        anchor.current = indexOf.get(target) ?? -1;
+        toggle(target);
+      }
+      return;
+    }
+    if (!onFileKey) return;
+    const ids = selection.size > 0 ? [...selection] : target ? [target] : [];
+    if (onFileKey(e, ids)) e.preventDefault();
+  };
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key.toLowerCase() !== "a" || !(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey) return;
       if (isTypingTarget(e.target) || viewerId || selMenu || tagPrompt || overlayOpen()) return;
-      e.preventDefault();
-      selectAllRef.current();
+      shortcutRef.current(e);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -624,7 +666,8 @@ export function MediaGrid({
         onDragStart={() => (dragId.current = f.id)}
         onDragOver={(e) => onReorder && e.preventDefault()}
         onDrop={() => drop(f.id)}
-        onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id))}
+        onContextMenu={(e) => onContextMenu && (e.preventDefault(), onContextMenu(e, f.id, gridActions))}
+        onFocus={() => (keyTarget.current = f.id)}
         onPointerDown={(e) => {
           if (!(e.target as HTMLElement).closest(".tile-open")) return;
           suppressClick.current = false;
@@ -683,7 +726,11 @@ export function MediaGrid({
             longPressTimer.current = null;
           }
         }}
+        onPointerLeave={(e) => {
+          if (e.pointerType !== "touch" && keyTarget.current === f.id) keyTarget.current = null;
+        }}
         onPointerEnter={(e) => {
+          if (e.pointerType !== "touch") keyTarget.current = f.id;
           // mouse/pen drag-select; touch scroll fires pointerenter too but dragFrom
           // stays -1 on touch (long-press branch), so this never fires for touch
           if (dragFrom.current >= 0 && (e.buttons & 1) === 1 && dragFrom.current !== index && e.pointerType !== "touch") {
@@ -727,7 +774,7 @@ export function MediaGrid({
             onClick={(e) => {
               e.stopPropagation();
               const r = e.currentTarget.getBoundingClientRect();
-              onContextMenu({ ...e, clientX: r.left, clientY: r.bottom }, f.id);
+              onContextMenu({ ...e, clientX: r.left, clientY: r.bottom }, f.id, gridActions);
             }}
           ><Icon name="more" /></button>
         )}
@@ -789,7 +836,7 @@ export function MediaGrid({
             const first = selection.values().next().value;
             // the page's file menu acts on the whole selection when given a selected
             // id, so this gets queue/send-to/palette/similar too, not just tagging
-            if (onContextMenu && first) onContextMenu({ ...e, clientX: rect.left, clientY: rect.bottom + 8 }, first);
+            if (onContextMenu && first) onContextMenu({ ...e, clientX: rect.left, clientY: rect.bottom + 8 }, first, gridActions);
             else setSelMenu({ x: rect.left, y: rect.bottom + 8 });
           }}>
             <Icon name="more" />
@@ -922,8 +969,10 @@ export function MediaGrid({
           y={selMenu.y}
           onClose={() => setSelMenu(null)}
           items={[
-            { label: "Add tag…", onClick: () => { tagAdded.current = false; setTagPrompt("add"); } },
-            { label: "Remove tag…", onClick: () => { tagAdded.current = false; setTagPrompt("remove"); } },
+            { label: "Add tag…", hint: FILE_SHORTCUTS.addTag.hint(), onClick: () => { tagAdded.current = false; setTagPrompt("add"); } },
+            { label: "Remove tag…", hint: FILE_SHORTCUTS.removeTag.hint(), onClick: () => { tagAdded.current = false; setTagPrompt("remove"); } },
+            "sep",
+            { label: "Invert selection", hint: FILE_SHORTCUTS.invert.hint(), onClick: gridActions.invertSelection },
           ]}
         />
       )}
