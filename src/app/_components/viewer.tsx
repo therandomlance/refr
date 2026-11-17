@@ -309,7 +309,7 @@ export function Viewer({
             </button>
           ))}
           <h3>ID</h3>
-          <div className="text-xs break-all" style={{ color: "var(--text-faint)" }}>{currentFile.id}</div>
+          <div className="text-xs break-all text-fg-subtle">{currentFile.id}</div>
         </div>
       )}
 
@@ -461,8 +461,7 @@ export function Viewer({
               {(suggestedQ.data ?? []).map((s) => (
                 <button type="button"
                   key={s.tag}
-                  className="chip"
-                  style={{ cursor: "pointer", border: "1px dashed var(--border)" }}
+                  className="chip cursor-pointer border border-dashed border-line-strong"
                   onClick={() => setTags.mutate({ fileIds: [currentId], add: [s.tag], remove: [] })}
                   disabled={setTags.isPending}
                 >

@@ -83,7 +83,7 @@ export function SavedSearches({
   };
   const insideStyle = (path: string) =>
     dragging && dropAt?.parent === path && dropAt.beforeKey === null
-      ? { background: "var(--active)", outline: "1px solid var(--accent)" }
+      ? { background: "var(--accent-soft)", outline: "1px solid var(--accent)" }
       : undefined;
 
   const searchMenu = (s: SavedSearchNode): MenuItem[] => [
@@ -166,8 +166,7 @@ export function SavedSearches({
                 ? renderNodes(n.children, path)
                 : (
                   <div
-                    className="trow"
-                    style={{ color: "var(--text-faint)", fontSize: 12 }}
+                    className="trow text-fg-subtle text-xs"
                     onDragOver={(e) => {
                       e.preventDefault();
                       if (dragging) setDropAt({ parent: path, beforeKey: null });
@@ -205,7 +204,7 @@ export function SavedSearches({
       {renderNodes(nodes, null)}
       <button type="button" className="btn mt-2" onClick={() => setPrompt({ kind: "newFolder", parent: null })}>+ New folder</button>
       {nodes.length === 0 && (
-        <p className="px-2 text-xs" style={{ color: "var(--text-faint)" }}>
+        <p className="px-2 text-xs text-fg-subtle">
           No saved searches yet. Save a search or create a folder.
         </p>
       )}

@@ -65,7 +65,7 @@ export default function SessionEditPage() {
     } catch { /* mutation feedback reports the error */ }
   };
 
-  if (template.isLoading) return <p className="p-6 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>;
+  if (template.isLoading) return <p className="p-6 text-sm text-fg-subtle">Loading…</p>;
   if (!template.data) return <p className="p-6 text-sm">Template not found.</p>;
 
   return (
@@ -86,15 +86,14 @@ export default function SessionEditPage() {
       </header>
 
       <div className="flex flex-col gap-2" style={{ maxWidth: 760 }}>
-        <p id="duration-help" className="text-xs" style={{ color: "var(--text-dim)" }}>Time: mm:ss or seconds; leave blank for an untimed block.</p>
-        <div className="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] gap-2 px-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-dim)" }}>
+        <p id="duration-help" className="text-xs text-fg-muted">Time: mm:ss or seconds; leave blank for an untimed block.</p>
+        <div className="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] gap-2 px-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
           <span>Tag</span><span>Images</span><span>Time (mm:ss)</span><span>Auto-scroll</span><span />
         </div>
         {blocks.map((b, i) => (
           <div
             key={i}
-            className="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] items-center gap-2 rounded-lg p-2"
-            style={{ background: "var(--panel)", border: "1px solid var(--border)" }}
+            className="grid grid-cols-2 sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] items-center gap-2 rounded-lg p-2 card"
             draggable
             onDragStart={() => (dragRow.current = i)}
             onDragOver={(e) => e.preventDefault()}
@@ -137,7 +136,7 @@ export default function SessionEditPage() {
               onChange={(e) => update(i, { time: e.target.value })}
             />
             </label>
-            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }}>
+            <label className="flex items-center gap-2 text-xs text-fg-muted">
               <input
                 type="checkbox"
                 disabled={!parseDuration(b.time)}
@@ -149,7 +148,7 @@ export default function SessionEditPage() {
             <button className="btn" aria-label={`Remove block ${i + 1}`} style={{ padding: "4px 8px" }} onClick={() => { setBlocks((bs) => bs.filter((_, j) => j !== i)); setDirty(true); }}>
               <Icon name="close" />
             </button>
-            <div className="col-span-2 sm:col-span-5 -mt-1 pl-1 text-xs" style={{ color: "var(--text-dim)" }}>{b.tag}</div>
+            <div className="col-span-2 sm:col-span-5 -mt-1 pl-1 text-xs text-fg-muted">{b.tag}</div>
           </div>
         ))}
         <button

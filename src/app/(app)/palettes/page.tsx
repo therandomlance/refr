@@ -201,7 +201,7 @@ export default function PalettesPage() {
           ))}
         </div>
         {shown.length === 0 && (
-          <p className="text-sm" style={{ color: "var(--text-faint)" }}>
+          <p className="text-sm text-fg-subtle">
             {q ? "No palettes match the filter." : "No palettes here. Right-click an image anywhere → Create palette."}
           </p>
         )}
@@ -523,8 +523,7 @@ function PaletteEditor({
               </button>
               {editHex === i ? (
                 <input
-                  className="w-20 rounded bg-transparent font-mono text-[11px] outline-none"
-                  style={{ color: "inherit", boxShadow: hexInvalid ? "0 0 0 2px var(--danger)" : undefined }}
+                  className={`w-20 rounded bg-transparent font-mono text-[11px] text-inherit outline-none ${hexInvalid ? "ring-2 ring-danger" : ""}`}
                   aria-label={`Hex for color ${i + 1}`}
                   aria-invalid={hexInvalid}
                   title={hexInvalid ? "Enter a hex color like #a1b2c3 or abc" : undefined}
@@ -592,8 +591,7 @@ function PaletteEditor({
                   onClick={pickFromCanvas}
                 />
                 <div
-                  className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-xs"
-                  style={{ background: "var(--panel)", color: "var(--text-dim)" }}
+                  className="pointer-events-none absolute left-2 top-2 rounded px-2 py-1 text-xs bg-surface-1 text-fg-muted"
                 >
                   {canvasReady ? `Click to pick color ${picking + 1} · Esc to cancel` : "Loading…"}
                 </div>

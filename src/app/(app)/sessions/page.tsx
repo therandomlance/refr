@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Icon } from "refr/app/_components/icon";
 import Link from "next/link";
 import { api } from "refr/trpc/react";
 import { SessionRunner } from "refr/app/_components/session-runner";
@@ -59,9 +60,11 @@ export default function SessionsPage() {
           />
         ))}
         {templates.data?.length === 0 && (
-          <p className="text-sm" style={{ color: "var(--text-faint)" }}>
-            No session templates yet. Create one to start a randomized study session.
-          </p>
+          <div className="empty-state">
+            <span className="empty-icon"><Icon name="clock" size={24} /></span>
+            <strong>No sessions yet</strong>
+            <p>Create a session template to run timed, randomized study sessions from your references.</p>
+          </div>
         )}
       </div>
 
@@ -127,27 +130,28 @@ function SessionCard({
   const history = api.sessions.history.useQuery({ name }, { enabled: expanded });
 
   return (
-    <div className="rounded-lg" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+    <div className="card overflow-hidden">
       <div
         className="flex items-center gap-3 px-4 py-3"
         onContextMenu={(e) => { e.preventDefault(); onMenu(e.clientX, e.clientY); }}
       >
-        <button className="text-sm font-semibold hover:underline" onClick={onToggle}>
-          {expanded ? "▾" : "▸"} {name}
+        <button className="flex min-w-0 items-center gap-2 text-sm font-semibold" onClick={onToggle} aria-expanded={expanded}>
+          <span className="text-fg-subtle"><Icon name={expanded ? "down" : "right"} size={16} /></span>
+          <span className="truncate">{name}</span>
         </button>
-        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+        <span className="chip text-fg-muted" style={{ padding: "2px 9px" }}>
           {template.data?.blocks.length ?? 0} blocks
         </span>
         <div className="ml-auto flex gap-2">
-          <Link href={`/sessions/${encodeURIComponent(name)}`} className="btn" style={{ fontSize: 12 }}>Edit</Link>
-          <button className="btn primary" style={{ fontSize: 12 }} onClick={onStart} disabled={!template.data?.blocks.length}>
+          <Link href={`/sessions/${encodeURIComponent(name)}`} className="btn sm">Edit</Link>
+          <button className="btn primary sm" onClick={onStart} disabled={!template.data?.blocks.length}>
             Start
           </button>
         </div>
       </div>
       {expanded && (
-        <div className="px-4 pb-3" style={{ borderTop: "1px solid var(--border)" }}>
-          <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
+        <div className="px-4 pb-3 card-divider">
+          <div className="pt-2 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
             History
           </div>
           {(history.data ?? []).map((h, i) => (
@@ -157,7 +161,7 @@ function SessionCard({
             </button>
           ))}
           {history.data?.length === 0 && (
-            <p className="py-2 text-xs" style={{ color: "var(--text-faint)" }}>No runs yet.</p>
+            <p className="py-2 text-xs text-fg-subtle">No runs yet.</p>
           )}
         </div>
       )}

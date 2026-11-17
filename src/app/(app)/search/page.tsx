@@ -194,7 +194,7 @@ export default function SearchPage() {
           emptyState={tokens.length === 0 ? "Type a tag to search." : "No matches."}
           hiddenIds={suggestTag && hideReviewed ? decisions.hiddenIds : undefined}
           toolbarActions={suggestTag ? (
-            <label className="flex items-center gap-2 text-xs" style={{ color: "var(--text-dim)" }} title="Later thumbnails shift forward without resizing">
+            <label className="flex items-center gap-2 text-xs text-fg-muted" title="Later thumbnails shift forward without resizing">
               <input type="checkbox" checked={hideReviewed} onChange={(e) => setHideReviewed(e.target.checked)} />
               Hide reviewed thumbnails
             </label>
@@ -203,12 +203,11 @@ export default function SearchPage() {
             suggestTag
               ? (f) => (
                   decisions.hiddenIds.has(f.id) ? (
-                    <span className="absolute top-2 left-2 rounded px-2 py-1 text-xs" style={{ background: "var(--panel)", color: "var(--text)" }}>Reviewed ✓</span>
+                    <span className="absolute top-2 left-2 rounded px-2 py-1 text-xs bg-surface-1 text-fg">Reviewed ✓</span>
                   ) : (
                   <>
                     <button
-                      className="check"
-                      style={{ opacity: 1, background: "var(--accent)", color: "var(--accent-fg)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                      className="check review"
                       title="Accept tag"
                       disabled={decisions.isPending(f.id)}
                       onClick={(e) => { e.stopPropagation(); decisions.accept(f.id); }}
@@ -216,8 +215,7 @@ export default function SearchPage() {
                       <Icon name="check" />
                     </button>
                     <button
-                      className="deny"
-                      style={{ opacity: 1, background: "var(--danger)", borderColor: "var(--danger)", width: 32, height: 32, fontSize: 18 }}
+                      className="deny review"
                       title="Exclude from suggestions"
                       disabled={decisions.isPending(f.id)}
                       onClick={(e) => { e.stopPropagation(); decisions.deny(f.id); }}

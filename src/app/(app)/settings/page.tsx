@@ -13,7 +13,7 @@ export default function SettingsPage() {
     onSuccess: () => void utils.settings.get.invalidate(),
   });
 
-  if (!settings.data) return <p className="p-6 text-sm" style={{ color: "var(--text-faint)" }}>Loading…</p>;
+  if (!settings.data) return <p className="p-6 text-sm text-fg-subtle">Loading…</p>;
   const s = settings.data;
 
   const save = (p: Parameters<typeof patch.mutate>[0]) => patch.mutate(p);
@@ -29,7 +29,7 @@ export default function SettingsPage() {
         <div className="settings-group" id="libraries"><h2>Libraries</h2>
         <Section title="Library paths">
           <LibraryList values={s.libraries} onChange={(libraries) => save({ libraries })} />
-          <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
+          <p className="mt-2 text-xs text-fg-subtle">
             Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.
             The alias names a library for <code>path:&lt;alias&gt;</code> search; unchecking Timeline keeps a
             library out of the main timeline, but its images remain indexed and searchable.
@@ -72,7 +72,7 @@ export default function SettingsPage() {
 
         <Section title="Send-to destinations">
           <DestinationList values={s.sendToPaths} onChange={(sendToPaths) => save({ sendToPaths })} />
-          <p className="mt-2 text-xs" style={{ color: "var(--text-faint)" }}>
+          <p className="mt-2 text-xs text-fg-subtle">
             Edit a path to change the destination; an optional alias names it in the Send to menu.
             Existing filenames are skipped, never overwritten or renamed.
           </p>
@@ -103,7 +103,7 @@ export default function SettingsPage() {
         </Section>
         </div>
         <div className="settings-group" id="maintenance"><h2>Maintenance</h2>
-          <p className="text-sm" style={{ color: "var(--text-dim)" }}>Cleanup changes the catalog or thumbnail cache. Original library files are never deleted.</p>
+          <p className="text-sm text-fg-muted">Cleanup changes the catalog or thumbnail cache. Original library files are never deleted.</p>
           <MaintenanceControls />
         </div>
       </div>
@@ -277,7 +277,7 @@ function LibraryList({
     <div className="flex flex-col gap-2">
       {values.map((v, i) => (
         <div key={i} className="flex flex-wrap items-center gap-2">
-          <code className="min-w-40 flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs" style={{ background: "var(--hover)" }}>{v.path}</code>
+          <code className="min-w-40 flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs bg-fill">{v.path}</code>
           <input
             className="input"
             style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
@@ -288,7 +288,7 @@ function LibraryList({
               if (next !== v.alias) update(i, { alias: next });
             }}
           />
-          <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include in the main timeline">
+          <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include in the main timeline">
             <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
             Timeline
           </label>
@@ -344,12 +344,12 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
           {status.data?.running ? "Scanning…" : "Scan now"}
         </button>
         {status.data?.running && (
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+          <span className="text-xs text-fg-subtle">
             {status.data.phase} — {status.data.processed}/{status.data.total || "?"}
           </span>
         )}
         {status.data?.running && (
-          <div className="h-1.5 flex-1 rounded" style={{ background: "var(--hover)" }}>
+          <div className="h-1.5 flex-1 rounded bg-fill">
             <div
               className="h-1.5 rounded"
               style={{
@@ -363,10 +363,10 @@ function ScanControls({ scanTime, onTimeChange }: { scanTime: string | null; onT
       </div>
       {thumbs.data?.running && (
         <div className="flex items-center gap-3">
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+          <span className="text-xs text-fg-subtle">
             Generating thumbnails — {thumbs.data.processed}/{thumbs.data.total || "?"}
           </span>
-          <div className="h-1.5 flex-1 rounded" style={{ background: "var(--hover)" }}>
+          <div className="h-1.5 flex-1 rounded bg-fill">
             <div
               className="h-1.5 rounded"
               style={{
@@ -400,7 +400,7 @@ function MaintenanceControls() {
         <button className="btn" onClick={() => setPurgeConfirm(true)} disabled={!orphans.data}>
           Purge vanished files
         </button>
-        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+        <span className="text-xs text-fg-subtle">
           {orphans.data ?? 0} files have no existing paths
         </span>
       </div>
@@ -408,13 +408,13 @@ function MaintenanceControls() {
         <button className="btn" onClick={() => setExternalConfirm(true)} disabled={!external.data}>
           Remove images outside libraries
         </button>
-        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+        <span className="text-xs text-fg-subtle">
           {external.data ?? 0} images have no path in a current library
         </span>
       </div>
       <div>
         <button className="btn" onClick={() => setThumbsConfirm(true)}>Clear orphaned thumbnails</button>
-        <span className="text-xs" style={{ color: "var(--text-faint)" }}>
+        <span className="text-xs text-fg-subtle">
           {purgeThumbs.data !== undefined ? `Removed ${purgeThumbs.data} cached thumbnails` : "Deletes cached thumbnails with no matching image"}
         </span>
       </div>
@@ -472,9 +472,9 @@ function BackgroundStatus() {
     rows.push({ label: "Embeddings", detail: `${ml.data.embedded}/${ml.data.total}` });
   }
   return (
-    <div className="rounded-lg p-3 text-xs" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+    <div className="rounded-lg p-3 text-xs card">
       {rows.length === 0 ? (
-        <span style={{ color: "var(--text-faint)" }}>Idle — no background processes running.</span>
+        <span className="text-fg-subtle">Idle — no background processes running.</span>
       ) : (
         rows.map((r) => (
           <div key={r.label} className="kv"><span>{r.label}</span><b>{r.detail}</b></div>
@@ -511,7 +511,7 @@ function PasswordControls({ hasPassword }: { hasPassword: boolean }) {
           <button className="btn danger" onClick={() => clearPw.mutate({ current: current || undefined })}>Clear password</button>
         )}
       </div>
-      {msg && <p className="text-xs" style={{ color: "var(--text-faint)" }}>{msg}</p>}
+      {msg && <p className="text-xs text-fg-subtle">{msg}</p>}
     </div>
   );
 }
@@ -546,7 +546,7 @@ function MlControls({ ml }: { ml: MlSettings }) {
         Enable semantic features (downloads several GB on first run)
       </label>
       {ml.enabled && st && (
-        <div className="rounded-lg p-3 text-xs" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+        <div className="rounded-lg p-3 text-xs card">
           <div className="kv"><span>Status</span><b>{st.state}{st.error ? ` — ${st.error}` : ""}</b></div>
           {st.device && <div className="kv"><span>Device</span><b>{st.device}</b></div>}
           {st.model && <div className="kv"><span>Model</span><b>{st.model}</b></div>}
@@ -564,7 +564,7 @@ function MlControls({ ml }: { ml: MlSettings }) {
             </div>
           )}
           {(st.state === "bootstrapping" || st.state === "starting") && st.log.length > 0 && (
-            <pre className="scroll-thin mt-2 max-h-32 overflow-y-auto text-[10px]" style={{ color: "var(--text-faint)" }}>
+            <pre className="scroll-thin mt-2 max-h-32 overflow-y-auto text-[10px] text-fg-subtle">
               {st.log.slice(-8).join("\n")}
             </pre>
           )}
@@ -580,7 +580,7 @@ function MlControls({ ml }: { ml: MlSettings }) {
               defaultValue={ml.tagSuggestionTextWeight}
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionTextWeight: Number(e.target.value) } })}
             />
-            <span className="text-xs" style={{ color: "var(--text-faint)" }}>0 = image centroid only, 1 = tag name only</span>
+            <span className="text-xs text-fg-subtle">0 = image centroid only, 1 = tag name only</span>
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -589,7 +589,7 @@ function MlControls({ ml }: { ml: MlSettings }) {
               onChange={(e) => patch.mutate({ ml: { tagClassifier: e.target.checked } }, { onSuccess: () => void utils.ml.status.invalidate() })}
             />
             Per-tag classifiers (experimental)
-            <span className="text-xs" style={{ color: "var(--text-faint)" }}>Refines each tag&apos;s vector from its tagged images and ✕ rejections; tags with under 10 images keep the standard vector. Turning it off is instant.</span>
+            <span className="text-xs text-fg-subtle">Refines each tag&apos;s vector from its tagged images and ✕ rejections; tags with under 10 images keep the standard vector. Turning it off is instant.</span>
           </label>
           <div>
             <button className="btn" onClick={() => setReembedConfirm(true)}>Re-embed all</button>

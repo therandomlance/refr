@@ -768,7 +768,7 @@ export function MediaGrid({
       )}
       {toolbarActions}
       {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
-        <label className="flex items-center gap-1 text-xs" style={{ color: "var(--text-dim)" }} title="Include files from subfolders/subtags">
+        <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include files from subfolders/subtags">
           <input type="checkbox" checked={includeKids} onChange={(e) => setIncludeKids(e.target.checked)} />
           {source.pathPrefix ? "Subfolders" : "Subtags"}
         </label>
@@ -779,7 +779,7 @@ export function MediaGrid({
     <div className="gallery-toolbar-end">
       {selection.size > 0 && (
         <>
-          <span className="text-xs" style={{ color: "var(--text-faint)" }}>{selection.size} selected</span>
+          <span className="text-xs text-fg-subtle">{selection.size} selected</span>
           <button className="btn" disabled={selectingAll} aria-busy={selectingAll} onClick={selectAll}>{selectingAll ? "Selecting…" : "Select all"}</button>
           <button className="btn" title="Clear selection" aria-label="Clear selection" onClick={() => onSelectionChange(new Set())}>
             <Icon name="close" />
@@ -833,7 +833,10 @@ export function MediaGrid({
           <p role="status" className="state-message">Loading images…</p>
         )}
         {!timelineMode && items.length === 0 && !activeQuery.isLoading && !activeQuery.isError && (
-          <div className="state-message">{emptyState ?? "Nothing here yet."}</div>
+          <div className="empty-state">
+            <span className="empty-icon"><Icon name="image" size={24} /></span>
+            <div className="empty-text">{emptyState ?? "Nothing here yet."}</div>
+          </div>
         )}
         {layout === "horizontal" && rows.length > 0 && (
           <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>

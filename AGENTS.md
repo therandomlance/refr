@@ -44,6 +44,6 @@ All suites share ONE SQLite db (`/tmp/refr-vitest-data`, erased/recreated by `te
 
 ## Conventions
 
-- Theme colors come from CSS custom properties in `src/styles/globals.css` (`[data-theme="x"]`); use the vars, not hard-coded colors. Theme IDs live in `src/lib/themes.ts`. Docs mention `mockups/`, but it is absent from this checkout.
+- Styling uses design tokens in `src/styles/globals.css`. `<html>` carries three independent attributes from config: `data-theme` (surfaces and text), `data-accent`, and `data-density` (`--gap`, `--row-h`, `--tile-radius`, `--r-*`). Use the tokens (`--surface-0..3`, `--fill`, `--line-subtle/strong`, `--fg/-muted/-subtle`, `--accent/-soft`, `--fg-on-accent`, `--danger`) or their Tailwind mappings (`bg-surface-1`, `text-fg-muted`, `border-line`, `text-accent`…), not hard-coded colors or inline `style` colors. IDs and the legacy-theme migration map live in `src/lib/themes.ts`; `test/themes.test.ts` enforces contrast. Docs mention `mockups/`, but it is absent from this checkout.
 - Bulk scans, thumbnail generation, and embeddings run in-process off request paths. No durable job tables; losing in-flight progress on restart is intentional.
 - Deliberate simplifications are marked with `ponytail:` comments.

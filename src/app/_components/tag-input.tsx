@@ -205,16 +205,16 @@ export function TagInput({
           {rows.map((r, i) => (
             <button
               key={r.name}
-              style={i === highlight ? { background: "var(--hover)" } : undefined}
+              style={i === highlight ? { background: "var(--accent-soft)" } : undefined}
               onMouseEnter={() => setHighlight(i)}
               onClick={() => (r.name === "suggest:" || r.name === "path:" ? fillKeyword(r.name) : commit(r.name, r.name))}
             >
-              {r.name} {r.count != null && <span style={{ color: "var(--text-faint)", marginLeft: "auto" }}>{r.count}</span>}
+              {r.name} {r.count != null && <span className="text-fg-subtle ml-auto">{r.count}</span>}
             </button>
           ))}
           {showSemantic && (
             <button
-              style={highlight === rows.length ? { background: "var(--hover)" } : undefined}
+              style={highlight === rows.length ? { background: "var(--accent-soft)" } : undefined}
               onMouseEnter={() => setHighlight(rows.length)}
               onClick={commitSemantic}
             >

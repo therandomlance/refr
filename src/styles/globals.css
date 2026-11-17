@@ -62,35 +62,35 @@
   --surface-0: #0e0e10; --surface-1: #151517; --surface-2: #1c1c1f; --surface-3: #232327;
   --surface-sunken: #0a0a0b;
   --fg: #ededef; --fg-muted: #a1a1a8; --fg-subtle: #8e8e97;
-  --viewer-bg: rgba(6, 6, 7, .96);
+  --viewer-bg: #060607;
 }
 [data-theme="midnight"] {
   color-scheme: dark;
   --surface-0: #0b0e14; --surface-1: #10141c; --surface-2: #161b25; --surface-3: #1d2330;
   --surface-sunken: #080a0f;
   --fg: #e8ecf4; --fg-muted: #9ca6ba; --fg-subtle: #8692aa;
-  --viewer-bg: rgba(5, 7, 11, .96);
+  --viewer-bg: #05070b;
 }
 [data-theme="dusk"] {
   color-scheme: dark;
   --surface-0: #121012; --surface-1: #191619; --surface-2: #211d21; --surface-3: #2a252a;
   --surface-sunken: #0d0b0d;
   --fg: #f1ebef; --fg-muted: #b3a7b0; --fg-subtle: #9c8f9a;
-  --viewer-bg: rgba(8, 6, 8, .96);
+  --viewer-bg: #080608;
 }
 [data-theme="fog"] {
   color-scheme: light;
   --surface-0: #f3f4f6; --surface-1: #fbfbfc; --surface-2: #ffffff; --surface-3: #ffffff;
   --surface-sunken: #e9ebef;
   --fg: #15171c; --fg-muted: #4b515d; --fg-subtle: #646b78;
-  --viewer-bg: rgba(243, 244, 246, .97);
+  --viewer-bg: #eceef1;
 }
 [data-theme="paper"] {
   color-scheme: light;
   --surface-0: #f4f0e9; --surface-1: #faf7f2; --surface-2: #fffdf9; --surface-3: #ffffff;
   --surface-sunken: #ebe5da;
   --fg: #221d17; --fg-muted: #5a5145; --fg-subtle: #6f6556;
-  --viewer-bg: rgba(244, 240, 233, .97);
+  --viewer-bg: #ece6dc;
 }
 
 /* dark vs light: shadows, lines, and which accent shade to use */
@@ -132,11 +132,6 @@
   --danger: #e5484d; --danger-fg: #fff;
   --success: #3fb871; --warning: #e7a33e;
 
-  /* ponytail: legacy names kept as aliases for inline styles still using them */
-  --bg: var(--surface-0); --rail-bg: var(--surface-0); --panel: var(--surface-1);
-  --hover: var(--fill); --active: var(--accent-soft); --border: var(--line-strong);
-  --text: var(--fg); --text-dim: var(--fg-muted); --text-faint: var(--fg-subtle);
-  --accent-fg: var(--fg-on-accent); --radius: var(--r-md); --shadow-sm: var(--shadow-1);
 }
 [data-theme="fog"], [data-theme="paper"] { --danger: #c92a37; --success: #1d8148; --warning: #9a5a00; }
 
@@ -172,7 +167,7 @@ code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border
   border-radius: var(--r-lg); background: var(--fill); color: var(--fg-subtle);
 }
 .empty-state strong { color: var(--fg); font-size: 15px; font-weight: 600; }
-.empty-state p { margin: 0; max-width: 360px; font-size: 13px; }
+.empty-state p, .empty-state .empty-text { margin: 0; max-width: 360px; font-size: 13px; }
 
 /* labels */
 .eyebrow { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-subtle); }
@@ -544,7 +539,6 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .viewer {
   position: fixed; inset: 0; z-index: 50; display: flex;
   background: var(--viewer-bg); color: var(--fg);
-  backdrop-filter: blur(24px); -webkit-backdrop-filter: blur(24px);
   animation: fade-in var(--dur-med) var(--ease-out);
 }
 @keyframes fade-in { from { opacity: 0; } }
@@ -600,7 +594,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .carousel {
   position: absolute; left: 0; right: 0; bottom: env(safe-area-inset-bottom, 0); height: 88px; display: flex; gap: 6px;
   align-items: center; justify-content: center; padding: 12px; z-index: 2;
-  background: linear-gradient(transparent, rgba(0,0,0,.5)); overflow-x: auto; scrollbar-width: none;
+  background: linear-gradient(transparent, color-mix(in oklab, var(--viewer-bg) 85%, transparent)); overflow-x: auto; scrollbar-width: none;
 }
 .carousel img {
   width: 88px; height: 58px; object-fit: cover; border-radius: var(--r-sm); flex: none; opacity: .5; cursor: pointer;
@@ -843,3 +837,41 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   .tile .thumb-wait { animation: none; opacity: .5; }
   .tile:hover img { transform: none; }
 }
+
+/* ---------- browse: breadcrumbs + folder/tag cards ---------- */
+.crumb { color: var(--fg-muted); border-radius: 5px; padding: 1px 4px; margin: 0 -2px; transition: color var(--dur-fast), background var(--dur-fast); }
+.crumb.current { color: var(--fg); font-weight: 600; }
+@media (hover: hover) { .crumb:hover { color: var(--fg); background: var(--fill); } }
+.folder-card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+.folder-card {
+  display: flex; align-items: center; gap: 12px; padding: 12px; min-width: 0; text-align: left; cursor: pointer;
+  background: var(--surface-1); border: 1px solid var(--line-subtle); border-radius: var(--r-lg); color: var(--fg);
+  box-shadow: var(--shadow-1);
+  transition: transform var(--dur-med) var(--ease-out), box-shadow var(--dur-med), border-color var(--dur-med);
+}
+.folder-card-icon {
+  display: grid; place-items: center; flex: none; width: 38px; height: 38px; border-radius: var(--r-md);
+  background: var(--accent-soft); color: var(--accent);
+}
+@media (hover: hover) {
+  .folder-card:hover { transform: translateY(-1px); box-shadow: var(--shadow-2); border-color: var(--line-strong); }
+}
+
+/* tag-suggestion review: always-visible accept / deny */
+.tile .check.review, .tile .deny.review { opacity: 1; width: 34px; height: 34px; font-size: 18px; border: 0; box-shadow: var(--shadow-2); }
+.tile .check.review { background: var(--accent); color: var(--fg-on-accent); }
+.tile .deny.review { background: var(--danger); color: var(--danger-fg); }
+
+/* ---------- login ---------- */
+.login-screen {
+  display: grid; place-items: center; min-height: 100dvh; padding: 16px;
+  background:
+    radial-gradient(60% 50% at 50% 0%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 70%),
+    var(--surface-0);
+}
+.login-card {
+  display: flex; flex-direction: column; gap: 12px; width: 100%; max-width: 340px; padding: 28px;
+  background: var(--surface-1); border: 1px solid var(--line-subtle); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-3); animation: pop-in var(--dur-med) var(--ease-out);
+}
+.login-card .btn { min-height: 40px; }

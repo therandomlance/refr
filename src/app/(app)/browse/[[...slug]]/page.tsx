@@ -192,15 +192,14 @@ export default function BrowsePage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header"><div><h1>Browse</h1>
         <nav className="page-breadcrumbs" aria-label="Breadcrumb">
-          <button className="hover:underline" onClick={() => selectNode(null)} style={{ color: selected ? undefined : "var(--text)", fontWeight: selected ? 400 : 600 }}>
+          <button className={`crumb ${selected ? "" : "current"}`} onClick={() => selectNode(null)}>
             {mode === "folders" ? "Libraries" : "Tags"}
           </button>
           {crumbs.map((c, i) => (
             <span key={i} className="flex items-center gap-1">
-              <span style={{ opacity: 0.5 }}>/</span>
+              <span className="text-fg-subtle"><Icon name="right" size={12} /></span>
               <button
-                className="hover:underline"
-                style={{ color: i === crumbs.length - 1 ? "var(--text)" : undefined, fontWeight: i === crumbs.length - 1 ? 600 : 400 }}
+                className={`crumb ${i === crumbs.length - 1 ? "current" : ""}`}
                 onClick={() => selectNode(crumbPath(i))}
               >
                 {c}
@@ -211,14 +210,14 @@ export default function BrowsePage() {
         </div></header>
 
         {selected === null ? (
-          <div className="scroll-thin flex-1 overflow-y-auto p-4">
-            <div className="flex flex-wrap gap-3">
+          <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
+            <div className="folder-card-grid">
               {rootCards.map((c) => (
                 <Card key={c.key} node={c} onOpen={() => selectNode(c.key)} />
               ))}
             </div>
             {rootCards.length === 0 && (
-              <p className="text-sm" style={{ color: "var(--text-faint)" }}>
+              <p className="text-sm text-fg-subtle">
                 {mode === "folders"
                   ? "No libraries configured. Add library paths in Settings."
                   : "No tags yet. Tag some files first."}
@@ -228,12 +227,12 @@ export default function BrowsePage() {
         ) : (
           <>
             {mode === "tags" && anySuggestionData && (
-              <div className="mx-4 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+              <div className="mx-4 mb-2 flex-none rounded card">
                 <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
                   <button className="hover:underline" aria-expanded={suggestionsOpen} onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
                     <Icon name={suggestionsOpen ? "down" : "right"} /> Image suggestions
                   </button>
-                  <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{totalSuggestions}</span>
+                  <span className="text-fg-subtle font-normal">{totalSuggestions}</span>
                 </div>
                 {suggestionsOpen && (
                   <div className="px-1 pb-1">
@@ -291,7 +290,7 @@ export default function BrowsePage() {
               onContextMenu={fileMenu.open}
               header={
                 childCards.length > 0 ? (
-                  <div className="flex flex-wrap gap-3 pb-3 pt-1">
+                  <div className="folder-card-grid pb-3 pt-1">
                     {childCards.map((c) => (
                       <Card key={c.key} node={c} onOpen={() => selectNode(c.key)} />
                     ))}
@@ -395,13 +394,13 @@ function SuggestionStrip({
   }, [refreshKey, tilesMounted]);
   if (!hasData) return null;
   return (
-    <div className="mx-1 mb-2 flex-none rounded" style={{ background: "var(--panel)", border: "1px solid var(--border)" }}>
+    <div className="mx-1 mb-2 flex-none rounded card">
       <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
         <button className="hover:underline" aria-expanded={open} onClick={() => setOpen(!open)}>
           <Icon name={open ? "down" : "right"} /> {title}
         </button>
-        <button title="Refresh suggestions" onClick={onRefresh} style={{ color: "var(--text-dim)" }}>↻</button>
-        <span style={{ color: "var(--text-faint)", fontWeight: 400 }}>{items.length}</span>
+        <button title="Refresh suggestions" onClick={onRefresh} className="text-fg-muted">↻</button>
+        <span className="text-fg-subtle font-normal">{items.length}</span>
       </div>
       {open && (
         items.length > 0 ? (
@@ -413,8 +412,7 @@ function SuggestionStrip({
                    <img src={`/api/thumb/${s.fileId}`} alt="" loading="lazy" decoding="async" />
                  </button>
                 <button
-                  className="check"
-                  style={{ opacity: 1, background: "var(--accent)", color: "var(--accent-fg)", borderColor: "var(--accent)", width: 32, height: 32, fontSize: 18 }}
+                  className="check review"
                    title="Accept tag"
                    disabled={isPending(s.fileId)}
                   onClick={() => onAccept(s.fileId)}
@@ -422,8 +420,7 @@ function SuggestionStrip({
                   <Icon name="check" />
                 </button>
                 <button
-                  className="deny"
-                   style={{ opacity: 1, background: "var(--danger)", borderColor: "var(--danger)", width: 32, height: 32, fontSize: 18 }}
+                  className="deny review"
                    title="Exclude from suggestions"
                    disabled={isPending(s.fileId)}
                   onClick={() => onDeny(s.fileId)}
@@ -434,7 +431,7 @@ function SuggestionStrip({
             ))}
           </div>
         ) : (
-          <div className="px-3 pb-3 text-xs" style={{ color: "var(--text-faint)" }}>All done ✓</div>
+          <div className="px-3 pb-3 text-xs text-fg-subtle">All done ✓</div>
         )
       )}
     </div>
@@ -444,15 +441,14 @@ function SuggestionStrip({
 function Card({ node, onOpen }: { node: TreeNodeData; onOpen: () => void }) {
   return (
     <button type="button"
-      className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg p-4 text-center"
-      style={{ width: 120, height: 96, background: "var(--panel)", border: "1px solid var(--border)" }}
+      className="folder-card"
       onClick={onOpen}
     >
-      <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" style={{ color: "var(--text-dim)" }}>
-        <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
-      </svg>
-      <div className="w-full truncate text-xs">{node.name}</div>
-      {node.count !== undefined && <div className="text-[10px]" style={{ color: "var(--text-faint)" }}>{node.count}</div>}
+      <span className="folder-card-icon"><Icon name="folder" size={18} /></span>
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] font-medium">{node.name}</span>
+        {node.count !== undefined && <span className="block text-[11px] text-fg-subtle tabular-nums">{node.count} items</span>}
+      </span>
     </button>
   );
 }

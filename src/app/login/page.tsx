@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { BrandMark } from "refr/app/_components/icon";
 
 export default function LoginPage() {
   const [password, setPassword] = useState("");
@@ -9,9 +10,9 @@ export default function LoginPage() {
   const router = useRouter();
 
   return (
-    <div className="grid h-screen place-items-center">
+    <div className="login-screen">
       <form
-        className="flex w-72 flex-col gap-3"
+        className="login-card"
         onSubmit={async (e) => {
           e.preventDefault();
           const res = await fetch("/api/auth/login", {
@@ -27,9 +28,12 @@ export default function LoginPage() {
           }
         }}
       >
-        <div className="mb-2 flex items-center gap-3">
-          <div className="logo" style={{ width: 36, height: 36, borderRadius: "var(--radius)", background: "var(--accent)", color: "var(--accent-fg)", display: "grid", placeItems: "center", fontWeight: 700 }}>r</div>
-          <h1 className="text-lg font-semibold">refr</h1>
+        <div className="mb-3 flex flex-col items-center gap-3 text-center">
+          <div className="brand-mark" style={{ width: 48, height: 48 }}><BrandMark size={26} /></div>
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight">refr</h1>
+            <p className="text-[13px] text-fg-subtle">Sign in to your reference library</p>
+          </div>
         </div>
         <input
           type="password"
@@ -37,9 +41,10 @@ export default function LoginPage() {
           placeholder="Password"
           autoFocus
           value={password}
-          onChange={(e) => setPassword(e.target.value)}
+          onChange={(e) => { setPassword(e.target.value); setError(false); }}
+          aria-invalid={error}
         />
-        {error && <p className="text-sm" style={{ color: "#e66" }}>Wrong password</p>}
+        {error && <p className="text-[13px] text-danger" role="alert">Wrong password</p>}
         <button className="btn primary" type="submit">Log in</button>
       </form>
     </div>

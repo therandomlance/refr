@@ -41,7 +41,7 @@ export default function QueuePage() {
         head={
           <div>
             <h2 className="text-[13px] font-semibold">Queue</h2>
-            <p className="mt-1 text-xs" style={{ color: "var(--text-faint)" }}>{ids.length} images</p>
+            <p className="mt-1 text-xs text-fg-subtle">{ids.length} images</p>
           </div>
         }
       >
@@ -49,7 +49,7 @@ export default function QueuePage() {
           <button className="btn flex-1" style={{ fontSize: 12 }} disabled={ids.length === 0} onClick={() => setSavePrompt(true)}>Save as…</button>
           <button className="btn flex-1" style={{ fontSize: 12 }} disabled={ids.length === 0} onClick={() => setClearConfirm(true)}>Clear</button>
         </div>
-        <div className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide" style={{ color: "var(--text-faint)" }}>
+        <div className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
           Saved queues
         </div>
         <div className="flex-1 px-2 pb-4">
@@ -70,14 +70,14 @@ export default function QueuePage() {
             </div>
           ))}
           {saved.data?.length === 0 && (
-            <p className="px-2 text-xs" style={{ color: "var(--text-faint)" }}>No saved queues.</p>
+            <p className="px-2 text-xs text-fg-subtle">No saved queues.</p>
           )}
         </div>
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header"><div><h1>Queue</h1><p>{ids.length} images ready for review.</p></div></header>
-        <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs" style={{ color: "var(--text-dim)" }}>
+        <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-fg-muted">
           <span>Select images to reorder. Drag or use:</span>
           <button className="btn" disabled={setQueue.isPending || up.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: up })}>↑ Move up</button>
           <button className="btn" disabled={setQueue.isPending || down.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: down })}>↓ Move down</button>

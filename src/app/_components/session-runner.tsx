@@ -106,7 +106,7 @@ export function SessionRunner({
   if (flat.length === 0) {
     return (
       <div className="viewer" onClick={onClose}>
-        <p className="m-auto" style={{ color: "var(--text-dim)" }}>This session pulled no images.</p>
+        <p className="m-auto text-fg-muted">This session pulled no images.</p>
       </div>
     );
   }
@@ -117,7 +117,7 @@ export function SessionRunner({
       <div className="viewer" onClick={onClose}>
         <div className="m-auto flex flex-col items-center gap-4" onClick={(e) => e.stopPropagation()}>
           <h2 className="text-xl font-semibold">Session complete</h2>
-          <div className="text-sm" style={{ color: "var(--text-dim)" }}>
+          <div className="text-sm text-fg-muted">
             {entry.blocks.map((b, i) => (
               <div key={i} className="kv" style={{ minWidth: 260 }}>
                 <span>{b.tag}</span>
@@ -158,7 +158,7 @@ export function SessionRunner({
             <>
               <span
                 className="chip"
-                style={flash ? { animation: "flash 0.6s infinite alternate" } : paused ? { color: "var(--text-faint)" } : remaining <= 10 ? { color: "var(--danger)", fontWeight: 700 } : undefined}
+                style={flash ? { animation: "flash 0.6s infinite alternate" } : paused ? { color: "var(--fg-subtle)" } : remaining <= 10 ? { color: "var(--danger)", fontWeight: 700 } : undefined}
               >
                 ⏱ {Math.floor(Math.max(0, remaining) / 60)}:{String(Math.max(0, remaining) % 60).padStart(2, "0")}
               </span>

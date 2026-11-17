@@ -60,7 +60,7 @@ export function ConfirmDialog({
 }) {
   return (
     <Dialog title={title} onClose={onClose}>
-      <div className="mb-4 text-sm" style={{ color: "var(--text-dim)" }}>{body}</div>
+      <div className="mb-4 text-sm text-fg-muted">{body}</div>
       <div className="flex justify-end gap-2">
         <button className="btn" onClick={onClose}>Cancel</button>
         <button className={`btn ${danger ? "danger" : "primary"}`} onClick={() => { onConfirm(); onClose(); }}>
@@ -95,7 +95,7 @@ export function PromptDialog({
           if (value.trim()) { onSubmit(value.trim()); onClose(); }
         }}
       >
-        <label className="mb-1 block text-xs" style={{ color: "var(--text-faint)" }}>{label}</label>
+        <label className="mb-1 block text-xs text-fg-subtle">{label}</label>
         <input ref={ref} className="input mb-4 w-full" value={value} onChange={(e) => setValue(e.target.value)} />
         <div className="flex justify-end gap-2">
           <button type="button" className="btn" onClick={onClose}>Cancel</button>
@@ -132,8 +132,7 @@ export function TagPromptDialog({
           {suggestedQ.data.map((s) => (
             <button type="button"
               key={s.tag}
-              className="chip"
-              style={{ cursor: "pointer", border: "1px dashed var(--border)" }}
+              className="chip cursor-pointer border border-dashed border-line-strong"
               onClick={() => {
                 onSubmit(s.tag);
                 onClose();
@@ -144,7 +143,7 @@ export function TagPromptDialog({
           ))}
         </div>
       )}
-      <label className="mb-1 block text-xs" style={{ color: "var(--text-faint)" }}>{label}</label>
+      <label className="mb-1 block text-xs text-fg-subtle">{label}</label>
       <TagInput autoFocus onCommit={(value) => { onSubmit(value); onClose(); }} />
     </Dialog>
   );
