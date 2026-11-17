@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
-import { PALETTES, LEGACY_THEMES } from "refr/lib/themes";
+import { THEMES, ACCENTS, DENSITIES, type Theme, type Accent, type Density } from "refr/lib/themes";
 import { Icon } from "refr/app/_components/icon";
 
 export default function SettingsPage() {
@@ -47,38 +47,8 @@ export default function SettingsPage() {
 
         <div className="settings-group" id="workspace"><h2>Workspace</h2>
         <Section title="Appearance">
-          <p className="mb-3 text-xs" style={{ color: "var(--text-dim)" }}>Muted surfaces, coordinated accents. New palettes keep gallery sizing consistent.</p>
-          {[{ label: "Color palettes", themes: PALETTES }, { label: "Original themes", themes: LEGACY_THEMES }].map(({ label, themes }) => (
-          <fieldset key={label} className="mb-4">
-            <legend className="mb-2 text-xs" style={{ color: "var(--text-dim)" }}>{label}</legend>
-            <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-            {themes.map((t) => (
-              <button
-                key={t}
-                className="theme-choice"
-                aria-pressed={s.theme === t}
-                disabled={patch.isPending}
-                onClick={() => {
-                  document.documentElement.dataset.theme = t;
-                  patch.mutate({ theme: t }, { onError: () => { document.documentElement.dataset.theme = s.theme; } });
-                }}
-              >
-                <div data-theme={t} className="theme-preview" aria-hidden="true">
-                  <div className="theme-preview-rail"><i /><i /><i /></div>
-                  <div className="theme-preview-content">
-                    <strong>Reference library</strong>
-                    <span>Images & collections</span>
-                    <div className="theme-preview-tiles"><i /><i /><i /></div>
-                    <div className="theme-preview-footer"><span>24 images</span><b>Open</b></div>
-                  </div>
-                </div>
-                <div className="mt-2 flex justify-between text-xs capitalize"><span>{t}</span><span aria-hidden="true">{s.theme === t ? "✓" : ""}</span></div>
-              </button>
-            ))}
-            </div>
-          </fieldset>
-          ))}
-          <label className="mt-3 flex items-center gap-2 text-sm">
+          <AppearanceControls theme={s.theme} accent={s.accent} density={s.density} />
+          <label className="mt-5 flex items-center gap-2 text-sm">
             Default thumbnail size
             <select
               className="input"
@@ -142,10 +112,100 @@ export default function SettingsPage() {
   );
 }
 
+const THEME_BLURB: Record<Theme, string> = {
+  obsidian: "Neutral near-black",
+  midnight: "Cool blue-black",
+  dusk: "Warm plum-black",
+  fog: "Soft neutral light",
+  paper: "Warm paper light",
+};
+
+/** Theme / accent / density apply instantly via <html data-*> and roll back if the save fails. */
+function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: Accent; density: Density }) {
+  const utils = api.useUtils();
+  const patch = api.settings.patch.useMutation({ onSuccess: () => void utils.settings.get.invalidate() });
+  const apply = (key: "theme" | "accent" | "density", value: string, previous: string) => {
+    document.documentElement.dataset[key] = value;
+    patch.mutate({ [key]: value }, { onError: () => { document.documentElement.dataset[key] = previous; } });
+  };
+  return (
+    <div className="flex flex-col gap-5">
+      <fieldset>
+        <legend className="mb-2 text-xs text-fg-subtle">Theme</legend>
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+          {THEMES.map((t) => (
+            <button
+              key={t}
+              className="theme-choice"
+              aria-pressed={theme === t}
+              disabled={patch.isPending}
+              onClick={() => apply("theme", t, theme)}
+            >
+              <div data-theme={t} className="theme-preview" aria-hidden="true">
+                <div className="theme-preview-rail"><i /><i /><i /></div>
+                <div className="theme-preview-content">
+                  <strong>Reference library</strong>
+                  <span>Images & collections</span>
+                  <div className="theme-preview-tiles"><i /><i /><i /></div>
+                  <div className="theme-preview-footer"><span>24 images</span><b>Open</b></div>
+                </div>
+              </div>
+              <div className="mt-2 px-1 pb-0.5">
+                <div className="flex items-center justify-between text-xs font-medium capitalize">
+                  <span>{t}</span>
+                  {theme === t && <span className="text-accent"><Icon name="check" size={14} /></span>}
+                </div>
+                <div className="text-[11px] text-fg-subtle">{THEME_BLURB[t]}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-xs text-fg-subtle">Accent</legend>
+        <div className="accent-swatches">
+          {ACCENTS.map((a) => (
+            <button
+              key={a}
+              data-theme={theme}
+              data-accent={a}
+              className="accent-swatch"
+              aria-pressed={accent === a}
+              aria-label={`${a} accent`}
+              title={a}
+              disabled={patch.isPending}
+              onClick={() => apply("accent", a, accent)}
+            >
+              {accent === a && <Icon name="check" size={14} />}
+            </button>
+          ))}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend className="mb-2 text-xs text-fg-subtle">Density</legend>
+        <div className="seg" role="group" aria-label="Density">
+          {DENSITIES.map((d) => (
+            <button
+              key={d}
+              className={`capitalize ${density === d ? "on" : ""}`}
+              aria-pressed={density === d}
+              disabled={patch.isPending}
+              onClick={() => apply("density", d, density)}
+            >
+              {d}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-fg-subtle">Spacing between thumbnails, row height, and corner rounding.</p>
+      </fieldset>
+    </div>
+  );
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h3 className="mb-3 text-[13px] font-semibold" style={{ color: "var(--text-dim)" }}>
+      <h3 className="mb-3 text-[13px] font-semibold text-fg-muted">
         {title}
       </h3>
       {children}

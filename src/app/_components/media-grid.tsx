@@ -117,16 +117,19 @@ export function MediaGrid({
     return () => ro.disconnect();
   }, []);
 
-  // base row height from theme, scaled by tile size; re-read on theme change
+  // base row height + tile gap from the density setting, scaled by tile size; re-read on change
   const [baseRowH, setBaseRowH] = useState(200);
+  const [gap, setGap] = useState(4);
   useEffect(() => {
     const read = () => {
-      const v = getComputedStyle(document.documentElement).getPropertyValue("--row-h");
-      setBaseRowH(Number.parseFloat(v) || 200);
+      const css = getComputedStyle(document.documentElement);
+      setBaseRowH(Number.parseFloat(css.getPropertyValue("--row-h")) || 200);
+      const g = Number.parseFloat(css.getPropertyValue("--gap"));
+      setGap(Number.isFinite(g) ? g : 4);
     };
     read();
     const mo = new MutationObserver(read);
-    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+    mo.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme", "data-density"] });
     return () => mo.disconnect();
   }, []);
   const rowH = baseRowH * SIZE_SCALE[size];
@@ -241,7 +244,6 @@ export function MediaGrid({
   }, [searchData, source, sort, utils]);
 
   // ---------------- layout math
-  const gap = 4;
   const aspectOf = (f: FileSummary) => (f.width && f.height ? f.width / f.height : 1);
 
   const timelineLayout = useMemo(() => buildTimelineLayout({
@@ -249,12 +251,12 @@ export function MediaGrid({
     months: monthQueries.map((q) => hiddenIds?.size ? q.items?.filter((f) => !hiddenIds.has(f.id)) : q.items),
     partialMonths: monthQueries.map((q) => q.partial),
     width, rowH, gap, grouping,
-  }), [timelineMode, buckets, monthQueries, hiddenIds, width, rowH, grouping]);
+  }), [timelineMode, buckets, monthQueries, hiddenIds, width, rowH, gap, grouping]);
   // Keep the track fixed while months load, as Immich does. Actual canvas
   // geometry changes underneath it, but a pointer coordinate keeps its date.
   const scrubberHeights = useMemo(() => buildTimelineLayout({
     buckets: buckets ?? [], months: [], width, rowH, gap, grouping,
-  }).positions.map((p) => p.height), [buckets, width, rowH, grouping]);
+  }).positions.map((p) => p.height), [buckets, width, rowH, gap, grouping]);
   const rows: (GridRow | TimelineRow)[] = useMemo(() => {
     if (layout === "vertical") return [];
     if (timelineMode) return timelineLayout.rows;
@@ -266,7 +268,7 @@ export function MediaGrid({
       grouping,
       doGrouping: sort === "date" && source.kind !== "ids",
     });
-  }, [visibleItems, layout, timelineMode, timelineLayout, width, rowH, sort, grouping, source.kind]);
+  }, [visibleItems, layout, timelineMode, timelineLayout, width, rowH, gap, sort, grouping, source.kind]);
 
   // vertical: assign each item to the shortest column
   const colWidth = Math.round(rowH * 1.3);
@@ -282,7 +284,7 @@ export function MediaGrid({
       heights[c]! += h + gap;
     }
     return cols;
-  }, [visibleItems, layout, colCount, colWidth]);
+  }, [visibleItems, layout, colCount, colWidth, gap]);
 
   // ---------------- virtualization
   // Stable per-content keys so prepended rows keep their measured sizes instead

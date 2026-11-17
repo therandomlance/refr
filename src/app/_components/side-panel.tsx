@@ -34,12 +34,11 @@ function PageSidePanel({ page, head, children }: { page: string; head: React.Rea
   if (!open) {
     return (
       <div
-        className="sidepanel-collapsed flex w-8 flex-none flex-col items-center pt-3"
-        style={{ background: "var(--panel)", borderRight: "1px solid var(--border)" }}
+        className="sidepanel-collapsed flex w-9 flex-none flex-col items-center pt-4"
       >
         <button
           className="rail-btn"
-          style={{ width: 24, height: 24, fontSize: 12 }}
+          style={{ width: 28, height: 28 }}
           title="Show sidebar"
           aria-label="Show sidebar"
           onClick={() => setOpen(true)}
@@ -53,15 +52,15 @@ function PageSidePanel({ page, head, children }: { page: string; head: React.Rea
     <>
       <div className="sidepanel-backdrop" onClick={() => setOpen(false)} />
       <aside
-        className="sidepanel flex min-h-0 flex-none"
-        style={{ "--sidebar-width": `${width}px`, background: "var(--panel)", borderRight: "1px solid var(--border)" } as CSSProperties}
+        className="sidepanel sidepanel-surface flex min-h-0 flex-none"
+        style={{ "--sidebar-width": `${width}px` } as CSSProperties}
       >
         <div className="scroll-thin flex min-w-0 flex-1 flex-col overflow-y-auto">
-          <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-2">
+          <div className="flex items-center justify-between gap-2 px-4 pt-5 pb-3">
             <div className="flex min-w-0 flex-1 items-center justify-between gap-2">{head}</div>
             <button
               className="rail-btn flex-none"
-              style={{ width: 22, height: 22, fontSize: 12 }}
+              style={{ width: 28, height: 28 }}
               title="Hide sidebar"
               aria-label="Hide sidebar"
               onClick={() => setOpen(false)}

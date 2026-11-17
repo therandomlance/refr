@@ -4,10 +4,10 @@ import path from "node:path";
 import { EventEmitter } from "node:events";
 import { z } from "zod";
 import YAML from "yaml";
-import { THEMES } from "refr/lib/themes";
+import { THEMES, ACCENTS, DENSITIES, LEGACY_THEME_MAP } from "refr/lib/themes";
 import { initDataDir, paths } from "./dataDir";
 
-export { THEMES };
+export { THEMES, ACCENTS, DENSITIES };
 
 /** A read-only library root. `alias` names it for `path:<alias>` searching;
  *  `timeline` toggles whether it appears in the unfiltered main timeline. */
@@ -26,7 +26,7 @@ export const sendToPathsSchema = z
   ]))
   .transform((dests) => dests.map((d) => typeof d === "string" ? { path: d, alias: undefined } : d));
 
-const configSchema = z.object({
+const configObject = z.object({
   passwordHash: z.string().nullable().default(null),
   // Accepts legacy `libraries: ["/path"]` and normalizes to objects.
   libraries: z
@@ -48,7 +48,9 @@ const configSchema = z.object({
   skipTagRemoveConfirm: z.boolean().default(false),
   sendToPaths: sendToPathsSchema.default([]),
   sessionHistoryCap: z.number().int().min(1).default(1000),
-  theme: z.enum(THEMES).default("graphite"),
+  theme: z.enum(THEMES).default("obsidian"),
+  accent: z.enum(ACCENTS).default("blue"),
+  density: z.enum(DENSITIES).default("comfortable"),
   ml: z
     .object({
       enabled: z.boolean().default(false),
@@ -61,6 +63,19 @@ const configSchema = z.object({
     })
     .default({}),
 });
+
+/** Map pre-overhaul theme ids to the new theme (+ its accent when none is set). */
+function migrateTheme(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  const legacy = typeof obj.theme === "string" && !(THEMES as readonly string[]).includes(obj.theme)
+    ? LEGACY_THEME_MAP[obj.theme]
+    : undefined;
+  if (!legacy) return raw;
+  return { ...obj, theme: legacy.theme, accent: obj.accent ?? legacy.accent };
+}
+
+const configSchema = z.preprocess(migrateTheme, configObject);
 
 export type Config = z.infer<typeof configSchema>;
 

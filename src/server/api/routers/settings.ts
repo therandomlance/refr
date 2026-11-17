@@ -30,6 +30,8 @@ export const settingsRouter = createTRPCRouter({
           sendToPaths: config.sendToPathsSchema,
           sessionHistoryCap: z.number().int().min(1),
           theme: z.enum(config.THEMES),
+          accent: z.enum(config.ACCENTS),
+          density: z.enum(config.DENSITIES),
           ml: z
             .object({
               port: z.number().int(),

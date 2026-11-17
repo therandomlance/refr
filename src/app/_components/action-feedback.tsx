@@ -45,7 +45,7 @@ export function ActionFeedback({ children }: { children: React.ReactNode }) {
     <FeedbackContext.Provider value={notify}>
       {children}
       {(pending || notice) && (
-        <div className="action-feedback" aria-busy={pending}>
+        <div className="action-feedback" aria-busy={pending} data-tone={pending ? "busy" : notice?.error ? "error" : undefined}>
           <span role={notice?.error ? "alert" : "status"}>{pending ? "Working…" : notice?.message}</span>
           {notice?.undo && <button className="btn" disabled={pending} onClick={() => void undo()}>Undo</button>}
           <button className="btn" aria-label="Dismiss notification" disabled={pending} onClick={() => setNotice(null)}><Icon name="close" /></button>
