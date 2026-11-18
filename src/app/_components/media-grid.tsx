@@ -18,6 +18,8 @@ import { staticSuggestionOptions, useTagEdit } from "./tag-actions";
 import { Icon } from "./icon";
 import { useActionFeedback } from "./action-feedback";
 import { FILE_SHORTCUTS, isTypingTarget, overlayOpen } from "refr/lib/keyboard";
+import { usePersistentBoolean } from "refr/lib/persistent-state";
+import { tileTagBadges } from "refr/lib/tagging";
 import type { GridMenuActions } from "./file-menu";
 import { moveQueueItemTo } from "refr/lib/queue-order";
 
@@ -48,6 +50,7 @@ export function MediaGrid({
   tileActions,
   onTilePick,
   tileClass,
+  tagBadges,
 }: {
   source: GridSource;
   selection: Set<string>;
@@ -72,7 +75,11 @@ export function MediaGrid({
   onTilePick?: (fileId: string) => void;
   /** Extra classes per tile (e.g. review state). */
   tileClass?: (f: FileSummary) => string;
+  /** Offer the "Tags" toggle: each thumbnail lists its tags along the bottom.
+   *  `context` = the tag being browsed (left out / shown relative). */
+  tagBadges?: { context?: string | null };
 }) {
+  const [showTags, setShowTags] = usePersistentBoolean("refr:grid:show-tags", () => false);
   const [internalSort, setInternalSort] = useState<Sort>("date");
   const vectorMode = source.kind === "search" && source.tokens.some(isVectorToken);
   const suggestionMode = source.kind === "search" && source.tokens.some((token) => token.kind === "tag" && token.tag.startsWith("suggest:"));
@@ -861,6 +868,7 @@ export function MediaGrid({
             }}
           ><Icon name="more" /></button>
         )}
+        {tagBadges && showTags && <TileTags id={f.id} context={tagBadges.context} />}
         {f.mediaType === "video" && (
           <div className="badge">{formatDuration(f.duration)}</div>
         )}
@@ -897,6 +905,12 @@ export function MediaGrid({
         </>
       )}
       {toolbarActions}
+      {tagBadges && (
+        <label className="flex items-center gap-1 text-xs text-fg-muted" title="Show each image's tags on its thumbnail">
+          <input type="checkbox" checked={showTags} onChange={(e) => setShowTags(e.target.checked)} />
+          Tags
+        </label>
+      )}
       {source.kind === "files" && (source.pathPrefix ?? source.tag) && (
         <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include files from subfolders/subtags">
           <input type="checkbox" checked={includeKids} onChange={(e) => setIncludeKids(e.target.checked)} />
@@ -1087,6 +1101,20 @@ export function MediaGrid({
       <div style={{ width: "100%", height: "100%" }}>{renderTile(f)}</div>
     );
   }
+}
+
+/** A thumbnail's tags as badges along its bottom edge. One tiny query per
+ *  rendered (virtualized) tile; tRPC batches them, and it shares the viewer's
+ *  cache so tag edits refresh it. */
+function TileTags({ id, context }: { id: string; context?: string | null }) {
+  const q = api.tags.forFiles.useQuery({ fileIds: [id] }, { staleTime: 60_000 });
+  const badges = useMemo(() => tileTagBadges(q.data ?? [], context), [q.data, context]);
+  if (!badges.length) return null;
+  return (
+    <div className="review-badges tile-tags">
+      {badges.map((b) => <span key={b.full} className="review-badge" title={b.full}>{b.label}</span>)}
+    </div>
+  );
 }
 
 function ColumnView({

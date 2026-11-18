@@ -4,9 +4,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
 import { Icon } from "refr/app/_components/icon";
-import { formatConfidence } from "refr/lib/tagging";
+import { formatConfidence, tagLabel } from "refr/lib/tagging";
 import { useReviewCommit } from "./use-review-commit";
-import { tagLabel } from "./tag-review";
 
 /** Newest files first, each with its top confident tags as chips. Per tile, ✓
  *  accepts and ✕ rejects the included chips right away (undoable), like the other

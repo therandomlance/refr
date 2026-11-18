@@ -53,6 +53,8 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
         httpBatchStreamLink({
           transformer: SuperJSON,
           url: getBaseUrl() + "/api/trpc",
+          // many small per-tile queries (tile tag badges) batch into one GET; split long URLs
+          maxURLLength: 6000,
           headers: () => {
             const headers = new Headers();
             headers.set("x-trpc-source", "nextjs-react");

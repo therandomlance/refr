@@ -5,16 +5,11 @@ import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
 import { Icon } from "refr/app/_components/icon";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
-import { BATCH_SIZE, formatConfidence } from "refr/lib/tagging";
+import { BATCH_SIZE, formatConfidence, tagLabel } from "refr/lib/tagging";
 import { useReviewCommit } from "./use-review-commit";
 
 type Decision = { kind: "accept" | "reject" | "skip" } | { kind: "reassign"; to: string };
 
-/** Short label for a hierarchical tag: the last two segments. */
-export function tagLabel(name: string) {
-  const parts = name.split("/");
-  return parts.length > 2 ? `…/${parts.slice(-2).join("/")}` : name;
-}
 
 const NEXT: Record<"accept" | "reject" | "skip", Decision["kind"]> = { accept: "reject", reject: "skip", skip: "accept" };
 

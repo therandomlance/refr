@@ -926,3 +926,6 @@ button.review-badge:hover { background: var(--surface-3); }
 .tile.review-reassign img { opacity: .7; }
 .tile.review-reassign::after { box-shadow: inset 0 0 0 3px var(--warning); opacity: 1; }
 .tile.review-reassign .review-state { background: var(--warning); color: var(--surface-0); }
+/* thumbnail tag badges (grid "Tags" toggle): wrap side by side, never block the tile click */
+.tile .tile-tags .review-badge { pointer-events: none; background: color-mix(in oklab, var(--surface-2) 88%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.tile.vid .tile-tags { bottom: 30px; }

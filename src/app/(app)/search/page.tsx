@@ -168,6 +168,7 @@ export default function SearchPage() {
           )}
         </header>
         <MediaGrid
+          tagBadges={{}}
           toolbarSearch={
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           {tokens.map((t, i) => (

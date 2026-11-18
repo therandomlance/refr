@@ -285,6 +285,7 @@ export default function BrowsePage() {
             )}
             <MediaGrid
               source={mode === "folders" ? { kind: "files", pathPrefix: selected } : { kind: "files", tag: selected }}
+              tagBadges={{ context: mode === "tags" ? selected : null }}
               selection={selection}
               onSelectionChange={setSelection}
               onContextMenu={fileMenu.open}
