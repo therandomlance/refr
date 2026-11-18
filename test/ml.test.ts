@@ -22,6 +22,7 @@ let releaseImages: (() => void) | undefined;
 let holdTexts = false;
 let releaseTexts: (() => void) | undefined;
 let textBatches = 0;
+let lastKnn: { vector: number[]; excludeIds?: string[] } | undefined;
 const trainRequests: { tag: string; denyIds: string[]; prior?: number[] }[] = [];
 const stub = http.createServer((req, res) => {
   let body = "";
@@ -48,6 +49,7 @@ const stub = http.createServer((req, res) => {
         ? { weights: vec(42).map((x) => 20 * x), bias: 0, positives: 12, negatives: 30 }
         : { weights: null, bias: null, positives: 1, negatives: 0 }));
     } else if (req.url === "/knn") {
+      lastKnn = parsed as unknown as typeof lastKnn;
       res.end(JSON.stringify([]));
     } else {
       res.statusCode = 404;
@@ -106,6 +108,26 @@ describe("ml (stub sidecar)", () => {
     expect(after.embedded).toBe(before.embedded + 1);
     expect(after.embedded).toBeLessThan(after.total);
     expect(await db.fileEmbedding.findUnique({ where: { fileId: ids[1]! } })).toBeNull();
+  });
+
+  it("suggestForFiles queries the normalised mean embedding, excluding the files", async () => {
+    const model = mlModel();
+    await db.file.createMany({ data: ["mlb1", "mlb2", "mlb3"].map((id) => ({ id, size: 1, mtime: new Date(), mediaType: "image" })) });
+    await db.fileEmbedding.createMany({ data: [
+      { fileId: "mlb1", vector: Buffer.from(new Float32Array(vec(3)).buffer), model },
+      { fileId: "mlb2", vector: Buffer.from(new Float32Array(vec(5)).buffer), model },
+      { fileId: "mlb3", vector: Buffer.from(new Float32Array(vec(7)).buffer), model: "old-model" },
+    ] });
+    lastKnn = undefined;
+    await ml.suggestForFiles(["mlb1", "mlb2", "mlb3"]);
+    const a = vec(3);
+    const b = vec(5);
+    const sum = a.map((x, i) => x + b[i]!);
+    const n = Math.hypot(...sum);
+    expect(lastKnn!.vector[0]).toBeCloseTo(sum[0]! / n, 5);
+    expect(lastKnn!.vector[100]).toBeCloseTo(sum[100]! / n, 5);
+    expect(lastKnn!.excludeIds).toEqual(["mlb1", "mlb2", "mlb3"]);
+    expect(await ml.suggestForFiles(["mlb3"])).toEqual([]); // stale-model only → nothing to query
   });
 
   it("combined tag vector: cold start = text embedding; cache invalidated by deletion", async () => {

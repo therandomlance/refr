@@ -41,7 +41,11 @@ data/
   palettes/
     <folder>/<name>.json   # subfolders = palette folders
   boards/
-    <name>.json      # moodboard: {items:[{id,fileId,x,y,w,rot,flipX}], view:{x,y,zoom}}; array order = z-order
+    <name>.json      # moodboard: {items, arrows, hidden} — schema in src/lib/boards.ts
+                     #   items: image {fileId,x,y,w,rot,flipX,study?} | text {x,y,w,h,text(markdown),size,color,bg,align}
+                     #   (array order = z-order); arrows: ends are {x,y} or {item} (attached);
+                     #   hidden: file ids hidden from the board's suggestions. Pan/zoom is per device
+                     #   (localStorage), never saved.
 ```
 
 - Location resolved at server boot: CLI flag `--data <dir>` > env `DATA_DIR` > `./data`.
@@ -260,6 +264,7 @@ Depends on: §3, §4. `src/server/api/root.ts` replaces the boilerplate `post` r
 | `sessions` | template CRUD (`list/get/save/delete`), `generate(templateId)` (§11.4), `history(templateId)`, `replay(templateId, historyIndex)`, `renameTemplate` |
 | `palettes` | `list` (walks `data/palettes/` incl. folders; returns `{items, folders}`), `save`, `delete`, `extract(fileId, n)` (§11.5), `move(name, folder)`, `createFolder`, `renameFolder`, `deleteFolder` |
 | `boards` | `list` (name, count, mtime), `get`, `save(name, board)` (whole-document autosave), `create`, `rename`, `delete`, `addFiles(name, fileIds)` (appends a row right of existing content, skips duplicates) |
+| `ml.suggestImagesForFiles` | moodboard suggestions: kNN on the normalised mean embedding of the given files, excluding them |
 | `settings` | `get`, `patch` (→ config service), `scanNow`, `scanStatus`, `thumbStatus`, `setPassword`, `clearPassword` |
 
 Context: session check (§3); public procedures only `auth.login`/`auth.status`. All inputs

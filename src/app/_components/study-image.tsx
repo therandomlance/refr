@@ -31,6 +31,27 @@ const GRID_LINES: Record<Exclude<StudyTools["grid"], "off">, number[]> = {
   "4x4": [25, 50, 75],
 };
 
+/** Composition grid over an image box (viewer + board tiles). Stroke widths are
+ *  divided by the `--zoom` CSS variable an ancestor sets, so lines stay thin. */
+export function GridOverlay({ grid }: { grid: StudyTools["grid"] }) {
+  if (grid === "off") return null;
+  const lines = GRID_LINES[grid];
+  return (
+    <svg className="vgrid" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      {(["under", "over"] as const).map((layer) => (
+        <g key={layer} className={layer}>
+          {lines.map((v) => (
+            <g key={v}>
+              <line x1={v} y1={0} x2={v} y2={100} vectorEffect="non-scaling-stroke" />
+              <line x1={0} y1={v} x2={100} y2={v} vectorEffect="non-scaling-stroke" />
+            </g>
+          ))}
+        </g>
+      ))}
+    </svg>
+  );
+}
+
 /**
  * The current viewer image with study tools applied: flip, filters, a composition
  * grid that tracks the image box, and wheel/drag/double-click zoom + pan.
@@ -106,7 +127,6 @@ export function StudyImage({
   };
   const endPan = () => { panDrag.current = null; };
 
-  const lines = tools.grid === "off" ? null : GRID_LINES[tools.grid];
   const transform = `translate(${zoom.x}px, ${zoom.y}px) scale(${zoom.zoom})${tools.flip ? " scaleX(-1)" : ""}`;
 
   return (
@@ -135,20 +155,7 @@ export function StudyImage({
             img.src = `/api/thumb/${id}`;
           }}
         />
-        {lines && fitted && (
-          <svg className="vgrid" viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
-            {(["under", "over"] as const).map((layer) => (
-              <g key={layer} className={layer}>
-                {lines.map((v) => (
-                  <g key={v}>
-                    <line x1={v} y1={0} x2={v} y2={100} vectorEffect="non-scaling-stroke" />
-                    <line x1={0} y1={v} x2={100} y2={v} vectorEffect="non-scaling-stroke" />
-                  </g>
-                ))}
-              </g>
-            ))}
-          </svg>
-        )}
+        {fitted && <GridOverlay grid={tools.grid} />}
       </div>
     </div>
   );

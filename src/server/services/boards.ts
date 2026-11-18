@@ -5,7 +5,7 @@ import crypto from "node:crypto";
 import { paths } from "./dataDir";
 import { listJson, readJson, safeName, writeJson } from "./jsonStore";
 import { db } from "refr/server/db";
-import { BOARD_GAP, BOARD_ITEM_WIDTH, boardSchema, type Board, type BoardItem } from "refr/lib/boards";
+import { BOARD_GAP, BOARD_ITEM_WIDTH, boardSchema, type Board, type ImageItem } from "refr/lib/boards";
 
 /** Moodboards: one plaintext JSON file per board in data/boards/. */
 
@@ -16,7 +16,8 @@ export function list(): { name: string; count: number; mtime: number }[] {
     .map((name) => {
       const file = path.join(paths.boards, name + ".json");
       const board = readJson(file, boardSchema);
-      return { name, count: board?.items.length ?? 0, mtime: fs.statSync(file).mtimeMs };
+      const count = board?.items.filter((i) => i.kind === "image").length ?? 0;
+      return { name, count, mtime: fs.statSync(file).mtimeMs };
     })
     .sort((a, b) => b.mtime - a.mtime);
 }
@@ -62,7 +63,7 @@ export function remove(name: string) {
  */
 export async function addFiles(name: string, fileIds: string[]): Promise<{ added: number; skipped: number }> {
   const board = get(name);
-  const onBoard = new Set(board.items.map((i) => i.fileId));
+  const onBoard = new Set(board.items.flatMap((i) => (i.kind === "image" ? [i.fileId] : [])));
   const fresh = [...new Set(fileIds)].filter((id) => !onBoard.has(id));
   const known = new Set(
     (await db.file.findMany({ where: { id: { in: fresh } }, select: { id: true } })).map((f) => f.id),
@@ -70,8 +71,8 @@ export async function addFiles(name: string, fileIds: string[]): Promise<{ added
   const toAdd = fresh.filter((id) => known.has(id));
   let x = board.items.length ? Math.max(...board.items.map((i) => i.x + i.w)) + BOARD_GAP : 0;
   const y = board.items.length ? Math.min(...board.items.map((i) => i.y)) : 0;
-  const items: BoardItem[] = toAdd.map((fileId) => {
-    const item = { id: crypto.randomUUID(), fileId, x, y, w: BOARD_ITEM_WIDTH, rot: 0, flipX: false };
+  const items: ImageItem[] = toAdd.map((fileId) => {
+    const item: ImageItem = { kind: "image", id: crypto.randomUUID(), fileId, x, y, w: BOARD_ITEM_WIDTH, rot: 0, flipX: false };
     x += BOARD_ITEM_WIDTH + BOARD_GAP;
     return item;
   });

@@ -25,6 +25,11 @@ export const mlRouter = createTRPCRouter({
     .input(z.object({ tag: z.string() }))
     .query(({ input }) => ml.suggestImagesOutsideRoot(input.tag)),
 
+  /** moodboard suggestions: like the combined embedding of these files */
+  suggestImagesForFiles: protectedProcedure
+    .input(z.object({ fileIds: z.array(z.string()).min(1).max(5000) }))
+    .query(({ input }) => ml.suggestForFiles(input.fileIds)),
+
   suggestTagsForFile: protectedProcedure
     .input(z.object({ fileId: z.string() }))
     .query(({ input }) => ml.suggestTagsForFile(input.fileId)),

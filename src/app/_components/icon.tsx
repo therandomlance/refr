@@ -22,6 +22,14 @@ const shapes = {
   blur: <><circle cx="12" cy="12" r="2" /><circle cx="12" cy="12" r="5.5" opacity=".6" /><circle cx="12" cy="12" r="9" opacity=".3" /></>,
   steps: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16M15 4v16" /><path d="M3 4h6v16H3z" fill="currentColor" stroke="none" opacity=".9" /><path d="M9 4h6v16H9z" fill="currentColor" stroke="none" opacity=".4" /></>,
   board: <><rect x="3" y="4" width="9" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="10" rx="1.5" /><rect x="6" y="14" width="11" height="7" rx="1.5" /></>,
+  undo: <path d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11" />,
+  redo: <path d="m15 14 5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13" />,
+  cursor: <path d="M5 3.5 18.5 10l-6 1.8L10 18z" />,
+  text: <path d="M5 6V4.5h14V6M12 4.5v15M9 19.5h6" />,
+  arrow: <path d="M5 19 19 5M10 5h9v9" />,
+  "align-left": <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />,
+  "align-center": <path d="M4 6h16M7 10h10M4 14h16M7 18h10" />,
+  "align-right": <path d="M4 6h16M10 10h10M4 14h16M10 18h10" />,
   gridlines: <><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></>,
 };
 

@@ -570,6 +570,30 @@ export async function similar(fileId: string): Promise<{ fileId: string; score: 
   return r.filter((x) => x.fileId !== fileId).slice(0, 200);
 }
 
+/**
+ * Images like a set of files (a moodboard): kNN on the normalised mean of their
+ * embeddings, excluding the files themselves. Files without a current-model
+ * embedding are skipped (no on-demand embedding — this runs on every board edit).
+ * The caller filters its own hidden list, so hiding one doesn't refetch.
+ */
+export async function suggestForFiles(fileIds: string[], k = 100): Promise<{ fileId: string; score: number }[]> {
+  if (fileIds.length === 0 || !(await isReady())) return [];
+  const rows = await db.fileEmbedding.findMany({
+    where: { fileId: { in: fileIds }, model: currentModelId() },
+    select: { vector: true },
+  });
+  if (rows.length === 0) return [];
+  const mean = new Float32Array(rows[0]!.vector.length / 4);
+  for (const r of rows) {
+    const v = new Float32Array(r.vector.buffer, r.vector.byteOffset, r.vector.length / 4);
+    for (let i = 0; i < mean.length; i++) mean[i]! += v[i]!;
+  }
+  const norm = Math.hypot(...mean);
+  if (norm < 1e-9) return [];
+  for (let i = 0; i < mean.length; i++) mean[i]! /= norm;
+  return knn(mean, k, 0, undefined, fileIds);
+}
+
 // ---------------------------------------------------------------- suggestion exclusions
 
 export async function getExclusions(tagName: string): Promise<Set<string>> {
