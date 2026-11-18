@@ -8,6 +8,10 @@ const confidence = z.number().min(0).max(1);
 const ids = z.array(z.string()).max(2000);
 const change = z.object({ fileId: z.string(), before: z.array(z.string()), after: z.array(z.string()) });
 const denial = z.object({ tag: z.string(), fileId: z.string() });
+const candidate = z.object({
+  tagId: z.number().int(), fileId: z.string(), confidence: z.number(), score: z.number(), mode: z.number().int(),
+  rank: z.number().int(), rivalTag: z.string().nullable(), rivalConfidence: z.number().nullable(), nearDenial: z.boolean(), sweptAt: z.date(),
+});
 
 export const taggingRouter = createTRPCRouter({
   overview: protectedProcedure
@@ -42,7 +46,7 @@ export const taggingRouter = createTRPCRouter({
     .mutation(({ input }) => tagging.commitFiles(input)),
 
   undo: protectedProcedure
-    .input(z.object({ changes: z.array(change), denied: z.array(denial) }))
+    .input(z.object({ changes: z.array(change), denied: z.array(denial), candidates: z.array(candidate).max(20000).default([]) }))
     .mutation(({ input }) => tagging.undo(input)),
 
   resweep: protectedProcedure.mutation(() => {

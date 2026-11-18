@@ -111,6 +111,12 @@ export async function batch(input: {
   };
 }
 
+/** Drop a tag when one of its descendants is also suggested (the child implies
+ *  it), keep confidence order, and cap the chips so a tile stays readable. */
+export function mostSpecific<T extends { tag: string }>(tags: T[], cap = 12): T[] {
+  return tags.filter((t) => !tags.some((o) => o.tag.startsWith(t.tag + "/"))).slice(0, cap);
+}
+
 /** Recently added files with ready candidates, newest first (keyset on addedAt, id). */
 export async function byFile(input: { minConfidence: number; cursor: string | null; limit: number }) {
   const ready = { confidence: { gte: input.minConfidence }, rivalTag: null, nearDenial: false };
@@ -132,7 +138,7 @@ export async function byFile(input: { minConfidence: number; cursor: string | nu
       candidates: {
         where: ready,
         orderBy: { confidence: "desc" },
-        take: 3,
+        take: 50,
         select: { confidence: true, tag: { select: { name: true } } },
       },
     },
@@ -140,13 +146,32 @@ export async function byFile(input: { minConfidence: number; cursor: string | nu
   const page = files.slice(0, input.limit);
   const last = page[page.length - 1];
   return {
-    items: page.map((f) => ({ fileId: f.id, tags: f.candidates.map((c) => ({ tag: c.tag.name, confidence: c.confidence })) })),
+    items: page.map((f) => ({ fileId: f.id, tags: mostSpecific(f.candidates.map((c) => ({ tag: c.tag.name, confidence: c.confidence }))) })),
     nextCursor: files.length > input.limit && last ? `${last.addedAt.getTime()}|${last.id}` : null,
   };
 }
 
 export type Denial = { tag: string; fileId: string };
-export type CommitResult = { changes: TagChange[]; denied: Denial[] };
+/** Inbox rows a commit removed, so undo can put the tiles straight back
+ *  (without them, an undone file only returns after the next re-sweep). */
+export type CandidateRow = {
+  tagId: number; fileId: string; confidence: number; score: number; mode: number; rank: number;
+  rivalTag: string | null; rivalConfidence: number | null; nearDenial: boolean; sweptAt: Date;
+};
+export type CommitResult = { changes: TagChange[]; denied: Denial[]; candidates: CandidateRow[] };
+
+const snapshotCandidates = (fileIds: string[]) =>
+  fileIds.length ? db.tagCandidate.findMany({ where: { fileId: { in: [...new Set(fileIds)] } } }) : Promise.resolve([]);
+
+/** Snapshot rows that the commit deleted (it may delete for ancestors/other tags too). */
+async function removedSince(before: CandidateRow[]): Promise<CandidateRow[]> {
+  if (!before.length) return [];
+  const still = await db.tagCandidate.findMany({
+    where: { fileId: { in: [...new Set(before.map((r) => r.fileId))] } }, select: { tagId: true, fileId: true },
+  });
+  const kept = new Set(still.map((r) => `${r.tagId}\0${r.fileId}`));
+  return before.filter((r) => !kept.has(`${r.tagId}\0${r.fileId}`));
+}
 
 /** Collapse sequential edits of one file into a single before→after (undo needs one). */
 function mergeChanges(changes: TagChange[]): TagChange[] {
@@ -164,6 +189,7 @@ function mergeChanges(changes: TagChange[]): TagChange[] {
 export async function commit(input: {
   tag: string; accept: string[]; deny: string[]; reassign: { tag: string; fileIds: string[] }[];
 }): Promise<CommitResult> {
+  const before = await snapshotCandidates([...input.accept, ...input.deny, ...input.reassign.flatMap((r) => r.fileIds)]);
   const changes: TagChange[] = [];
   if (input.accept.length) changes.push(...(await setTags(input.accept, [input.tag], [])).changes);
   const deny = new Set(input.deny);
@@ -174,7 +200,7 @@ export async function commit(input: {
   }
   const denied = (await excludeSuggestions(input.tag, [...deny])).map((fileId) => ({ tag: input.tag, fileId }));
   requestSweep({ tags: [input.tag, ...input.reassign.map((r) => r.tag)] });
-  return { changes: mergeChanges(changes), denied };
+  return { changes: mergeChanges(changes), denied, candidates: await removedSince(before) };
 }
 
 /** By-file commit: per file, tags to accept and tags to reject. */
@@ -185,15 +211,24 @@ export async function commitFiles(items: { fileId: string; accept: string[]; den
     for (const t of it.accept) acceptBy.set(t, [...(acceptBy.get(t) ?? []), it.fileId]);
     for (const t of it.deny) denyBy.set(t, [...(denyBy.get(t) ?? []), it.fileId]);
   }
+  const before = await snapshotCandidates(items.map((i) => i.fileId));
   const changes: TagChange[] = [];
   for (const [tag, ids] of acceptBy) changes.push(...(await setTags(ids, [tag], [])).changes);
   const denied: Denial[] = [];
   for (const [tag, ids] of denyBy) denied.push(...(await excludeSuggestions(tag, ids)).map((fileId) => ({ tag, fileId })));
   requestSweep({ tags: [...acceptBy.keys(), ...denyBy.keys()] });
-  return { changes: mergeChanges(changes), denied };
+  return { changes: mergeChanges(changes), denied, candidates: await removedSince(before) };
 }
 
 export async function undo(result: CommitResult) {
   await undoTags(result.changes);
   await restoreSuggestions(result.denied);
+  // put the inbox rows back (a re-sweep in between may already have; skip those)
+  for (const r of result.candidates) {
+    await db.$executeRawUnsafe(
+      `INSERT OR IGNORE INTO TagCandidate (tagId, fileId, confidence, score, mode, rank, rivalTag, rivalConfidence, nearDenial, sweptAt)
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ? WHERE EXISTS (SELECT 1 FROM Tag WHERE id = ?) AND EXISTS (SELECT 1 FROM File WHERE id = ?)`,
+      r.tagId, r.fileId, r.confidence, r.score, r.mode, r.rank, r.rivalTag, r.rivalConfidence, r.nearDenial, r.sweptAt, r.tagId, r.fileId,
+    );
+  }
 }

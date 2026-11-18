@@ -23,7 +23,7 @@ export function useReviewCommit() {
     void utils.ml.invalidate();
   };
 
-  const report = (result: CommitResult) => {
+  const report = (result: CommitResult, onUndo?: () => void) => {
     refresh();
     const tagged = result.changes.length;
     const rejected = result.denied.length;
@@ -33,6 +33,7 @@ export function useReviewCommit() {
       undo: parts.length ? async () => {
         await undo.mutateAsync(result);
         refresh();
+        onUndo?.();
       } : undefined,
     });
     return result;
@@ -41,6 +42,7 @@ export function useReviewCommit() {
   return {
     isPending: commit.isPending || commitFiles.isPending || undo.isPending,
     commitTag: async (input: Parameters<typeof commit.mutateAsync>[0]) => report(await commit.mutateAsync(input)),
-    commitFiles: async (input: Parameters<typeof commitFiles.mutateAsync>[0]) => report(await commitFiles.mutateAsync(input)),
+    commitFiles: async (input: Parameters<typeof commitFiles.mutateAsync>[0], onUndo?: () => void) =>
+      report(await commitFiles.mutateAsync(input), onUndo),
   };
 }

@@ -190,9 +190,32 @@ describe("tagging inbox (stub sidecar)", () => {
     expect(all).toEqual(expect.arrayContaining([cands[0], cands[5]]));
     expect(new Set(all).size).toBe(all.length);
 
+    const tag = await db.tag.findUniqueOrThrow({ where: { name: A } });
+    const rowsBefore = await db.tagCandidate.count({ where: { tagId: tag.id, fileId: { in: [cands[0]!, cands[5]!] } } });
+    expect(rowsBefore).toBe(2);
     const r = await tagging.commitFiles([{ fileId: cands[0]!, accept: [A], deny: [] }, { fileId: cands[5]!, accept: [], deny: [A] }]);
     expect(r.changes.map((c) => c.fileId)).toEqual([cands[0]]);
     expect(r.denied).toEqual([{ tag: A, fileId: cands[5] }]);
+    expect(await db.tagCandidate.count({ where: { tagId: tag.id, fileId: { in: [cands[0]!, cands[5]!] } } })).toBe(0);
     await tagging.undo(r);
+    // undo puts the inbox rows straight back — no wait for a re-sweep
+    expect(await db.tagCandidate.count({ where: { tagId: tag.id, fileId: { in: [cands[0]!, cands[5]!] } } })).toBe(rowsBefore);
+  });
+
+  it("byFile hides a suggested tag when a descendant is also suggested", async () => {
+    const parent = await db.tag.upsert({ where: { name: "tgchars" }, create: { name: "tgchars" }, update: {} });
+    await db.tagCandidate.create({
+      data: { tagId: parent.id, fileId: cands[0]!, confidence: 0.95, score: 1, mode: 0, rank: 0, nearDenial: false, sweptAt: new Date() },
+    });
+    let tags: string[] | undefined;
+    let cursor: string | null = null;
+    do {
+      const p = await tagging.byFile({ minConfidence: 0.6, cursor, limit: 50 });
+      tags ??= p.items.find((i) => i.fileId === cands[0])?.tags.map((t) => t.tag);
+      cursor = p.nextCursor;
+    } while (cursor && !tags);
+    expect(tags).toEqual([A]); // "tgchars" is implied by tgchars/a
+    expect(tagging.mostSpecific([{ tag: "x" }, { tag: "x/y" }, { tag: "xy" }, { tag: "x/y/z" }]).map((t) => t.tag)).toEqual(["xy", "x/y/z"]);
+    await db.tag.delete({ where: { id: parent.id } });
   });
 });
