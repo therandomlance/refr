@@ -40,6 +40,8 @@ data/
   searches/          # saved searches, one JSON file each: <name>.json
   palettes/
     <folder>/<name>.json   # subfolders = palette folders
+  boards/
+    <name>.json      # moodboard: {items:[{id,fileId,x,y,w,rot,flipX}], view:{x,y,zoom}}; array order = z-order
 ```
 
 - Location resolved at server boot: CLI flag `--data <dir>` > env `DATA_DIR` > `./data`.
@@ -257,6 +259,7 @@ Depends on: §3, §4. `src/server/api/root.ts` replaces the boilerplate `post` r
 | `queue` | `get`, `set(fileIds[])` (reorder/add/remove all go through one setter), `clear`, `save(name)`, `listSaved`, `load(name)`, `deleteSaved(name)` |
 | `sessions` | template CRUD (`list/get/save/delete`), `generate(templateId)` (§11.4), `history(templateId)`, `replay(templateId, historyIndex)`, `renameTemplate` |
 | `palettes` | `list` (walks `data/palettes/` incl. folders; returns `{items, folders}`), `save`, `delete`, `extract(fileId, n)` (§11.5), `move(name, folder)`, `createFolder`, `renameFolder`, `deleteFolder` |
+| `boards` | `list` (name, count, mtime), `get`, `save(name, board)` (whole-document autosave), `create`, `rename`, `delete`, `addFiles(name, fileIds)` (appends a row right of existing content, skips duplicates) |
 | `settings` | `get`, `patch` (→ config service), `scanNow`, `scanStatus`, `thumbStatus`, `setPassword`, `clearPassword` |
 
 Context: session check (§3); public procedures only `auth.login`/`auth.status`. All inputs
@@ -323,8 +326,13 @@ WHERE
 - wildcard: `t.name LIKE ? ESCAPE '\'` with `*`→`%`, and literal `%`/`_`/`\` escaped.
 
 Metadata keywords, registry pattern (`KEYWORDS: Record<string, (b: Builder) => void>`):
-- `untagged` → `NOT EXISTS (SELECT 1 FROM FileTag WHERE fileId = f.id)`.
-- Extensible by adding entries; unknown keyword → treated as a literal tag.
+- `untagged` → `NOT EXISTS (SELECT 1 FROM FileTag WHERE fileId = f.id)`; `tagged`; `missing` (no remaining FilePath).
+- `type:image|video`, `orient:landscape|portrait|square` (±2% = square). Namespaced because a
+  keyword shadows a same-named tag.
+- Value-carrying (grammar in `parseValueKeyword`, `src/lib/keywords.ts`, client-safe):
+  `w>N`/`h<=N` (ops `> < >= <= =`, unknown dimensions never match), `tags=N` (tag count),
+  `added:<N><d|w|m|y>`, `date:YYYY[-MM[-DD]]` (file mtime, local calendar). `path:<dir>`.
+- Extensible by adding entries; unknown keyword or malformed value → treated as a literal tag.
 
 Grouping OR: consecutive `~` tokens form one OR group (booru convention).
 

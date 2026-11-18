@@ -53,6 +53,15 @@ export function Dialog({
   );
 }
 
+/** onKeyDown for a vertical list of picker buttons: ↑/↓ move focus, wrapping. */
+export function cycleButtonFocus(e: React.KeyboardEvent<HTMLElement>) {
+  if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  e.preventDefault();
+  const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
+  const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
+  buttons[(i + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus();
+}
+
 export function ConfirmDialog({
   title,
   body,

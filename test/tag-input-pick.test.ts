@@ -53,3 +53,15 @@ describe("resolveEnter", () => {
       .toEqual({ kind: "literal", value: "newtag" });
   });
 });
+
+describe("value keywords", () => {
+  it("Enter keeps a complete value keyword literal instead of going semantic", () => {
+    const r = resolveEnter({ raw: "w>2000", debounced: "w>2000", open: true, rows: [], highlight: 0, showSemantic: true, navigated: false });
+    expect(r).toEqual({ kind: "literal", value: "w>2000" });
+  });
+
+  it("hint rows fill the input", () => {
+    const r = resolveEnter({ raw: "add", debounced: "add", open: true, rows: [{ name: "added:" }], highlight: 0, showSemantic: false, navigated: false });
+    expect(r).toEqual({ kind: "fill", prefix: "added:" });
+  });
+});

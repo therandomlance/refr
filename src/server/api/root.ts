@@ -1,4 +1,5 @@
 import { authRouter } from "refr/server/api/routers/auth";
+import { boardsRouter } from "refr/server/api/routers/boards";
 import { browseRouter } from "refr/server/api/routers/browse";
 import { filesRouter } from "refr/server/api/routers/files";
 import { mlRouter } from "refr/server/api/routers/ml";
@@ -24,6 +25,7 @@ export const appRouter = createTRPCRouter({
   queue: queueRouter,
   sessions: sessionsRouter,
   palettes: palettesRouter,
+  boards: boardsRouter,
   settings: settingsRouter,
 });
 

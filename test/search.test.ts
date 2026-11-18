@@ -149,3 +149,87 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await idsOf([makeToken({ tag: "artwork/fanart/mass effect/liara" })])).toEqual(["f2"]);
   });
 });
+
+describe("metadata + value keywords", () => {
+  const day = 86_400_000;
+  // kw1 landscape image, 3 tags, dated 2024-03-15, added today, has a path
+  // kw2 portrait video, untagged, dated 2023, added 40 days ago, no paths (missing)
+  // kw3 square image (1000×1010, within 2%), 1 tag, dated 2024-12-31
+  // kw4 image with unknown dimensions
+  const fixtures = [
+    { id: "kw1", w: 3000, h: 2000, type: "image", mtime: new Date(2024, 2, 15, 12), added: Date.now(), tags: ["kwt/a", "kwt/b", "kwt/c"], path: true },
+    { id: "kw2", w: 1080, h: 1920, type: "video", mtime: new Date(2023, 6, 1), added: Date.now() - 40 * day, tags: [], path: false },
+    { id: "kw3", w: 1000, h: 1010, type: "image", mtime: new Date(2024, 11, 31, 23), added: Date.now() - 3 * day, tags: ["kwt/a"], path: true },
+    { id: "kw4", w: null, h: null, type: "image", mtime: new Date(2025, 0, 1), added: Date.now() - 400 * day, tags: [], path: true },
+  ] as const;
+
+  it("setup", async () => {
+    for (const f of fixtures) {
+      await db.file.create({
+        data: { id: f.id, size: 1, mtime: f.mtime, addedAt: new Date(f.added), mediaType: f.type, width: f.w, height: f.h },
+      });
+      if (f.path) await db.filePath.create({ data: { path: `/refrtest/kw/${f.id}.png`, fileId: f.id, size: 1, mtime: f.mtime } });
+      for (const tag of f.tags) {
+        const t = await db.tag.upsert({ where: { name: tag }, create: { name: tag }, update: {} });
+        await db.fileTag.create({ data: { fileId: f.id, tagId: t.id } });
+      }
+    }
+  });
+
+  async function ids(q: string): Promise<string[]> {
+    const res = await executeList({ where: tokensToWhere(parseQuery(q)), sort: "date" });
+    return res.items.map((i) => i.id).filter((id) => id.startsWith("kw")).sort();
+  }
+
+  it("type and orientation", async () => {
+    expect(await ids("type:video")).toEqual(["kw2"]);
+    expect(await ids("type:image")).toEqual(["kw1", "kw3", "kw4"]);
+    expect(await ids("orient:landscape")).toEqual(["kw1"]);
+    expect(await ids("orient:portrait")).toEqual(["kw2"]);
+    expect(await ids("orient:square")).toEqual(["kw3"]);
+  });
+
+  it("missing", async () => {
+    expect(await ids("missing")).toEqual(["kw2"]);
+    expect(await ids("-missing")).toEqual(["kw1", "kw3", "kw4"]);
+  });
+
+  it("dimension comparisons skip unknown sizes", async () => {
+    expect(await ids("w>2000")).toEqual(["kw1"]);
+    expect(await ids("w>=1080")).toEqual(["kw1", "kw2"]);
+    expect(await ids("h<1500")).toEqual(["kw3"]);
+    expect(await ids("w=1000")).toEqual(["kw3"]);
+    expect(await ids("-w>2000")).toEqual(["kw2", "kw3", "kw4"]);
+  });
+
+  it("tag count", async () => {
+    expect(await ids("tags=0")).toEqual(["kw2", "kw4"]);
+    expect(await ids("tags>=1")).toEqual(["kw1", "kw3"]);
+    expect(await ids("tags>2")).toEqual(["kw1"]);
+  });
+
+  it("added:", async () => {
+    expect(await ids("added:7d")).toEqual(["kw1", "kw3"]);
+    expect(await ids("added:2m")).toEqual(["kw1", "kw2", "kw3"]);
+    expect(await ids("-added:1y")).toEqual(["kw4"]);
+  });
+
+  it("date:", async () => {
+    expect(await ids("date:2024")).toEqual(["kw1", "kw3"]);
+    expect(await ids("date:2024-03")).toEqual(["kw1"]);
+    expect(await ids("date:2024-03-15")).toEqual(["kw1"]);
+    expect(await ids("date:2024-12")).toEqual(["kw3"]);
+    expect(await ids("date:2023-07-01")).toEqual(["kw2"]);
+  });
+
+  it("combines with tags and each other", async () => {
+    expect(await ids("kwt type:image orient:square")).toEqual(["kw3"]);
+    expect(await ids("~type:video ~w>2000")).toEqual(["kw1", "kw2"]);
+  });
+
+  it("malformed values stay ordinary tags", async () => {
+    expect(await ids("w>abc")).toEqual([]);
+    expect(await ids("date:2024-13")).toEqual([]);
+    expect(await ids("added:7x")).toEqual([]);
+  });
+});

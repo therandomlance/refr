@@ -4,7 +4,8 @@ import { useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { ContextMenu, type MenuItem } from "./context-menu";
-import { Dialog, TagPromptDialog } from "./dialog";
+import { cycleButtonFocus, Dialog, TagPromptDialog } from "./dialog";
+import { boardAddedFeedback, BoardPickerDialog } from "./board-picker";
 import { useTagEdit } from "./tag-actions";
 import { moveQueueItems } from "refr/lib/queue-order";
 import { useActionFeedback } from "./action-feedback";
@@ -26,6 +27,7 @@ export function useFileContextMenu(
 ) {
   const [menu, setMenu] = useState<{ x: number; y: number; fileIds: string[]; grid?: GridMenuActions } | null>(null);
   const [sendPicker, setSendPicker] = useState<{ fileIds: string[] } | null>(null);
+  const [boardPicker, setBoardPicker] = useState<{ fileIds: string[]; startNew: boolean } | null>(null);
   const [prompt, setPrompt] = useState<null | { mode: "add" | "remove"; fileIds: string[]; fromSelection: boolean }>(null);
   // set when a tag is actually added from the prompt, so closing it can drop the selection
   const tagAdded = useRef(false);
@@ -34,6 +36,14 @@ export function useFileContextMenu(
   const notify = useActionFeedback();
 
   const queueQ = api.queue.get.useQuery();
+  const boardsQ = api.boards.list.useQuery();
+  const addToBoard = api.boards.addFiles.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: (r, v) => {
+      void utils.boards.invalidate();
+      notify(boardAddedFeedback(r, v.name));
+    },
+  });
   const settings = api.settings.get.useQuery();
   const mlStatus = api.ml.status.useQuery(undefined, {
     // keep polling until the sidecar is up — the menu's "Find similar" entry
@@ -104,6 +114,7 @@ export function useFileContextMenu(
       case "removeTag": openTagPrompt("remove", fileIds); return true;
       case "palette": createPalette(fileIds); return true;
       case "sendTo": openSendPicker(fileIds); return true;
+      case "addToBoard": setBoardPicker({ fileIds, startNew: false }); return true;
       case "moveUp": case "moveDown": case "moveStart": case "moveEnd":
         if (!reorderMoves) return false;
         reorderMoves[action](fileIds);
@@ -124,16 +135,7 @@ export function useFileContextMenu(
       )}
       {sendPicker && (
         <Dialog title={`Send ${sendPicker.fileIds.length} file${sendPicker.fileIds.length === 1 ? "" : "s"} to`} onClose={() => setSendPicker(null)}>
-          <div
-            className="flex flex-col gap-2"
-            onKeyDown={(e) => {
-              if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
-              e.preventDefault();
-              const buttons = [...e.currentTarget.querySelectorAll<HTMLButtonElement>("button")];
-              const i = buttons.indexOf(document.activeElement as HTMLButtonElement);
-              buttons[(i + (e.key === "ArrowDown" ? 1 : -1) + buttons.length) % buttons.length]?.focus();
-            }}
-          >
+          <div className="flex flex-col gap-2" onKeyDown={cycleButtonFocus}>
             {dests.map((d, i) => (
               <button
                 key={i}
@@ -151,6 +153,13 @@ export function useFileContextMenu(
             ))}
           </div>
         </Dialog>
+      )}
+      {boardPicker && (
+        <BoardPickerDialog
+          fileIds={boardPicker.fileIds}
+          startNew={boardPicker.startNew}
+          onClose={() => setBoardPicker(null)}
+        />
       )}
       {prompt && (
         <TagPromptDialog
@@ -207,6 +216,17 @@ export function useFileContextMenu(
         })),
       });
     }
+    items.push({
+      label: "Add to board",
+      hint: FILE_SHORTCUTS.addToBoard.hint(),
+      submenu: [
+        ...(boardsQ.data ?? []).map((b) => ({
+          label: b.name,
+          onClick: () => addToBoard.mutate({ name: b.name, fileIds }),
+        })),
+        { label: "New board…", onClick: () => setBoardPicker({ fileIds, startNew: true }) },
+      ],
+    });
     items.push(
       "sep",
       { label: "Add tag…", hint: FILE_SHORTCUTS.addTag.hint(), onClick: () => openTagPrompt("add", fileIds) },

@@ -15,7 +15,8 @@ export function ActionFeedback({ children }: { children: React.ReactNode }) {
   const [undoing, setUndoing] = useState(false);
   const notify = useCallback((next: Notice) => setNotice(next), []);
   const client = useQueryClient();
-  const pending = useIsMutating() > 0 || undoing;
+  // meta.silent: background writes (board autosave) never show "Working…"
+  const pending = useIsMutating({ predicate: (m) => !m.options.meta?.silent }) > 0 || undoing;
 
   useEffect(() => client.getMutationCache().subscribe((event) => {
     if (event.type !== "updated") return;

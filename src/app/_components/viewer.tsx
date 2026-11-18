@@ -1,7 +1,7 @@
 "use client";
 import { Icon } from "./icon";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, useSyncExternalStore } from "react";
 import { api } from "refr/trpc/react";
 import { useViewerList } from "./viewer-store";
 import { TagInput } from "./tag-input";
@@ -12,6 +12,10 @@ import { useTagEdit } from "./tag-actions";
 import { useActionFeedback } from "./action-feedback";
 import { copyText } from "refr/lib/clipboard";
 import type { FileSummary } from "refr/server/services/search";
+import { matchViewerShortcut, VIEWER_SHORTCUTS } from "refr/lib/keyboard";
+import { ZOOM_RESET, type ZoomState } from "refr/lib/zoom";
+import { studyFilter, useStudyTools } from "./study-tools";
+import { StudyFilterDefs, StudyImage } from "./study-image";
 
 /** gap between adjacent panes in the swipe track, px */
 const PANE_GAP = 16;
@@ -87,6 +91,11 @@ export function Viewer({
   };
   const currentId = onNavigate ? fileId : localId;
 
+  const study = useStudyTools();
+  const [zoom, setZoom] = useState<ZoomState>(ZOOM_RESET);
+  useEffect(() => setZoom(ZOOM_RESET), [currentId, controlledIndex]);
+  const zoomed = zoom.zoom > 1;
+
   const file = api.files.byId.useQuery({ id: currentId });
   const settings = api.settings.get.useQuery();
   const mlStatus = api.ml.status.useQuery();
@@ -137,31 +146,40 @@ export function Viewer({
     );
   };
 
-  const keyHandler = useCallback(
-    (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === "INPUT") return;
-      if (sheetOpen) {
-        if (e.key === "Escape") setSheetOpen(false);
-        return;
-      }
-      if (e.key === "ArrowLeft") nav(-1);
-      else if (e.key === "ArrowRight") nav(1);
-      else if (e.key === "Escape") onClose();
-      else if (e.key === "f") {
+  // Viewer keymap (VIEWER_SHORTCUTS) — separate from the grid's FILE_SHORTCUTS.
+  // The ref always holds the latest closure, so the listener never goes stale.
+  const keyHandler = useRef<(e: KeyboardEvent) => void>(() => undefined);
+  keyHandler.current = (e: KeyboardEvent) => {
+    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    const action = matchViewerShortcut(e);
+    if (sheetOpen) {
+      if (action === "close") setSheetOpen(false);
+      return;
+    }
+    switch (action) {
+      case "prev": nav(-1); break;
+      case "next": nav(1); break;
+      case "close": onClose(); break;
+      case "panels":
         setLeftOpen((l) => {
           const next = !(l || rightOpen);
           setRightOpen(next);
           return next;
         });
-      }
-    },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [items, listIndex, onClose, controlledIndex, onNavigate, sheetOpen],
-  );
+        break;
+      case "flip": study.toggleFlip(); break;
+      case "gray": study.toggleGray(); break;
+      case "blur": study.toggleBlur(); break;
+      case "value": study.cycleValue(); break;
+      case "grid": if (!isVideo) study.cycleGrid(); break;
+      case "resetZoom": setZoom(ZOOM_RESET); break;
+    }
+  };
   useEffect(() => {
-    window.addEventListener("keydown", keyHandler);
-    return () => window.removeEventListener("keydown", keyHandler);
-  }, [keyHandler]);
+    const onKey = (e: KeyboardEvent) => keyHandler.current(e);
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const currentFile = file.data;
   // Fall back to the list's media type so a swiped-in image shows immediately instead of
@@ -199,7 +217,7 @@ export function Viewer({
   const onTouchStart = (e: React.TouchEvent) => {
     const t = e.target as HTMLElement;
     if (
-      pendingNav.current != null || e.touches.length > 1 ||
+      pendingNav.current != null || e.touches.length > 1 || zoomed ||
       (window.visualViewport?.scale ?? 1) > 1.01 || // pinch-zoomed: let the browser pan
       t.closest("button, input, a, .carousel")
     ) {
@@ -279,6 +297,7 @@ export function Viewer({
 
   return (
     <div className="viewer">
+      <StudyFilterDefs />
       {leftOpen && currentFile && (
         <div className="vside left" onClick={(e) => e.stopPropagation()}>
           <h3>Metadata</h3>
@@ -339,11 +358,17 @@ export function Viewer({
           )}
           <div key={baseIndex} className="vpane cur" data-backdrop="">
             {mediaType === "image" ? (
-              <PaneImage key={currentId} id={currentId} mediaType="image" />
+              <StudyImage key={currentId} id={currentId} tools={study.tools} zoom={zoom} setZoom={setZoom} />
             ) : file.isLoading ? <p role="status" className="state-message">Loading image…</p> : file.isError ? (
               <div role="alert" className="state-message">Could not load this file. <button className="btn" onClick={() => void file.refetch()}>Try again</button></div>
             ) : isVideo ? (
-              <video key={currentId} src={`/api/file/${currentId}`} controls autoPlay />
+              <video
+                key={currentId}
+                src={`/api/file/${currentId}`}
+                controls
+                autoPlay
+                style={{ transform: study.tools.flip ? "scaleX(-1)" : undefined, filter: studyFilter(study.tools) }}
+              />
             ) : null}
           </div>
           {nextItem && (
@@ -353,6 +378,12 @@ export function Viewer({
           )}
         </div>
         {overlayTop}
+        <StudyBar
+          study={study}
+          isVideo={isVideo}
+          zoom={zoom.zoom}
+          onResetZoom={() => setZoom(ZOOM_RESET)}
+        />
         {!onNavigate && listIndex >= 0 && items.length > 1 && (
           <div className="vpos" aria-live="polite">{listIndex + 1} / {items.length}{hasMore ? "+" : ""}</div>
         )}
@@ -482,6 +513,44 @@ export function Viewer({
           onClose={() => setConfirmRemove(null)}
         />
       )}
+    </div>
+  );
+}
+
+/** Floating study-tool toggles (flip, grayscale, squint, value steps, grid, zoom reset). */
+function StudyBar({
+  study,
+  isVideo,
+  zoom,
+  onResetZoom,
+}: {
+  study: ReturnType<typeof useStudyTools>;
+  isVideo: boolean;
+  zoom: number;
+  onResetZoom: () => void;
+}) {
+  const t = study.tools;
+  const btn = (label: string, key: keyof typeof VIEWER_SHORTCUTS, on: boolean, onClick: () => void, content: React.ReactNode) => (
+    <button
+      type="button"
+      className={on ? "on" : ""}
+      aria-pressed={on}
+      aria-label={label}
+      title={`${label} (${VIEWER_SHORTCUTS[key].hint()})`}
+      onClick={onClick}
+    >
+      {content}
+    </button>
+  );
+  return (
+    <div className="vstudybar" role="toolbar" aria-label="Study tools" onClick={(e) => e.stopPropagation()}>
+      {btn("Flip horizontally", "flip", t.flip, study.toggleFlip, <Icon name="flip" />)}
+      {btn("Grayscale", "gray", t.gray, study.toggleGray, <Icon name="contrast" />)}
+      {btn("Squint blur", "blur", t.blur, study.toggleBlur, <Icon name="blur" />)}
+      {btn(t.value ? `Value steps: ${t.value}` : "Value steps", "value", t.value > 0, study.cycleValue,
+        t.value ? <span className="vstudy-n">{t.value}</span> : <Icon name="steps" />)}
+      {!isVideo && btn(t.grid === "off" ? "Grid overlay" : `Grid overlay: ${t.grid}`, "grid", t.grid !== "off", study.cycleGrid, <Icon name="gridlines" />)}
+      {!isVideo && zoom > 1 && btn("Reset zoom", "resetZoom", true, onResetZoom, <span className="vstudy-n">{Math.round(zoom * 100)}%</span>)}
     </div>
   );
 }

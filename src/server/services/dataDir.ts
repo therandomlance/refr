@@ -27,6 +27,7 @@ export const paths = {
   searches: path.join(DATA_DIR, "searches"),
   searchesIndex: path.join(DATA_DIR, "searches.json"),
   palettes: path.join(DATA_DIR, "palettes"),
+  boards: path.join(DATA_DIR, "boards"),
 };
 
 export function getSecret(): string {
@@ -46,6 +47,7 @@ export function initDataDir() {
     paths.sessions,
     paths.searches,
     paths.palettes,
+    paths.boards,
   ]) {
     fs.mkdirSync(dir, { recursive: true });
   }

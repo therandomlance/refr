@@ -25,6 +25,7 @@ vi.mock("refr/app/_components/context-menu", () => ({
 vi.mock("refr/trpc/react", () => ({ api: {
   useUtils: () => ({}),
   queue: { get: { useQuery: () => ({ data: [] }) }, set: { useMutation: () => ({}) } },
+  boards: { list: { useQuery: () => ({ data: [] }) }, addFiles: { useMutation: () => ({}) } },
   settings: { get: { useQuery: () => ({ data: { sendToPaths: [
     { path: "/references/drawing", alias: "Drawing references" }, { path: "/references/painting" },
   ] } }) } },

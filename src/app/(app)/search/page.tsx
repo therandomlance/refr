@@ -10,7 +10,7 @@ import { useFileContextMenu } from "refr/app/_components/file-menu";
 import { SavedSearches } from "refr/app/_components/saved-searches";
 import { PromptDialog } from "refr/app/_components/dialog";
 import { commitToken, isVectorToken, parseQuery, serializeQuery, tokenSchema, type Sort, type Token } from "refr/server/services/search";
-import { KEYWORD_NAMES } from "refr/lib/keywords";
+import { KEYWORD_HINTS, KEYWORD_NAMES } from "refr/lib/keywords";
 import { useSuggestionActions } from "refr/app/_components/tag-actions";
 import { Icon } from "refr/app/_components/icon";
 import type { SavedNode } from "refr/lib/saved-searches";
@@ -203,9 +203,10 @@ export default function SearchPage() {
           ))}
           <div className="min-w-0 basis-48 flex-1">
             <TagInput
-              placeholder={tokens.length === 0 ? "Search tags…  (/ to focus, - not, ~ or, = exact, * wildcard, path:<folder|alias> (= exact), suggest: for-tag)" : ""}
+              placeholder={tokens.length === 0 ? "Search tags…  (/ to focus, - not, ~ or, = exact, * wildcard, path:<folder|alias> (= exact), suggest: for-tag, w>2000, added:7d, date:2024, tags=0)" : ""}
               onCommit={addChip}
               keywords={KEYWORD_NAMES}
+              keywordHints={KEYWORD_HINTS}
               semanticFallback={mlStatus.data?.state === "ready" && !hasVectorChip}
               pathAutocomplete
               suggestAutocomplete

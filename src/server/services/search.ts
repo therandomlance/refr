@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { KEYWORD_NAMES } from "refr/lib/keywords";
+import { parseValueKeyword, type KEYWORD_NAMES } from "refr/lib/keywords";
 
 /**
  * §9.1 token model + §9.2 grammar + §9.3 SQL translation.
@@ -168,12 +168,40 @@ export function resolvePathAliases(
 const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   untagged: () => ({ text: `NOT EXISTS (SELECT 1 FROM FileTag ft WHERE ft.fileId = f.id)`, params: [] }),
   tagged: () => ({ text: `EXISTS (SELECT 1 FROM FileTag ft WHERE ft.fileId = f.id)`, params: [] }),
+  // every known path has vanished (unmounted drive, deleted file) — row kept for its tags
+  missing: () => ({ text: `NOT EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id)`, params: [] }),
+  "type:image": () => ({ text: `f.mediaType = 'image'`, params: [] }),
+  "type:video": () => ({ text: `f.mediaType = 'video'`, params: [] }),
+  // ±2% counts as square so 1000×1010 crops don't land in portrait
+  "orient:landscape": () => ({ text: `f.width > f.height * 1.02`, params: [] }),
+  "orient:portrait": () => ({ text: `f.height > f.width * 1.02`, params: [] }),
+  "orient:square": () => ({ text: `f.width <= f.height * 1.02 AND f.height <= f.width * 1.02`, params: [] }),
 };
+
+/** Value-carrying keywords (`w>2000`, `tags=0`, `added:7d`, `date:2024-03`) —
+ *  grammar in parseValueKeyword (lib, client-safe). `=` exact is meaningless
+ *  here and ignored; negation is applied by the caller. Dates are epoch ms. */
+function valueKeywordClause(t: Token): Sql | null {
+  if (t.wildcard) return null;
+  const k = parseValueKeyword(t.tag);
+  if (!k) return null;
+  switch (k.kind) {
+    case "dim":
+      // unknown dimensions never match either way round
+      return { text: `(f.${k.field} IS NOT NULL AND f.${k.field} ${k.op} ?)`, params: [k.n] };
+    case "tags":
+      return { text: `(SELECT COUNT(*) FROM FileTag ft WHERE ft.fileId = f.id) ${k.op} ?`, params: [k.n] };
+    case "added":
+      return { text: `f.addedAt >= ?`, params: [Date.now() - k.days * 86_400_000] };
+    case "date":
+      return { text: `(f.mtime >= ? AND f.mtime < ?)`, params: [k.from.getTime(), k.to.getTime()] };
+  }
+}
 
 export const KEYWORDS: Record<string, () => Sql> = KEYWORD_SQL;
 
 function tokenClause(t: Token): Sql {
-  const pc = pathClause(t);
+  const pc = pathClause(t) ?? valueKeywordClause(t);
   if (pc) return t.negate ? { text: `NOT (${pc.text})`, params: pc.params } : pc;
   const kw = KEYWORDS[t.tag];
   if (kw && !t.exact && !t.wildcard) {

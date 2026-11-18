@@ -562,6 +562,39 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .vpane.next { transform: translateX(calc(100% + 16px)); }
 .vpane img, .vpane video { max-width: 100%; max-height: 100%; object-fit: contain; -webkit-user-drag: none; user-select: none; }
 
+/* study tools: the current image's box, sized to the fitted image so the grid and
+   zoom transform track it exactly. `pending` (natural size unknown) falls back to
+   the plain pane layout. */
+.vstudy-frame { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+.vstudy { position: relative; flex: none; transform-origin: center; will-change: transform; }
+.vstudy.pending { display: contents; }
+.vstudy:not(.pending) img { width: 100%; height: 100%; max-width: none; max-height: none; display: block; }
+.vstudy.zoomed { cursor: grab; touch-action: none; }
+.vstudy.zoomed:active { cursor: grabbing; }
+.vgrid { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: visible; }
+.vgrid line { fill: none; }
+/* non-scaling-stroke ignores the CSS zoom transform, so divide it back out */
+.vgrid .under line { stroke: var(--viewer-bg); stroke-width: calc(3px / var(--zoom, 1)); opacity: .55; }
+.vgrid .over line { stroke: var(--accent); stroke-width: calc(1.25px / var(--zoom, 1)); }
+
+.vstudybar {
+  position: absolute; top: 64px; left: 14px; z-index: 5;
+  display: flex; flex-direction: column; gap: 4px; padding: 4px;
+  border-radius: var(--r-lg); background: var(--glass); border: 1px solid var(--line-subtle);
+  backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--shadow-2);
+}
+.vstudybar button {
+  width: 34px; height: 34px; border-radius: var(--r-md); display: grid; place-items: center;
+  color: var(--fg-muted); cursor: pointer; transition: background var(--dur-fast), color var(--dur-fast);
+}
+.vstudybar button.on { background: var(--accent-soft); color: var(--accent); }
+.vstudy-n { font: 600 11px var(--font-mono); }
+@media (hover: hover) {
+  .vstudybar button:hover { background: var(--surface-3); color: var(--fg); }
+  .vstudybar button.on:hover { background: var(--accent-soft); color: var(--accent); }
+}
+
 /* frosted floating controls */
 .viewer .nav, .vbtn, .vpos {
   background: var(--glass); color: var(--fg); border: 1px solid var(--line-subtle);
@@ -929,3 +962,47 @@ button.review-badge:hover { background: var(--surface-3); }
 /* thumbnail tag badges (grid "Tags" toggle): wrap side by side, never block the tile click */
 .tile .tile-tags .review-badge { pointer-events: none; background: color-mix(in oklab, var(--surface-2) 88%, transparent); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
 .tile.vid .tile-tags { bottom: 30px; }
+
+/* =====================================================================
+   BOARDS (freeform moodboard canvas)
+   ===================================================================== */
+.board-canvas {
+  position: relative; flex: 1; min-height: 0; overflow: hidden; touch-action: none;
+  background-color: var(--surface-0);
+  background-image: radial-gradient(circle, var(--line-strong) 1px, transparent 1.2px);
+  cursor: default; user-select: none;
+}
+.board-canvas.panning, .board-canvas.panning * { cursor: grab !important; }
+.board-world { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+.board-item { position: absolute; transform-origin: center; cursor: move; box-shadow: var(--shadow-2); }
+.board-item img { width: 100%; height: 100%; display: block; object-fit: cover; pointer-events: none; -webkit-user-drag: none; }
+.board-item.sel { outline: calc(2px * var(--z)) solid var(--accent); outline-offset: calc(2px * var(--z)); }
+.board-handle {
+  position: absolute; width: calc(14px * var(--z)); height: calc(14px * var(--z));
+  background: var(--accent); border: calc(2px * var(--z)) solid var(--surface-0); border-radius: 50%;
+}
+.board-handle.resize { right: calc(-9px * var(--z)); bottom: calc(-9px * var(--z)); cursor: nwse-resize; }
+.board-handle.rotate { left: 50%; top: calc(-32px * var(--z)); transform: translateX(-50%); cursor: grab; }
+.board-handle.rotate::after {
+  content: ""; position: absolute; left: 50%; top: 100%; width: calc(2px * var(--z)); height: calc(16px * var(--z));
+  transform: translateX(-50%); background: var(--accent);
+}
+.board-empty { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; }
+.board-empty kbd, .board-toolbar kbd { font: 600 11px var(--font-mono); padding: 1px 5px; border-radius: var(--r-sm); background: var(--fill); border: 1px solid var(--line-subtle); }
+.board-toolbar {
+  position: absolute; top: 12px; right: 12px; z-index: 2; display: flex; align-items: center; gap: 2px; padding: 4px;
+  border-radius: var(--r-lg); background: var(--glass); border: 1px solid var(--line-subtle);
+  backdrop-filter: blur(16px) saturate(1.4); -webkit-backdrop-filter: blur(16px) saturate(1.4);
+  box-shadow: var(--shadow-2);
+}
+.board-toolbar button {
+  height: 30px; min-width: 30px; padding: 0 8px; border-radius: var(--r-md); display: grid; place-items: center;
+  font-size: 12px; font-variant-numeric: tabular-nums; color: var(--fg-muted); cursor: pointer;
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+.board-toolbar button.danger { color: var(--danger); }
+.board-toolbar .sep { width: 1px; height: 18px; margin: 0 4px; background: var(--line-subtle); }
+@media (hover: hover) {
+  .board-toolbar button:hover { background: var(--surface-3); color: var(--fg); }
+  .board-toolbar button.danger:hover { color: var(--danger); }
+}

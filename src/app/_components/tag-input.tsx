@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
 import { applyModifiers, isFillRow, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
+import { parseValueKeyword } from "refr/lib/keywords";
 
 /**
  * Autocomplete tag input (§10.3). Debounced 150ms, keyboard navigable,
@@ -15,6 +16,7 @@ export function TagInput({
   onRawChange,
   semanticFallback = false,
   keywords = [],
+  keywordHints = [],
   autoFocus = false,
   pathAutocomplete = false,
   suggestAutocomplete = false,
@@ -28,6 +30,8 @@ export function TagInput({
   semanticFallback?: boolean;
   /** metadata keywords (e.g. search's `untagged`) offered as suggestions */
   keywords?: readonly string[];
+  /** value-keyword prefixes (`w>`, `added:`…) offered as fill rows once typing starts toward them */
+  keywordHints?: readonly string[];
   autoFocus?: boolean;
   /** when true, input starting with `path:` offers library path completions */
   pathAutocomplete?: boolean;
@@ -85,14 +89,20 @@ export function TagInput({
   const pathRow = pathAutocomplete && !pathMode && !suggestMode && "path:".includes(debounced)
     ? [{ name: "path:" }]
     : [];
+  const typedLower = debounced.toLowerCase();
+  const hintRows = !pathMode && !suggestMode && typedLower
+    ? keywordHints.filter((h) => h.startsWith(typedLower) && h !== typedLower).map((h) => ({ name: h }))
+    : [];
   const rows: { name: string; count?: number }[] = [
     ...pathRow,
     ...suggestRow,
     ...pathRows,
     ...(suggestMode ? suggestRows : tagRows),
+    // after tag rows so a short prefix ("a") never Enter-fills "added:" over a tag
+    ...hintRows,
     ...keywordRows,
   ];
-  const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && rows.length === 0 && suggestions.isFetched;
+  const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && !parseValueKeyword(debounced) && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
 
   // Prefer the row that matches what was typed exactly (so Enter on a full tag

@@ -17,6 +17,12 @@ const shapes = {
   settings: <><path d="M4 7h10M18 7h2M4 17h4M12 17h8" /><circle cx="16" cy="7" r="2" /><circle cx="10" cy="17" r="2" /></>,
   logout: <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9" />,
   image: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><circle cx="9" cy="10" r="1.5" /><path d="m21 16-5-5-9 9" /></>,
+  flip: <><path d="M12 3v18" strokeDasharray="2 2.5" /><path d="M9 7 4 17h5zM15 7l5 10h-5z" /></>,
+  contrast: <><circle cx="12" cy="12" r="9" /><path d="M12 3a9 9 0 0 1 0 18z" fill="currentColor" /></>,
+  blur: <><circle cx="12" cy="12" r="2" /><circle cx="12" cy="12" r="5.5" opacity=".6" /><circle cx="12" cy="12" r="9" opacity=".3" /></>,
+  steps: <><rect x="3" y="4" width="18" height="16" rx="2.5" /><path d="M9 4v16M15 4v16" /><path d="M3 4h6v16H3z" fill="currentColor" stroke="none" opacity=".9" /><path d="M9 4h6v16H9z" fill="currentColor" stroke="none" opacity=".4" /></>,
+  board: <><rect x="3" y="4" width="9" height="7" rx="1.5" /><rect x="14" y="3" width="7" height="10" rx="1.5" /><rect x="6" y="14" width="11" height="7" rx="1.5" /></>,
+  gridlines: <><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></>,
 };
 
 export type IconName = keyof typeof shapes;

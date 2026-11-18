@@ -1,4 +1,5 @@
 /** Pure decision logic for TagInput's Enter key (kept free of tRPC for tests). */
+import { KEYWORD_HINTS, parseValueKeyword } from "./keywords";
 
 export function stripModifiers(raw: string): string {
   return raw.replace(/^[-~=]+/, "").trim();
@@ -11,7 +12,7 @@ export function applyModifiers(raw: string, tag: string): string {
 }
 
 /** Rows that fill the input (more typing expected) rather than commit a chip. */
-export const FILL_ROWS = ["suggest:", "path:"] as const;
+export const FILL_ROWS = ["suggest:", "path:", ...KEYWORD_HINTS] as const;
 export const isFillRow = (name: string) => (FILL_ROWS as readonly string[]).includes(name);
 
 export type EnterAction =
@@ -49,8 +50,9 @@ export function resolveEnter({
   if (!navigated) {
     // bare Enter on an empty box shouldn't fill a keyword row
     if (!typed) return { kind: "none" };
-    // keep a typed wildcard unless a row was explicitly chosen
-    if (typed.includes("*")) return literal;
+    // keep a typed wildcard / complete value keyword (w>2000, added:7d) unless a
+    // row was explicitly chosen — never let the semantic fallback swallow it
+    if (typed.includes("*") || parseValueKeyword(stripModifiers(typed))) return literal;
   }
   if (showSemantic && highlight === rows.length) return { kind: "semantic" };
   const pick = rows[highlight];
