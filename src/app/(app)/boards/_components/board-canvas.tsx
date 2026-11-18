@@ -6,6 +6,7 @@ import { ContextMenu, type MenuItem } from "refr/app/_components/context-menu";
 import { ConfirmDialog } from "refr/app/_components/dialog";
 import { Icon } from "refr/app/_components/icon";
 import { Markdown } from "refr/app/_components/markdown";
+import { toggleWrap } from "refr/lib/markdown";
 import { Viewer } from "refr/app/_components/viewer";
 import { publishViewerList } from "refr/app/_components/viewer-store";
 import { GridOverlay, StudyFilterDefs } from "refr/app/_components/study-image";
@@ -48,8 +49,13 @@ type Gesture =
       moved: boolean;
       /** a link pressed inside a text box — followed on release if nothing moved */
       link?: string;
+      /** clicked (not dragged) one member of a multi-selection: narrow to it on release */
+      collapseTo?: string;
     }
-  | { kind: "resize"; id: string; corner: Corner; box: Box; aspect?: number }
+  /** `inEdit`: resizing the text box being edited — part of the edit's undo step */
+  | { kind: "resize"; id: string; corner: Corner; box: Box; aspect?: number; inEdit?: boolean }
+  /** rubber-band selection; `base` = selection kept when shift was held */
+  | { kind: "marquee"; start: Pt; base: Set<string> }
   | { kind: "rotate"; id: string; cx: number; cy: number }
   | { kind: "arrow-end"; id: string; end: "from" | "to"; created: boolean };
 
@@ -66,7 +72,7 @@ function readView(name: string): ZoomState | null {
   } catch { return null; }
 }
 
-export function BoardCanvas({ name }: { name: string }) {
+export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHiddenSignal: number }) {
   const doc = useBoardDoc(name);
   const { board, apply, begin, end, cancel, undo, redo } = doc;
 
@@ -81,6 +87,8 @@ export function BoardCanvas({ name }: { name: string }) {
   const [confirmRemove, setConfirmRemove] = useState(false);
   const [viewer, setViewer] = useState<string | null>(null);
   const [spaceDown, setSpaceDown] = useState(false);
+  /** marquee rectangle in canvas px, while dragging */
+  const [marquee, setMarquee] = useState<{ x: number; y: number; w: number; h: number } | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const pointers = useRef(new Map<number, Pt>());
@@ -102,6 +110,12 @@ export function BoardCanvas({ name }: { name: string }) {
       try { localStorage.setItem(viewKey(name), JSON.stringify(next)); } catch { /* storage unavailable */ }
     }, 300);
   }, [name]);
+
+  // the sidebar reset the board's hidden suggestions on the server — mirror it locally
+  // so the next autosave doesn't write the old list back
+  useEffect(() => {
+    if (resetHiddenSignal > 0) apply((b) => (b.hidden.length ? { ...b, hidden: [] } : b), false);
+  }, [resetHiddenSignal, apply]);
 
   // ---- file metadata (aspect ratio, media type) for the board's images
   const fileIds = useMemo(
@@ -352,12 +366,16 @@ export function BoardCanvas({ name }: { name: string }) {
   // ---- pointer gestures
   const onPointerDown = (e: React.PointerEvent) => {
     if (!board || !viewRef.current || e.button === 2) return;
-    if (editingRef.current) finishEdit(document.querySelector<HTMLElement>(".board-text.editing")?.offsetHeight);
+    // a resize handle of the box being edited keeps the edit going (its mousedown
+    // is prevented, so the textarea keeps focus)
+    const editHandle = editingRef.current && (e.target as HTMLElement).closest(`[data-item="${editingRef.current}"] [data-handle]`);
+    if (editingRef.current && !editHandle) finishEdit(document.querySelector<HTMLElement>(".board-text.editing")?.offsetHeight);
     e.currentTarget.setPointerCapture(e.pointerId);
     pointers.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
     if (pointers.current.size === 2) {
       // a second finger turns whatever was happening into a pinch
       if (gesture.current && gesture.current.kind !== "pan") end();
+      setMarquee(null);
       const [a, b] = [...pointers.current.values()] as [Pt, Pt];
       gesture.current = { kind: "pinch", dist: Math.hypot(a.x - b.x, a.y - b.y), mid: relCanvas((a.x + b.x) / 2, (a.y + b.y) / 2), view: viewRef.current };
       return;
@@ -366,6 +384,8 @@ export function BoardCanvas({ name }: { name: string }) {
     const target = e.target as HTMLElement;
     const world = toWorld(e.clientX, e.clientY);
 
+    // middle button / space / a finger on touch screens pans (one-finger drag on
+    // empty space would otherwise be a marquee)
     if (spaceDown || e.button === 1) {
       gesture.current = { kind: "pan", sx: e.clientX, sy: e.clientY, view: viewRef.current };
       return;
@@ -392,8 +412,14 @@ export function BoardCanvas({ name }: { name: string }) {
     const id = itemEl?.dataset.item ?? arrowId;
     pressedItem.current = itemEl?.dataset.item ?? null;
     if (!id) {
-      if (!e.shiftKey && e.button === 0) setSelected(new Set());
-      gesture.current = { kind: "pan", sx: e.clientX, sy: e.clientY, view: viewRef.current };
+      if (e.pointerType === "touch") {
+        if (!e.shiftKey) setSelected(new Set());
+        gesture.current = { kind: "pan", sx: e.clientX, sy: e.clientY, view: viewRef.current };
+        return;
+      }
+      const base = e.shiftKey ? new Set(selected) : new Set<string>();
+      setSelected(base);
+      gesture.current = { kind: "marquee", start: relCanvas(e.clientX, e.clientY), base };
       return;
     }
     const item = board.items.find((i) => i.id === id);
@@ -407,8 +433,9 @@ export function BoardCanvas({ name }: { name: string }) {
     if (item && handle) {
       // text boxes can render taller than their stored height (content grows them)
       const box = item.kind === "text" ? { ...boxOf(item), h: Math.max(item.h, itemEl!.offsetHeight) } : boxOf(item);
-      begin();
-      gesture.current = { kind: "resize", id, corner: handle as Corner, box, aspect: item.kind === "image" ? aspect(item.fileId) : undefined };
+      const inEdit = editingRef.current === id;
+      if (!inEdit) begin();
+      gesture.current = { kind: "resize", id, corner: handle as Corner, box, aspect: item.kind === "image" ? aspect(item.fileId) : undefined, inEdit };
       return;
     }
     let next = selected;
@@ -426,6 +453,7 @@ export function BoardCanvas({ name }: { name: string }) {
       sy: e.clientY,
       moved: false,
       link: target.closest("a")?.getAttribute("href") ?? undefined,
+      collapseTo: !e.shiftKey && next.size > 1 ? id : undefined,
       items: new Map(board.items.filter((i) => next.has(i.id)).map((i) => [i.id, { x: i.x, y: i.y }])),
       arrows: new Map(board.arrows.filter((a) => next.has(a.id)).map((a) => [a.id, { from: a.from, to: a.to }])),
     };
@@ -438,6 +466,28 @@ export function BoardCanvas({ name }: { name: string }) {
     const v = viewRef.current;
     if (!g || !v) return;
     switch (g.kind) {
+      case "marquee": {
+        const p = relCanvas(e.clientX, e.clientY);
+        const rect = { x: Math.min(g.start.x, p.x), y: Math.min(g.start.y, p.y), w: Math.abs(p.x - g.start.x), h: Math.abs(p.y - g.start.y) };
+        setMarquee(rect);
+        // world-space rect; items hit by their rotated bounds, arrows by either end
+        const a = { x: (rect.x - v.x) / v.zoom, y: (rect.y - v.y) / v.zoom };
+        const b = { x: (rect.x + rect.w - v.x) / v.zoom, y: (rect.y + rect.h - v.y) / v.zoom };
+        const inRect = (q: Pt) => q.x >= a.x && q.x <= b.x && q.y >= a.y && q.y <= b.y;
+        const cur = doc.current.current!;
+        const next = new Set(g.base);
+        for (const it of cur.items) {
+          const bb = aabb(boxOf(it));
+          if (bb.x1 >= a.x && bb.x0 <= b.x && bb.y1 >= a.y && bb.y0 <= b.y) next.add(it.id);
+        }
+        const boxes = boxById(cur);
+        for (const ar of cur.arrows) {
+          const r = resolveArrow(ar, boxes);
+          if (r && (inRect(r.from) || inRect(r.to))) next.add(ar.id);
+        }
+        setSelected(next);
+        break;
+      }
       case "pan":
         setView({ ...g.view, x: g.view.x + e.clientX - g.sx, y: g.view.y + e.clientY - g.sy });
         break;
@@ -522,6 +572,9 @@ export function BoardCanvas({ name }: { name: string }) {
       return;
     }
     if (g.kind === "move" && !g.moved && g.link) window.open(g.link, "_blank", "noopener,noreferrer");
+    if (g.kind === "move" && !g.moved && g.collapseTo) setSelected(new Set([g.collapseTo]));
+    if (g.kind === "marquee") { setMarquee(null); return; }
+    if (g.kind === "resize" && g.inEdit) return; // the edit's own undo step covers it
     if (g.kind !== "pan") end();
   };
 
@@ -614,7 +667,7 @@ export function BoardCanvas({ name }: { name: string }) {
                     key={it.id}
                     item={it}
                     selected={selected.has(it.id)}
-                    handles={single && selected.has(it.id) && editing !== it.id}
+                    handles={single && selected.has(it.id)}
                     editing={editing === it.id}
                     onText={(text, minH) => apply((b) => ({
                       ...b,
@@ -633,12 +686,17 @@ export function BoardCanvas({ name }: { name: string }) {
             </div>
           )}
 
+          {marquee && (
+            <div className="board-marquee" style={{ left: marquee.x, top: marquee.y, width: marquee.w, height: marquee.h }} />
+          )}
           {board.items.length === 0 && (
             <div className="state-message board-empty">
               This board is empty. Select images in Search, Browse or Queue and press <kbd>B</kbd>, or double-click here to add text.
             </div>
           )}
 
+          {/* panes (left) and toolbar (right) share one wrapping bar so they never overlap */}
+          <div className="board-chrome">
           <div className="board-panes" {...stopUi}>
             {imagesSel.length > 0 && (
               <StudyPane state={studyState(board)} onFlip={study.flip} onGray={study.gray} onBlur={study.blur} onValue={study.value} onGrid={study.grid} />
@@ -671,6 +729,7 @@ export function BoardCanvas({ name }: { name: string }) {
             <button type="button" aria-label="Zoom in" onClick={() => zoomBy(1.25)}>+</button>
             <button type="button" title="Fit all (0)" onClick={() => setView(fitAll(board))}>Fit</button>
           </div>
+          </div>
         </div>
 
         <BoardSuggestions
@@ -678,7 +737,6 @@ export function BoardCanvas({ name }: { name: string }) {
           hidden={board.hidden}
           onAdd={addImageAtCentre}
           onHide={(id) => apply((b) => ({ ...b, hidden: [...b.hidden, id] }), false)}
-          onResetHidden={() => apply((b) => ({ ...b, hidden: [] }), false)}
           onOpen={openViewer}
         />
       </div>
@@ -699,12 +757,22 @@ export function BoardCanvas({ name }: { name: string }) {
   );
 }
 
+/** Axis-aligned bounds of a rotated box. */
+function aabb(b: Box) {
+  const c = { x: b.x + b.w / 2, y: b.y + b.h / 2 };
+  const t = (b.rot * Math.PI) / 180;
+  const hw = (Math.abs(Math.cos(t)) * b.w + Math.abs(Math.sin(t)) * b.h) / 2;
+  const hh = (Math.abs(Math.sin(t)) * b.w + Math.abs(Math.cos(t)) * b.h) / 2;
+  return { x0: c.x - hw, x1: c.x + hw, y0: c.y - hh, y1: c.y + hh };
+}
+
 const CORNERS: Corner[] = ["nw", "ne", "sw", "se"];
 
 function Handles({ rotate }: { rotate: boolean }) {
   return (
     <>
-      {CORNERS.map((c) => <div key={c} data-handle={c} className={`board-handle corner ${c}`} aria-hidden="true" />)}
+      {/* preventDefault on mousedown: resizing a box mid-edit mustn't blur its textarea */}
+      {CORNERS.map((c) => <div key={c} data-handle={c} className={`board-handle corner ${c}`} aria-hidden="true" onMouseDown={(e) => e.preventDefault()} />)}
       {rotate && <div data-handle="rotate" className="board-handle rotate" aria-hidden="true" />}
     </>
   );
@@ -740,6 +808,26 @@ function ImageTile({ item, height, selected, handles, full }: {
   );
 }
 
+/**
+ * Replace a textarea's value through the browser's editing pipeline so the change
+ * lands on its native undo stack (Ctrl+Z right after Ctrl+B works). Only the
+ * differing span is replaced. execCommand("insertText") is deprecated but still
+ * the only way to do this; the input event it fires runs the normal onChange.
+ */
+function replaceKeepingUndo(el: HTMLTextAreaElement, next: string) {
+  const old = el.value;
+  let p = 0;
+  while (p < old.length && p < next.length && old[p] === next[p]) p++;
+  let q = 0;
+  while (q < old.length - p && q < next.length - p && old[old.length - 1 - q] === next[next.length - 1 - q]) q++;
+  el.setSelectionRange(p, old.length - q);
+  if (!document.execCommand("insertText", false, next.slice(p, next.length - q))) {
+    // fallback: set the value directly and fire input so React's onChange sees it
+    Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")?.set?.call(el, next);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  }
+}
+
 function TextTile({ item, selected, handles, editing, onText, onDone }: {
   item: TextItem;
   selected: boolean;
@@ -762,7 +850,7 @@ function TextTile({ item, selected, handles, editing, onText, onDone }: {
           autoFocus
           value={item.text}
           aria-label="Text box (markdown)"
-          placeholder="Type… **bold**, *italic*, # heading, - list"
+          placeholder="Type… **bold** (Ctrl+B), *italic* (Ctrl+I), # heading, - list"
           onPointerDown={(e) => e.stopPropagation()}
           onDoubleClick={(e) => e.stopPropagation()}
           onChange={(e) => {
@@ -774,7 +862,16 @@ function TextTile({ item, selected, handles, editing, onText, onDone }: {
           ref={(el) => { if (el) { el.style.height = "auto"; el.style.height = `${el.scrollHeight}px`; } }}
           onBlur={done}
           onKeyDown={(e) => {
-            if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) { e.preventDefault(); e.currentTarget.blur(); }
+            const mod = (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey;
+            if (e.key === "Escape" || (e.key === "Enter" && mod)) { e.preventDefault(); e.currentTarget.blur(); return; }
+            const k = e.key.toLowerCase();
+            if (mod && (k === "b" || k === "i")) {
+              e.preventDefault(); // also keeps the browser's bookmarks / page-info shortcuts out
+              const el = e.currentTarget;
+              const r = toggleWrap(el.value, el.selectionStart, el.selectionEnd, k === "b" ? "**" : "*");
+              replaceKeepingUndo(el, r.value);
+              el.setSelectionRange(r.start, r.end);
+            }
           }}
         />
       ) : item.text.trim() ? (

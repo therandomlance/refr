@@ -17,6 +17,9 @@ export default function BoardsPage() {
   const [newPrompt, setNewPrompt] = useState(false);
   const [renameOf, setRenameOf] = useState<string | null>(null);
   const [deleteOf, setDeleteOf] = useState<string | null>(null);
+  const [resetOf, setResetOf] = useState<{ name: string; count: number } | null>(null);
+  // bumps when the open board's hidden list is reset, so its canvas clears its local copy too
+  const [resetSignal, setResetSignal] = useState(0);
   const [menu, setMenu] = useState<{ name: string; x: number; y: number } | null>(null);
 
   const open = (name: string | null) =>
@@ -34,6 +37,13 @@ export default function BoardsPage() {
     onSuccess: (name, v) => {
       void utils.boards.invalidate();
       if (current === v.from) open(name);
+    },
+  });
+  const resetHidden = api.boards.resetHidden.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: (_r, v) => {
+      void utils.boards.list.invalidate();
+      if (current === v.name) setResetSignal((n) => n + 1);
     },
   });
   const remove = api.boards.delete.useMutation({
@@ -83,7 +93,7 @@ export default function BoardsPage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         {current ? (
-          <BoardCanvas key={current} name={current} />
+          <BoardCanvas key={current} name={current} resetHiddenSignal={resetSignal} />
         ) : (
           <>
             <header className="page-header"><div><h1>Boards</h1><p>Freeform reference boards.</p></div></header>
@@ -116,15 +126,30 @@ export default function BoardsPage() {
           onClose={() => setDeleteOf(null)}
         />
       )}
+      {resetOf && (
+        <ConfirmDialog
+          title="Reset hidden suggestions"
+          body={<>Show the {resetOf.count} hidden image{resetOf.count === 1 ? "" : "s"} in <b>{resetOf.name}</b>’s suggestions again?</>}
+          confirmLabel="Reset"
+          danger
+          onConfirm={() => resetHidden.mutate({ name: resetOf.name })}
+          onClose={() => setResetOf(null)}
+        />
+      )}
       {menu && (
         <ContextMenu
           x={menu.x}
           y={menu.y}
           onClose={() => setMenu(null)}
-          items={[
-            { label: "Rename…", onClick: () => setRenameOf(menu.name) },
-            { label: "Delete…", onClick: () => setDeleteOf(menu.name), danger: true },
-          ]}
+          items={(() => {
+            const hidden = boards.data?.find((b) => b.name === menu.name)?.hidden ?? 0;
+            return [
+              { label: "Rename…", onClick: () => setRenameOf(menu.name) },
+              ...(hidden > 0 ? [{ label: `Reset hidden suggestions (${hidden})…`, onClick: () => setResetOf({ name: menu.name, count: hidden }) }] : []),
+              "sep" as const,
+              { label: "Delete…", onClick: () => setDeleteOf(menu.name), danger: true },
+            ];
+          })()}
         />
       )}
     </div>

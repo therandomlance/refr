@@ -1,36 +1,39 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, type CSSProperties } from "react";
 import { api } from "refr/trpc/react";
 import { Icon } from "refr/app/_components/icon";
-import { ConfirmDialog } from "refr/app/_components/dialog";
 import { staticSuggestionOptions } from "refr/app/_components/tag-actions";
-import { usePersistentBoolean } from "refr/lib/persistent-state";
+import { usePersistentBoolean, usePersistentNumber } from "refr/lib/persistent-state";
+
+const MIN_W = 160;
+const MAX_W = 600;
 
 /**
  * Right-hand pane: images like the board as a whole (kNN on the mean embedding
- * of its images). ✓ adds to the board, ✕ hides from this board's suggestions;
- * "Reset hidden" clears that list. Only shown while CLIP is ready.
+ * of its images). ✓ adds to the board, ✕ hides from this board's suggestions
+ * (cleared from the board's sidebar menu). Resizable like the left sidebar.
+ * Only shown while CLIP is ready.
  */
 export function BoardSuggestions({
   fileIds,
   hidden,
   onAdd,
   onHide,
-  onResetHidden,
   onOpen,
 }: {
   fileIds: string[];
   hidden: string[];
   onAdd: (fileId: string) => void;
   onHide: (fileId: string) => void;
-  onResetHidden: () => void;
   onOpen: (fileIds: string[], fileId: string) => void;
 }) {
   const ml = api.ml.status.useQuery();
   const ready = ml.data?.state === "ready";
   const [open, setOpen] = usePersistentBoolean("refr:boards:suggestions-open", () => true);
-  const [confirmReset, setConfirmReset] = useState(false);
+  const [width, setWidth] = usePersistentNumber("refr:boards:suggestions-width", 220, MIN_W, MAX_W);
+  const resize = (w: number) => setWidth(Math.round(Math.max(MIN_W, Math.min(MAX_W, w))));
+  const drag = useRef<{ x: number; width: number } | null>(null);
   // order-independent key: restacking items shouldn't refetch
   const key = useMemo(() => [...fileIds].sort(), [fileIds]);
   const q = api.ml.suggestImagesForFiles.useQuery(
@@ -52,7 +55,36 @@ export function BoardSuggestions({
     );
   }
   return (
-    <aside className="board-suggest" aria-label="Suggested images">
+    <aside className="board-suggest" aria-label="Suggested images" style={{ "--suggest-width": `${width}px` } as CSSProperties}>
+      {/* left-edge handle: dragging left widens the pane */}
+      <div
+        className="sidepanel-resize board-suggest-resize"
+        role="separator"
+        tabIndex={0}
+        aria-label="Resize suggestions"
+        aria-orientation="vertical"
+        aria-valuemin={MIN_W}
+        aria-valuemax={MAX_W}
+        aria-valuenow={width}
+        onPointerDown={(e) => {
+          if (e.button !== 0) return;
+          e.preventDefault();
+          e.currentTarget.setPointerCapture(e.pointerId);
+          drag.current = { x: e.clientX, width };
+        }}
+        onPointerMove={(e) => { if (drag.current) resize(drag.current.width - (e.clientX - drag.current.x)); }}
+        onPointerUp={(e) => {
+          drag.current = null;
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) e.currentTarget.releasePointerCapture(e.pointerId);
+        }}
+        onLostPointerCapture={() => { drag.current = null; }}
+        onPointerCancel={() => { drag.current = null; }}
+        onKeyDown={(e) => {
+          if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key)) return;
+          e.preventDefault();
+          resize(e.key === "Home" ? MIN_W : e.key === "End" ? MAX_W : width + (e.key === "ArrowLeft" ? 10 : -10));
+        }}
+      />
       <div className="board-suggest-head">
         <span className="text-xs font-semibold">Suggested</span>
         <span className="text-xs text-fg-subtle">{items.length}</span>
@@ -61,11 +93,6 @@ export function BoardSuggestions({
           <Icon name="right" />
         </button>
       </div>
-      {hidden.length > 0 && (
-        <button className="btn mx-3 mb-2" style={{ fontSize: 12 }} onClick={() => setConfirmReset(true)}>
-          Reset hidden ({hidden.length})
-        </button>
-      )}
       <div className="scroll-thin flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pb-3">
         {key.length === 0 ? (
           <p className="text-xs text-fg-subtle">Add images to the board to get suggestions.</p>
@@ -90,16 +117,6 @@ export function BoardSuggestions({
           ))
         )}
       </div>
-      {confirmReset && (
-        <ConfirmDialog
-          title="Reset hidden suggestions"
-          body={<>Show the {hidden.length} hidden image{hidden.length === 1 ? "" : "s"} in this board’s suggestions again?</>}
-          confirmLabel="Reset"
-          danger
-          onConfirm={onResetHidden}
-          onClose={() => setConfirmReset(false)}
-        />
-      )}
     </aside>
   );
 }

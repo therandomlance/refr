@@ -80,7 +80,7 @@ export type ArrowEnd = z.infer<typeof arrowEndSchema>;
 export type Arrow = z.infer<typeof arrowSchema>;
 export type Board = z.infer<typeof boardSchema>;
 
-export const BOARD_ITEM_WIDTH = 400;
+export const BOARD_ITEM_WIDTH = 600;
 export const BOARD_GAP = 40;
 export const BOARD_ZOOM = { min: 0.05, max: 8, snapAtMin: false } as const;
 export const MIN_ITEM_PX = 40;

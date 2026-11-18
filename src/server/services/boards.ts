@@ -11,13 +11,13 @@ import { BOARD_GAP, BOARD_ITEM_WIDTH, boardSchema, type Board, type ImageItem } 
 
 const fileFor = (name: string) => path.join(paths.boards, safeName(name) + ".json");
 
-export function list(): { name: string; count: number; mtime: number }[] {
+export function list(): { name: string; count: number; hidden: number; mtime: number }[] {
   return listJson(paths.boards)
     .map((name) => {
       const file = path.join(paths.boards, name + ".json");
       const board = readJson(file, boardSchema);
       const count = board?.items.filter((i) => i.kind === "image").length ?? 0;
-      return { name, count, mtime: fs.statSync(file).mtimeMs };
+      return { name, count, hidden: board?.hidden.length ?? 0, mtime: fs.statSync(file).mtimeMs };
     })
     .sort((a, b) => b.mtime - a.mtime);
 }
@@ -49,6 +49,11 @@ export function rename(from: string, to: string): string {
   if (src !== dst && fs.existsSync(dst)) throw new Error(`a board named '${safeName(to)}' already exists`);
   fs.renameSync(src, dst);
   return safeName(to);
+}
+
+/** Clear the board's hidden-suggestions list. */
+export function resetHidden(name: string) {
+  writeJson(fileFor(name), { ...get(name), hidden: [] });
 }
 
 export function remove(name: string) {

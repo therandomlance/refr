@@ -56,6 +56,9 @@ describe("boards service", () => {
     };
     boards.save("Figure studies", edited);
     expect(boards.get("Figure studies")).toEqual(edited);
+    expect(boards.list().find((x) => x.name === "Figure studies")?.hidden).toBe(1);
+    boards.resetHidden("Figure studies");
+    expect(boards.get("Figure studies")).toEqual({ ...edited, hidden: [] });
     expect(() => boards.save("no such board", edited)).toThrow(/not found/);
   });
 

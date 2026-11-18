@@ -177,8 +177,11 @@ describe("metadata + value keywords", () => {
   });
 
   async function ids(q: string): Promise<string[]> {
-    const res = await executeList({ where: tokensToWhere(parseQuery(q)), sort: "date" });
-    return res.items.map((i) => i.id).filter((id) => id.startsWith("kw")).sort();
+    // scope in SQL, not after paging: broad keywords (`missing`, `tags=0`) match other
+    // suites' rows too, which can push these older-dated fixtures off the first page
+    const w = tokensToWhere(parseQuery(q));
+    const res = await executeList({ where: { text: `(${w.text}) AND f.id LIKE 'kw%'`, params: w.params }, sort: "date" });
+    return res.items.map((i) => i.id).sort();
   }
 
   it("type and orientation", async () => {

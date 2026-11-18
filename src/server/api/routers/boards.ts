@@ -15,6 +15,7 @@ export const boardsRouter = createTRPCRouter({
   rename: protectedProcedure
     .input(z.object({ from: nameSchema, to: nameSchema }))
     .mutation(({ input }) => boards.rename(input.from, input.to)),
+  resetHidden: protectedProcedure.input(z.object({ name: nameSchema })).mutation(({ input }) => boards.resetHidden(input.name)),
   delete: protectedProcedure.input(z.object({ name: nameSchema })).mutation(({ input }) => boards.remove(input.name)),
   addFiles: protectedProcedure
     .input(z.object({ name: nameSchema, fileIds: z.array(z.string()).min(1).max(5000) }))

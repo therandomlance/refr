@@ -117,3 +117,34 @@ export function parseMarkdown(src: string): Block[] {
   endPara();
   return blocks;
 }
+
+/**
+ * Ctrl+B / Ctrl+I in a text box: toggle `**` / `*` around the selection.
+ * Already-wrapped selections (markers just outside, or included in the
+ * selection) are unwrapped; bold and italic nest (`***x***`). With no
+ * selection, inserts a marker pair and puts the caret between.
+ */
+export function toggleWrap(
+  value: string,
+  start: number,
+  end: number,
+  marker: "**" | "*",
+): { value: string; start: number; end: number } {
+  const L = marker.length;
+  const run = (from: number, step: 1 | -1) => {
+    let n = 0;
+    for (let i = from; i >= 0 && i < value.length && value[i] === "*"; i += step) n++;
+    return n;
+  };
+  const k = Math.min(run(start - 1, -1), run(end, 1));
+  const active = marker === "**" ? k >= 2 : k % 2 === 1;
+  if (start !== end && active) {
+    return { value: value.slice(0, start - L) + value.slice(start, end) + value.slice(end + L), start: start - L, end: end - L };
+  }
+  const sel = value.slice(start, end);
+  const inner = run(start, 1) >= L && run(end - 1, -1) >= L && sel.length >= 2 * L + 1;
+  if (inner && (marker === "**" || run(start, 1) % 2 === 1)) {
+    return { value: value.slice(0, start) + sel.slice(L, -L) + value.slice(end), start, end: end - 2 * L };
+  }
+  return { value: value.slice(0, start) + marker + sel + marker + value.slice(end), start: start + L, end: end + L };
+}

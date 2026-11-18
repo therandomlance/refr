@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseInline, parseMarkdown } from "refr/lib/markdown";
+import { parseInline, parseMarkdown, toggleWrap } from "refr/lib/markdown";
 
 describe("parseInline", () => {
   it("bold, italic, strike, code, links", () => {
@@ -32,5 +32,28 @@ describe("parseMarkdown", () => {
     expect(b[1]).toEqual({ t: "p", c: [{ t: "text", v: "line one" }, { t: "br" }, { t: "text", v: "line two" }] });
     expect(b[2]).toMatchObject({ t: "ul", items: [[{ t: "text", v: "a" }], [{ t: "text", v: "b" }]] });
     expect(b[6]).toEqual({ t: "pre", v: "code *raw*" });
+  });
+});
+
+describe("toggleWrap", () => {
+  const apply = (s: string, m: "**" | "*") => {
+    // [ ] mark the selection in the fixture
+    const start = s.indexOf("[");
+    const end = s.indexOf("]") - 1;
+    const r = toggleWrap(s.replace("[", "").replace("]", ""), start, end, m);
+    return r.value.slice(0, r.start) + "[" + r.value.slice(r.start, r.end) + "]" + r.value.slice(r.end);
+  };
+  it("wraps, unwraps, and nests", () => {
+    expect(apply("a [word] b", "**")).toBe("a **[word]** b");
+    expect(apply("a **[word]** b", "**")).toBe("a [word] b");
+    expect(apply("a [**word**] b", "**")).toBe("a [word] b");
+    expect(apply("a [word] b", "*")).toBe("a *[word]* b");
+    expect(apply("a *[word]* b", "*")).toBe("a [word] b");
+    expect(apply("a **[word]** b", "*")).toBe("a ***[word]*** b");
+    expect(apply("a ***[word]*** b", "*")).toBe("a **[word]** b");
+    expect(apply("a ***[word]*** b", "**")).toBe("a *[word]* b");
+  });
+  it("empty selection inserts a pair with the caret inside", () => {
+    expect(apply("ab[]c", "**")).toBe("ab**[]**c");
   });
 });
