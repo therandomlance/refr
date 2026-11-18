@@ -1,5 +1,5 @@
 /** Pure decision logic for TagInput's Enter key (kept free of tRPC for tests). */
-import { KEYWORD_HINTS, parseValueKeyword } from "./keywords";
+import { KEYWORD_GROUPS, KEYWORD_HINTS, parseValueKeyword } from "./keywords";
 
 export function stripModifiers(raw: string): string {
   return raw.replace(/^[-~=]+/, "").trim();
@@ -12,8 +12,21 @@ export function applyModifiers(raw: string, tag: string): string {
 }
 
 /** Rows that fill the input (more typing expected) rather than commit a chip. */
-export const FILL_ROWS = ["suggest:", "path:", ...KEYWORD_HINTS] as const;
+export const FILL_ROWS = ["suggest:", "path:", ...KEYWORD_HINTS, ...KEYWORD_GROUPS] as const;
 export const isFillRow = (name: string) => (FILL_ROWS as readonly string[]).includes(name);
+
+/** Keyword autocomplete rows for `typed` (modifiers already stripped). A
+ *  grouped namespace (`wallpaper:`) shows as one fill row while the input is
+ *  empty or still typing toward it; its members appear once it's filled.
+ *  Other typing (`16:9`) matches members directly. */
+export function keywordRowsFor(keywords: readonly string[], typed: string): { groups: string[]; keywords: string[] } {
+  const t = typed.toLowerCase();
+  const collapsed = KEYWORD_GROUPS.filter((g) => g.includes(t) && g !== t);
+  return {
+    groups: collapsed,
+    keywords: keywords.filter((k) => k.includes(t) && !collapsed.some((g) => k.startsWith(g))),
+  };
+}
 
 export type EnterAction =
   | { kind: "none" }

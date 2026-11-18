@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { applyModifiers, resolveEnter } from "refr/lib/tag-input-pick";
+import { applyModifiers, keywordRowsFor, resolveEnter } from "refr/lib/tag-input-pick";
 
 const base = {
   open: true,
@@ -63,5 +63,33 @@ describe("value keywords", () => {
   it("hint rows fill the input", () => {
     const r = resolveEnter({ raw: "add", debounced: "add", open: true, rows: [{ name: "added:" }], highlight: 0, showSemantic: false, navigated: false });
     expect(r).toEqual({ kind: "fill", prefix: "added:" });
+  });
+});
+
+describe("keyword groups", () => {
+  const kw = ["untagged", "type:image", "wallpaper:any", "wallpaper:16:9", "wallpaper:21:9"];
+
+  it("collapses the namespace when nothing is typed", () => {
+    expect(keywordRowsFor(kw, "")).toEqual({ groups: ["wallpaper:"], keywords: ["untagged", "type:image"] });
+  });
+
+  it("keeps the collapsed row while typing toward it", () => {
+    expect(keywordRowsFor(kw, "wall")).toEqual({ groups: ["wallpaper:"], keywords: [] });
+    expect(keywordRowsFor(kw, "wallpaper")).toEqual({ groups: ["wallpaper:"], keywords: [] });
+  });
+
+  it("lists members once the prefix is filled", () => {
+    expect(keywordRowsFor(kw, "wallpaper:")).toEqual({ groups: [], keywords: ["wallpaper:any", "wallpaper:16:9", "wallpaper:21:9"] });
+    expect(keywordRowsFor(kw, "wallpaper:21")).toEqual({ groups: [], keywords: ["wallpaper:21:9"] });
+  });
+
+  it("matches members directly on other typing", () => {
+    expect(keywordRowsFor(kw, "16:9")).toEqual({ groups: [], keywords: ["wallpaper:16:9"] });
+  });
+
+  it("the collapsed row fills instead of committing", () => {
+    const rows = [{ name: "wallpaper:" }];
+    expect(resolveEnter({ raw: "wall", debounced: "wall", open: true, rows, highlight: 0, showSemantic: false, navigated: false }))
+      .toEqual({ kind: "fill", prefix: "wallpaper:" });
   });
 });

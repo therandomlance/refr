@@ -18,6 +18,10 @@ export const KEYWORD_NAMES = [
   "orient:square",
 ] as const;
 
+/** Namespaces whose keywords collapse into one fill row in the autocomplete
+ *  (like `path:`): the members are listed only once the prefix is typed. */
+export const KEYWORD_GROUPS = ["wallpaper:"] as const;
+
 /** Prefixes of the value-carrying keywords, offered as fill rows in the search
  *  autocomplete (picking one fills the input; the user types the value). */
 export const KEYWORD_HINTS = ["w>", "h>", "tags=", "added:", "date:"] as const;

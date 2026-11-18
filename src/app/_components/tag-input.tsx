@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
-import { applyModifiers, isFillRow, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
+import { applyModifiers, isFillRow, keywordRowsFor, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
 import { parseValueKeyword } from "refr/lib/keywords";
 
 /**
@@ -77,9 +77,15 @@ export function TagInput({
   const suggestRows = suggestMode
     ? tagRows.map((r) => ({ name: "suggest:" + r.name, count: r.count }))
     : [];
-  const keywordRows = !pathMode && !suggestMode
-    ? keywords.filter((k) => k.includes(debounced) && !tagRows.some((r) => r.name === k)).map((k) => ({ name: k }))
-    : [];
+  const keywordMatch = !pathMode && !suggestMode && keywords.length > 0
+    ? keywordRowsFor(keywords, debounced)
+    : { groups: [], keywords: [] };
+  const keywordRows = keywordMatch.keywords
+    .filter((k) => !tagRows.some((r) => r.name === k))
+    .map((k) => ({ name: k }));
+  // collapsed keyword namespaces (`wallpaper:`) — fill rows, after tag rows so
+  // Enter on a typed `wallpaper` picks the tag
+  const groupRows = keywordMatch.groups.map((g) => ({ name: g }));
   // fill-rows for value-carrying keywords: offered while typing toward them
   // (and when the input is empty, so they show among the plain keywords). Once
   // active, their own completion mode takes over.
@@ -100,6 +106,7 @@ export function TagInput({
     ...(suggestMode ? suggestRows : tagRows),
     // after tag rows so a short prefix ("a") never Enter-fills "added:" over a tag
     ...hintRows,
+    ...groupRows,
     ...keywordRows,
   ];
   const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && !parseValueKeyword(debounced) && rows.length === 0 && suggestions.isFetched;
