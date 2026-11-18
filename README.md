@@ -113,6 +113,7 @@ saved to the sidebar.
 | `artist/*`, `*/watercolor` | wildcard over the full tag path |
 | `untagged`, `tagged`, `missing` | metadata keywords |
 | `type:image`, `type:video`, `orient:portrait` | media type / orientation |
+| `wallpaper:any`, `wallpaper:16:9`, `wallpaper:16:10`, `wallpaper:21:9` | images ≥720 px tall at a wallpaper aspect ratio |
 | `w>2000`, `h<=1080`, `tags=0` | dimensions / tag count |
 | `added:7d`, `date:2024-03` | added recently / file date (d, w, m, y) |
 | `path:<folder or alias>` | files in a folder (`=path:` for direct children only) |

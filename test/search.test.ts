@@ -192,6 +192,35 @@ describe("metadata + value keywords", () => {
     expect(await ids("orient:square")).toEqual(["kw3"]);
   });
 
+  it("wallpaper", async () => {
+    const wp = [
+      { id: "wp1", w: 1280, h: 720, type: "image" }, // 16:9, at the 720 minimum
+      { id: "wp2", w: 3440, h: 1440, type: "image" }, // ultrawide
+      { id: "wp3", w: 1024, h: 576, type: "image" }, // 16:9 but too small
+      { id: "wp4", w: 1920, h: 1200, type: "image" }, // 16:10
+      { id: "wp5", w: 3840, h: 2160, type: "video" }, // not an image
+      { id: "wp6", w: 1600, h: 1200, type: "image" }, // 4:3
+    ];
+    for (const f of wp) {
+      await db.file.create({
+        data: { id: f.id, size: 1, mtime: new Date(2024, 0, 1), mediaType: f.type, width: f.w, height: f.h },
+      });
+    }
+    const wpIds = async (q: string) => {
+      const w = tokensToWhere(parseQuery(q));
+      const res = await executeList({ where: { text: `(${w.text}) AND f.id LIKE 'wp%'`, params: w.params }, sort: "date" });
+      return res.items.map((i) => i.id).sort();
+    };
+    expect(await wpIds("wallpaper:any")).toEqual(["wp1", "wp2", "wp4"]);
+    expect(await wpIds("wallpaper:16:9")).toEqual(["wp1"]);
+    expect(await wpIds("wallpaper:16:10")).toEqual(["wp4"]);
+    expect(await wpIds("wallpaper:21:9")).toEqual(["wp2"]);
+    expect(await wpIds("-wallpaper:any")).toEqual(["wp3", "wp5", "wp6"]);
+    expect(await ids("wallpaper:any")).toEqual([]);
+    // bare `wallpaper` is an ordinary tag, not a keyword
+    expect(await wpIds("wallpaper")).toEqual([]);
+  });
+
   it("missing", async () => {
     expect(await ids("missing")).toEqual(["kw2"]);
     expect(await ids("-missing")).toEqual(["kw1", "kw3", "kw4"]);

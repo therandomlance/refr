@@ -332,7 +332,8 @@ WHERE
 
 Metadata keywords, registry pattern (`KEYWORDS: Record<string, (b: Builder) => void>`):
 - `untagged` → `NOT EXISTS (SELECT 1 FROM FileTag WHERE fileId = f.id)`; `tagged`; `missing` (no remaining FilePath).
-- `type:image|video`, `orient:landscape|portrait|square` (±2% = square). Namespaced because a
+- `type:image|video`, `wallpaper:any|16:9|16:10|21:9` (image, height ≥ 720, w/h in 1.72–1.84,
+  1.56–1.65 or 2.30–2.45; `any` = all three; bare `wallpaper` is a tag), `orient:landscape|portrait|square` (±2% = square). Namespaced because a
   keyword shadows a same-named tag.
 - Value-carrying (grammar in `parseValueKeyword`, `src/lib/keywords.ts`, client-safe):
   `w>N`/`h<=N` (ops `> < >= <= =`, unknown dimensions never match), `tags=N` (tag count),

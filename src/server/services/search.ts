@@ -163,6 +163,20 @@ export function resolvePathAliases(
   );
 }
 
+/** Wallpaper-shaped images: at least 720 tall, aspect within a band (w/h).
+ *  16:10 is 1.6, 16:9 is 1.778; "21:9" monitors are really 64:27 (2560×1080, 2.370) or
+ *  43:18 (3440×1440, 2.389), so that band is centred on those, not 2.333. */
+const WALLPAPER_BANDS = { "16:10": [1.56, 1.65], "16:9": [1.72, 1.84], "21:9": [2.3, 2.45] } as const;
+function wallpaperSql(...bands: (keyof typeof WALLPAPER_BANDS)[]): Sql {
+  const ratio = bands
+    .map(() => `(f.width >= f.height * ? AND f.width <= f.height * ?)`)
+    .join(" OR ");
+  return {
+    text: `(f.mediaType = 'image' AND f.height >= 720 AND (${ratio}))`,
+    params: bands.flatMap((b) => [...WALLPAPER_BANDS[b]]),
+  };
+}
+
 /** Metadata keywords (§9.3). Extensible: add a name to KEYWORD_NAMES (lib)
  *  and an entry here; unknown → literal tag. */
 const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
@@ -172,6 +186,11 @@ const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   missing: () => ({ text: `NOT EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id)`, params: [] }),
   "type:image": () => ({ text: `f.mediaType = 'image'`, params: [] }),
   "type:video": () => ({ text: `f.mediaType = 'video'`, params: [] }),
+  // bare `wallpaper` stays an ordinary tag
+  "wallpaper:any": () => wallpaperSql("16:10", "16:9", "21:9"),
+  "wallpaper:16:9": () => wallpaperSql("16:9"),
+  "wallpaper:16:10": () => wallpaperSql("16:10"),
+  "wallpaper:21:9": () => wallpaperSql("21:9"),
   // ±2% counts as square so 1000×1010 crops don't land in portrait
   "orient:landscape": () => ({ text: `f.width > f.height * 1.02`, params: [] }),
   "orient:portrait": () => ({ text: `f.height > f.width * 1.02`, params: [] }),
