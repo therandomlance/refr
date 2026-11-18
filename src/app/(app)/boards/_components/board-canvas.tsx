@@ -263,6 +263,16 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
   };
   const toFront = () => apply((b) => ({ ...b, items: [...b.items.filter((i) => !selected.has(i.id)), ...b.items.filter((i) => selected.has(i.id))] }));
   const toBack = () => apply((b) => ({ ...b, items: [...b.items.filter((i) => selected.has(i.id)), ...b.items.filter((i) => !selected.has(i.id))] }));
+  /** copies keep their study view, rotation and flip, so one image can be studied several ways side by side */
+  const duplicateSelected = () => {
+    const b0 = doc.current.current;
+    if (!b0) return;
+    const off = 32 / (viewRef.current?.zoom ?? 1); // a fixed on-screen nudge
+    const copies = b0.items.filter((i) => selected.has(i.id)).map((i) => ({ ...i, id: uid(), x: i.x + off, y: i.y + off }));
+    if (!copies.length) return;
+    apply((b) => ({ ...b, items: [...b.items, ...copies] }));
+    setSelected(new Set(copies.map((c) => c.id)));
+  };
   const resetRotation = () => apply((b) => mapSel<ImageItem>(b, "image", (i) => ({ ...i, rot: 0 })));
   const patchTexts = (patch: Partial<TextItem>) => apply((b) => mapSel<TextItem>(b, "text", (i) => ({ ...i, ...patch })));
   const patchArrows = (patch: Partial<Arrow>) => apply((b) => ({ ...b, arrows: b.arrows.map((a) => (selected.has(a.id) ? { ...a, ...patch } : a)) }));
@@ -337,6 +347,7 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
       if (k === "z" && !e.shiftKey) { e.preventDefault(); undo(); }
       else if ((k === "z" && e.shiftKey) || k === "y") { e.preventDefault(); redo(); }
       else if (k === "a") { e.preventDefault(); setSelected(new Set([...board.items.map((i) => i.id), ...board.arrows.map((a) => a.id)])); }
+      else if (k === "d" && !e.shiftKey && selected.size > 0) { e.preventDefault(); duplicateSelected(); }
       return;
     }
     if (e.altKey) return;
@@ -602,6 +613,10 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
       { label: "Flip horizontally", hint: "H", onClick: study.flip },
       { label: "Reset rotation", onClick: resetRotation },
     );
+  }
+  if (anyItemsSel) {
+    const n = imagesSel.length + textsSel.length;
+    menuItems.push({ label: n > 1 ? `Duplicate ${n}` : "Duplicate", hint: "Ctrl+D", onClick: duplicateSelected });
   }
   if (anyItemsSel) menuItems.push({ label: "Bring to front", hint: "]", onClick: toFront }, { label: "Send to back", hint: "[", onClick: toBack });
   if (menuItems.length) menuItems.push("sep");
