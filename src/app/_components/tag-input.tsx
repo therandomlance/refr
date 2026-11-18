@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
+import { applyModifiers, isFillRow, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
 
 /**
  * Autocomplete tag input (§10.3). Debounced 150ms, keyboard navigable,
@@ -40,6 +41,8 @@ export function TagInput({
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(0);
+  // user moved the highlight since rows last changed (arrows / hover)
+  const [navigated, setNavigated] = useState(false);
   const [debounced, setDebounced] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,7 +98,10 @@ export function TagInput({
   // Prefer the row that matches what was typed exactly (so Enter on a full tag
   // name — e.g. a chip put back for editing — doesn't pick a longer descendant).
   const exactRow = rows.findIndex((r) => r.name.toLowerCase() === debounced.toLowerCase());
-  useEffect(() => setHighlight(Math.max(0, exactRow)), [debounced, exactRow]);
+  useEffect(() => {
+    setHighlight(Math.max(0, exactRow));
+    setNavigated(false);
+  }, [debounced, exactRow]);
 
   useEffect(() => {
     if (!hotkey) return;
@@ -153,6 +159,12 @@ export function TagInput({
     });
   };
 
+  // one path for Enter-pick and click, so typed -/~/= modifiers always apply
+  const choose = (name: string) => {
+    if (isFillRow(name)) fillKeyword(name);
+    else commit(applyModifiers(raw, name), name);
+  };
+
   return (
     <div ref={boxRef} className="relative">
       <input
@@ -168,8 +180,11 @@ export function TagInput({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown") { e.preventDefault(); setHighlight((h) => Math.min(h + 1, rowCount - 1)); }
-          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); }
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (rowCount > 0) { setHighlight((h) => Math.min(h + 1, rowCount - 1)); setNavigated(true); }
+          }
+          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); setNavigated(true); }
           else if (e.key === "Tab" && open && rows[highlight]) {
             e.preventDefault();
             const filled = applyModifiers(raw, rows[highlight].name);
@@ -183,20 +198,11 @@ export function TagInput({
           }
           else if (e.key === "Enter") {
             e.preventDefault();
-            const pick = open ? rows[highlight] : undefined;
-            // dropdown closed (Esc / outside click) → add exactly what was typed;
-            // no stale suggestion may override the literal input
-            if (!open) {
-              if (raw.trim()) commit(raw.trim());
-            } else if (showSemantic && highlight === rows.length) {
-              commitSemantic();
-            } else if (pick?.name === "suggest:" || pick?.name === "path:") {
-              fillKeyword(pick.name);
-            } else if (pick) {
-              commit(applyModifiers(raw, pick.name), pick.name);
-            } else if (raw.trim()) {
-              commit(raw.trim());
-            }
+            const action = resolveEnter({ raw, debounced, open, rows, highlight, showSemantic, navigated });
+            if (action.kind === "literal") commit(action.value);
+            else if (action.kind === "semantic") commitSemantic();
+            else if (action.kind === "fill") fillKeyword(action.prefix);
+            else if (action.kind === "pick") choose(action.name);
           } else if (e.key === "Escape") setOpen(false);
         }}
       />
@@ -206,8 +212,8 @@ export function TagInput({
             <button
               key={r.name}
               style={i === highlight ? { background: "var(--accent-soft)" } : undefined}
-              onMouseEnter={() => setHighlight(i)}
-              onClick={() => (r.name === "suggest:" || r.name === "path:" ? fillKeyword(r.name) : commit(r.name, r.name))}
+              onMouseEnter={() => { setHighlight(i); setNavigated(true); }}
+              onClick={() => choose(r.name)}
             >
               {r.name} {r.count != null && <span className="text-fg-subtle ml-auto">{r.count}</span>}
             </button>
@@ -215,7 +221,7 @@ export function TagInput({
           {showSemantic && (
             <button
               style={highlight === rows.length ? { background: "var(--accent-soft)" } : undefined}
-              onMouseEnter={() => setHighlight(rows.length)}
+              onMouseEnter={() => { setHighlight(rows.length); setNavigated(true); }}
               onClick={commitSemantic}
             >
               Semantic: &lsquo;{stripModifiers(raw)}&rsquo;
@@ -225,14 +231,4 @@ export function TagInput({
       )}
     </div>
   );
-}
-
-export function stripModifiers(raw: string): string {
-  return raw.replace(/^[-~=]+/, "").trim();
-}
-
-/** Attach typed -/~/= prefixes onto the committed tag name. */
-export function applyModifiers(raw: string, tag: string): string {
-  const m = /^[-~=]+/.exec(raw);
-  return (m?.[0] ?? "") + tag;
 }
