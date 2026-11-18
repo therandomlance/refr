@@ -44,6 +44,55 @@ Institute of Chicago, plus Creative Commons digital art by David Revoy. See
 - **Built for large libraries.** Lists are paginated and virtualized, and scans,
   thumbnails, and embeddings run in the background. It is designed for 100k+ images.
 
+## Run
+
+Requires Node.js (the project uses Next.js 15).
+
+```bash
+npm install
+npm run dev          # or: npm run build && npm start
+```
+
+Then open <http://localhost:3000>, go to **Settings → Libraries**, add one or more folder
+paths, and click **Scan now**.
+
+Data directory resolution: `--data <dir>` flag > `DATA_DIR` env > `./data`.
+First boot creates `config.yaml`, `refr.db`, `.secret`, and subdirs there:
+
+```
+data/
+  config.yaml     # all settings (editable by hand; the UI picks up changes)
+  refr.db         # SQLite: files, paths, tags, embeddings
+  thumbnails/     # 2-hex sharded webp thumbnails
+  queues/  sessions/  palettes/  boards/  searches/   # plain JSON
+```
+
+A minimal `config.yaml`:
+
+```yaml
+passwordHash: null          # null = no login (trusted network); set a password in Settings
+libraries:
+  - path: /mnt/art/
+    alias: art              # lets you search path:art
+    timeline: true          # include in the main timeline
+scanTime: "03:00"           # nightly rescan, or null to disable
+sendToPaths: []             # folders "Send to" may copy files into
+theme: obsidian
+accent: violet
+density: comfortable
+ml:
+  enabled: false
+```
+
+Video thumbnails/probing require system `ffmpeg`/`ffprobe` on PATH (optional — without
+them videos still index, just without thumbs/dimensions).
+
+Semantic (CLIP) features are off by default; enable in Settings. Requires system
+python ≥ 3.10 — first enable creates `ml/.venv/` and downloads several GB
+(torch + model weights). The default model is SigLIP 2 (`ViT-B-16-SigLIP2`); a CUDA GPU is
+used when available. ML powers *Find similar*, semantic text search, tag suggestions, the
+Tagging page, and board suggestions. Everything else works without it.
+
 ## Tour
 
 ### Search
@@ -170,55 +219,6 @@ three density levels. All of them can be set in Settings or `config.yaml`. Here 
 with the teal accent:
 
 ![Paper theme with teal accent](docs/screenshots/light-theme.webp)
-
-## Run
-
-Requires Node.js (the project uses Next.js 15).
-
-```bash
-npm install
-npm run dev          # or: npm run build && npm start
-```
-
-Then open <http://localhost:3000>, go to **Settings → Libraries**, add one or more folder
-paths, and click **Scan now**.
-
-Data directory resolution: `--data <dir>` flag > `DATA_DIR` env > `./data`.
-First boot creates `config.yaml`, `refr.db`, `.secret`, and subdirs there:
-
-```
-data/
-  config.yaml     # all settings (editable by hand; the UI picks up changes)
-  refr.db         # SQLite: files, paths, tags, embeddings
-  thumbnails/     # 2-hex sharded webp thumbnails
-  queues/  sessions/  palettes/  boards/  searches/   # plain JSON
-```
-
-A minimal `config.yaml`:
-
-```yaml
-passwordHash: null          # null = no login (trusted network); set a password in Settings
-libraries:
-  - path: /mnt/art/
-    alias: art              # lets you search path:art
-    timeline: true          # include in the main timeline
-scanTime: "03:00"           # nightly rescan, or null to disable
-sendToPaths: []             # folders "Send to" may copy files into
-theme: obsidian
-accent: violet
-density: comfortable
-ml:
-  enabled: false
-```
-
-Video thumbnails/probing require system `ffmpeg`/`ffprobe` on PATH (optional — without
-them videos still index, just without thumbs/dimensions).
-
-Semantic (CLIP) features are off by default; enable in Settings. Requires system
-python ≥ 3.10 — first enable creates `ml/.venv/` and downloads several GB
-(torch + model weights). The default model is SigLIP 2 (`ViT-B-16-SigLIP2`); a CUDA GPU is
-used when available. ML powers *Find similar*, semantic text search, tag suggestions, the
-Tagging page, and board suggestions. Everything else works without it.
 
 ## Test
 
