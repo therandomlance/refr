@@ -94,6 +94,7 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
   const pointers = useRef(new Map<number, Pt>());
   // pointer capture retargets click/dblclick to the canvas, so remember what was pressed
   const pressedItem = useRef<string | null>(null);
+  const lastMiddle = useRef<{ t: number; x: number; y: number } | null>(null);
 
   // ---- view: per device (localStorage), never part of the saved board
   const [view, setViewState] = useState<ZoomState | null>(null);
@@ -397,6 +398,17 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
 
     // middle button / space / a finger on touch screens pans (one-finger drag on
     // empty space would otherwise be a marquee)
+    // dblclick only fires for the primary button, so detect a middle double-click by hand
+    if (e.button === 1) {
+      const last = lastMiddle.current;
+      lastMiddle.current = { t: e.timeStamp, x: e.clientX, y: e.clientY };
+      if (last && e.timeStamp - last.t < 400 && Math.hypot(e.clientX - last.x, e.clientY - last.y) < 6) {
+        lastMiddle.current = null;
+        gesture.current = null;
+        setView(fitAll(board));
+        return;
+      }
+    }
     if (spaceDown || e.button === 1) {
       gesture.current = { kind: "pan", sx: e.clientX, sy: e.clientY, view: viewRef.current };
       return;
