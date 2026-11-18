@@ -51,6 +51,37 @@ export async function registerNode() {
     console.error("[schema] TagClassifier fallback failed:", e instanceof Error ? e.message : e);
   }
 
+  try {
+    // mirrors prisma/migrations/20261117000000_tag_sweep (derived caches)
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TagCandidate" (
+    "tagId" INTEGER NOT NULL,
+    "fileId" TEXT NOT NULL,
+    "confidence" REAL NOT NULL,
+    "score" REAL NOT NULL,
+    "mode" INTEGER NOT NULL,
+    "rank" INTEGER NOT NULL,
+    "rivalTag" TEXT,
+    "rivalConfidence" REAL,
+    "nearDenial" BOOLEAN NOT NULL,
+    "sweptAt" DATETIME NOT NULL,
+    PRIMARY KEY ("tagId", "fileId"),
+    CONSTRAINT "TagCandidate_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag" ("id") ON DELETE CASCADE ON UPDATE CASCADE,
+    CONSTRAINT "TagCandidate_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+)`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TagCandidate_tagId_rank_idx" ON "TagCandidate"("tagId", "rank")`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "TagCandidate_fileId_idx" ON "TagCandidate"("fileId")`);
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "TagSweep" (
+    "tagId" INTEGER NOT NULL PRIMARY KEY,
+    "positives" INTEGER NOT NULL,
+    "modes" INTEGER NOT NULL,
+    "exemplars" TEXT NOT NULL,
+    "sweptAt" DATETIME NOT NULL,
+    CONSTRAINT "TagSweep_tagId_fkey" FOREIGN KEY ("tagId") REFERENCES "Tag" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+)`);
+  } catch (e) {
+    console.error("[schema] TagCandidate/TagSweep fallback failed:", e instanceof Error ? e.message : e);
+  }
+
   const { watch } = await import("./server/services/config");
   watch();
 
@@ -58,6 +89,8 @@ export async function registerNode() {
   // first so hasThumb() sees existing files instead of re-encoding everything.
   const { catchUpMissingThumbs, migrateThumbLayout, setOnThumbDrain } = await import("./server/services/thumbs");
   const { bootMl, enqueueEmbeddings } = await import("./server/services/ml");
+  const { registerSweepHooks } = await import("./server/services/sweep");
+  registerSweepHooks();
   setOnThumbDrain(() => void enqueueEmbeddings());
   const moved = await migrateThumbLayout();
   if (moved > 0) console.log(`[thumbs] migrated ${moved} thumbnails into sharded subdirs`);

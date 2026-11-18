@@ -38,7 +38,7 @@ export const settingsRouter = createTRPCRouter({
               model: z.string(),
               pretrained: z.string(),
               tagSuggestionTextWeight: z.number().min(0).max(1),
-              tagClassifier: z.boolean(),
+              tagModel: z.enum(["auto", "vector"]),
             })
             .partial(),
         })
@@ -47,7 +47,7 @@ export const settingsRouter = createTRPCRouter({
     .mutation(({ input }) => {
       config.patch(input);
       // a text-weight change makes tag vectors stale; enabling classifiers needs them trained
-      if (input.ml?.tagSuggestionTextWeight !== undefined || input.ml?.tagClassifier) void enqueueTagVectors();
+      if (input.ml?.tagSuggestionTextWeight !== undefined || input.ml?.tagModel === "auto") void enqueueTagVectors();
       const { passwordHash, ...rest } = config.get();
       return { ...rest, hasPassword: passwordHash !== null };
     }),

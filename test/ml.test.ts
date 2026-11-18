@@ -63,7 +63,7 @@ function portOf(server: http.Server): number {
 describe("ml (stub sidecar)", () => {
   it("setup stub + enable", async () => {
     await new Promise<void>((r) => stub.listen(0, r));
-    config.patch({ ml: { enabled: true, port: portOf(stub) } });
+    config.patch({ ml: { enabled: true, port: portOf(stub), tagModel: "vector" } });
     ml._setStateForTest("ready");
 
     await db.file.create({ data: { id: "ml1", size: 1, mtime: new Date(), mediaType: "image" } });
@@ -233,11 +233,11 @@ describe("ml (stub sidecar)", () => {
     const centroid = Buffer.from(vecBytes((await ml.tagVector(tag!.id))!));
     trainRequests.length = 0;
     try {
-      config.patch({ ml: { tagClassifier: true } });
+      config.patch({ ml: { tagModel: "auto" } });
       const v = await ml.tagVectorByName("weighted");
       expect(dot(v!, vec(42))).toBeCloseTo(1, 4); // classifier direction, not the centroid
       const row = await db.tagClassifier.findFirst({ where: { tagId: tag!.id } });
-      expect(row?.variant).toBe("anchored-v1|w=0.5");
+      expect(row?.variant).toBe("anchored-v2|w=0.5");
       expect(row?.positives).toBe(12);
       expect(Buffer.from((await db.tagVector.findUnique({ where: { tagId: tag!.id } }))!.vector).equals(centroid)).toBe(true);
 
@@ -256,7 +256,7 @@ describe("ml (stub sidecar)", () => {
       expect(tags.classifiers!.trained).toBeGreaterThanOrEqual(1); // "weighted"
       expect(tags.classifiers!.trained + tags.classifiers!.tooSmall).toBe(tags.total);
 
-      config.patch({ ml: { tagClassifier: false } });
+      config.patch({ ml: { tagModel: "vector" } });
       expect((await ml.status()).tags!.classifiers).toBeUndefined();
       expect(Buffer.from(vecBytes((await ml.tagVectorByName("weighted"))!)).equals(centroid)).toBe(true);
       expect(await db.tagClassifier.count({ where: { tagId: tag!.id } })).toBe(1); // kept for next time
@@ -264,7 +264,7 @@ describe("ml (stub sidecar)", () => {
       await ml.invalidateTagVectors(["weighted"]);
       expect(await db.tagClassifier.count({ where: { tagId: tag!.id } })).toBe(0);
     } finally {
-      config.patch({ ml: { tagClassifier: false } });
+      config.patch({ ml: { tagModel: "vector" } });
       await ml.restoreSuggestion("weighted", "img-cls");
       await db.file.delete({ where: { id: "img-cls" } });
       await ml.enqueueTagVectors();

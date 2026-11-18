@@ -58,8 +58,9 @@ const configObject = z.object({
       model: z.string().default("ViT-B-16-SigLIP2"),
       pretrained: z.string().default("webli"),
       tagSuggestionTextWeight: z.number().min(0).max(1).default(0.5),
-      /** Experimental: rank tag suggestions with per-tag classifiers (TagClassifier). */
-      tagClassifier: z.boolean().default(false),
+      /** "auto": per-tag classifiers (TagClassifier) for tags with enough images,
+       *  tag vector otherwise; "vector": tag vector only. */
+      tagModel: z.enum(["auto", "vector"]).default("auto"),
     })
     .default({}),
 });
@@ -75,7 +76,19 @@ function migrateTheme(raw: unknown): unknown {
   return { ...obj, theme: legacy.theme, accent: obj.accent ?? legacy.accent };
 }
 
-const configSchema = z.preprocess(migrateTheme, configObject);
+/** The experimental `ml.tagClassifier` boolean became `ml.tagModel`. Classifiers
+ *  are now the default, so a stored `false` (the old default) also maps to "auto". */
+function migrateMl(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  const ml = obj.ml;
+  if (typeof ml !== "object" || ml === null || Array.isArray(ml) || !("tagClassifier" in ml)) return raw;
+  const rest = { ...(ml as Record<string, unknown>) };
+  delete rest.tagClassifier;
+  return { ...obj, ml: { tagModel: "auto", ...rest } };
+}
+
+const configSchema = z.preprocess((raw) => migrateMl(migrateTheme(raw)), configObject);
 
 export type Config = z.infer<typeof configSchema>;
 

@@ -518,7 +518,7 @@ function PasswordControls({ hasPassword }: { hasPassword: boolean }) {
 
 type MlSettings = {
   enabled: boolean; port: number; model: string; pretrained: string;
-  tagSuggestionTextWeight: number; tagClassifier: boolean;
+  tagSuggestionTextWeight: number; tagModel: "auto" | "vector";
 };
 
 function MlControls({ ml }: { ml: MlSettings }) {
@@ -583,13 +583,16 @@ function MlControls({ ml }: { ml: MlSettings }) {
             <span className="text-xs text-fg-subtle">0 = image centroid only, 1 = tag name only</span>
           </label>
           <label className="flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={ml.tagClassifier}
-              onChange={(e) => patch.mutate({ ml: { tagClassifier: e.target.checked } }, { onSuccess: () => void utils.ml.status.invalidate() })}
-            />
-            Per-tag classifiers (experimental)
-            <span className="text-xs text-fg-subtle">Refines each tag&apos;s vector from its tagged images and ✕ rejections; tags with under 10 images keep the standard vector. Turning it off is instant.</span>
+            Tag model
+            <select
+              className="input w-auto"
+              value={ml.tagModel}
+              onChange={(e) => patch.mutate({ ml: { tagModel: e.target.value as MlSettings["tagModel"] } }, { onSuccess: () => void utils.ml.status.invalidate() })}
+            >
+              <option value="auto">Auto — classifier when a tag has 10+ images</option>
+              <option value="vector">Tag vector only</option>
+            </select>
+            <span className="text-xs text-fg-subtle">Classifiers learn from each tag&apos;s images, ✕ rejections and sibling tags. Switching is instant.</span>
           </label>
           <div>
             <button className="btn" onClick={() => setReembedConfirm(true)}>Re-embed all</button>

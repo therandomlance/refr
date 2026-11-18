@@ -9,6 +9,7 @@ import { BrandMark, Icon, type IconName } from "./icon";
 const items: { href: string; label: string; icon: IconName }[] = [
   { href: "/search", label: "Search", icon: "search" },
   { href: "/browse", label: "Browse", icon: "folder" },
+  { href: "/tagging", label: "Tagging", icon: "tag" },
   { href: "/queue", label: "Queue", icon: "queue" },
   { href: "/sessions", label: "Sessions", icon: "clock" },
   { href: "/palettes", label: "Palettes", icon: "palette" },

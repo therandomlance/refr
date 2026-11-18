@@ -76,8 +76,20 @@ export async function setTags(fileIds: string[], add: string[], remove: string[]
       return JSON.stringify(tags) === JSON.stringify(next) ? [] : [{ fileId, before: tags, after: next }];
     });
   });
-  if (changes.length) await invalidateTags(changes.flatMap((c) => [...c.before, ...c.after]));
+  if (changes.length) {
+    await dropFulfilledCandidates(changes);
+    await invalidateTags(changes.flatMap((c) => [...c.before, ...c.after]));
+  }
   return { changes };
+}
+
+/** A file that now carries a tag (or a descendant) is no longer that tag's
+ *  inbox candidate — drop those rows now instead of waiting for the re-sweep. */
+async function dropFulfilledCandidates(changes: TagChange[]) {
+  for (const c of changes) {
+    const names = [...new Set(c.after.flatMap((n) => ancestors(n)))];
+    if (names.length) await db.tagCandidate.deleteMany({ where: { fileId: c.fileId, tag: { name: { in: names } } } });
+  }
 }
 
 export async function undoTags(changes: TagChange[]): Promise<void> {
