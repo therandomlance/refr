@@ -725,6 +725,7 @@ export function MediaGrid({
           dragId.current = f.id;
           e.dataTransfer.effectAllowed = "move";
           e.dataTransfer.setData("text/plain", f.id);
+          setTranslucentDragImage(e);
           setDraggingId(f.id);
         }}
         onDragOver={(e) => dragOver(e, f.id)}
@@ -1163,4 +1164,29 @@ export function formatDuration(d: number | null): string {
 function inIdOrder(items: FileSummary[], ids: string[]): FileSummary[] {
   const byId = new Map(items.map((f) => [f.id, f]));
   return ids.flatMap((id) => byId.get(id) ?? []);
+}
+
+/** Replace the browser's drag ghost with a 50%-opacity copy of the tile's
+ *  thumbnail so the drop indicator underneath stays visible. Drawn to a canvas
+ *  (synchronous, unlike a cloned <img>) that only lives for the snapshot. */
+function setTranslucentDragImage(e: React.DragEvent<HTMLElement>) {
+  const img = e.currentTarget.querySelector("img");
+  if (!img?.complete || !img.naturalWidth) return; // keep the default ghost
+  const r = e.currentTarget.getBoundingClientRect();
+  const canvas = document.createElement("canvas");
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = Math.round(r.width * dpr);
+  canvas.height = Math.round(r.height * dpr);
+  canvas.style.cssText = `position:fixed;top:-10000px;left:-10000px;width:${r.width}px;height:${r.height}px;pointer-events:none`;
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  // object-fit: cover crop, matching the tile
+  const scale = Math.max(canvas.width / img.naturalWidth, canvas.height / img.naturalHeight);
+  const sw = canvas.width / scale;
+  const sh = canvas.height / scale;
+  ctx.globalAlpha = 0.5;
+  ctx.drawImage(img, (img.naturalWidth - sw) / 2, (img.naturalHeight - sh) / 2, sw, sh, 0, 0, canvas.width, canvas.height);
+  document.body.appendChild(canvas);
+  e.dataTransfer.setDragImage(canvas, e.clientX - r.left, e.clientY - r.top);
+  setTimeout(() => canvas.remove(), 0);
 }
