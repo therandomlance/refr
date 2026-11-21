@@ -28,6 +28,8 @@ export const paths = {
   searchesIndex: path.join(DATA_DIR, "searches.json"),
   palettes: path.join(DATA_DIR, "palettes"),
   boards: path.join(DATA_DIR, "boards"),
+  /** sidebar folder tree + order of the boards in boards/ */
+  boardsIndex: path.join(DATA_DIR, "boards.json"),
 };
 
 export function getSecret(): string {

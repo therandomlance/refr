@@ -4,23 +4,23 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "refr/trpc/react";
 import { SidePanel } from "refr/app/_components/side-panel";
-import { ContextMenu } from "refr/app/_components/context-menu";
+import type { MenuItem } from "refr/app/_components/context-menu";
+import { FolderTree } from "refr/app/_components/folder-tree";
 import { BoardCanvas } from "./_components/board-canvas";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
-import { Icon } from "refr/app/_components/icon";
 
 export default function BoardsPage() {
   const params = useSearchParams();
   const router = useRouter();
   const utils = api.useUtils();
   const boards = api.boards.list.useQuery();
+  const tree = api.boards.tree.useQuery();
   const [newPrompt, setNewPrompt] = useState(false);
   const [renameOf, setRenameOf] = useState<string | null>(null);
   const [deleteOf, setDeleteOf] = useState<string | null>(null);
   const [resetOf, setResetOf] = useState<{ name: string; count: number } | null>(null);
   // bumps when the open board's hidden list is reset, so its canvas clears its local copy too
   const [resetSignal, setResetSignal] = useState(0);
-  const [menu, setMenu] = useState<{ name: string; x: number; y: number } | null>(null);
 
   const open = (name: string | null) =>
     router.replace(name ? `/boards?b=${encodeURIComponent(name)}` : "/boards");
@@ -30,7 +30,7 @@ export default function BoardsPage() {
 
   const create = api.boards.create.useMutation({
     meta: { customFeedback: true },
-    onSuccess: (name) => { void utils.boards.list.invalidate(); open(name); },
+    onSuccess: (name) => { void utils.boards.invalidate(); open(name); },
   });
   const rename = api.boards.rename.useMutation({
     meta: { customFeedback: true },
@@ -49,10 +49,27 @@ export default function BoardsPage() {
   const remove = api.boards.delete.useMutation({
     meta: { customFeedback: true },
     onSuccess: (_r, v) => {
-      void utils.boards.list.invalidate();
+      void utils.boards.invalidate();
       if (current === v.name) open(null);
     },
   });
+
+  const invalidateTree = () => void utils.boards.tree.invalidate();
+  const moveM = api.boards.move.useMutation({ onSuccess: invalidateTree });
+  const createFolderM = api.boards.createFolder.useMutation({ onSuccess: invalidateTree });
+  const renameFolderM = api.boards.renameFolder.useMutation({ onSuccess: invalidateTree });
+  const deleteFolderM = api.boards.deleteFolder.useMutation({ onSuccess: invalidateTree });
+
+  const info = new Map((boards.data ?? []).map((b) => [b.name, b]));
+  const boardMenu = (name: string): MenuItem[] => {
+    const hidden = info.get(name)?.hidden ?? 0;
+    return [
+      { label: "Rename…", onClick: () => setRenameOf(name) },
+      ...(hidden > 0 ? [{ label: `Reset hidden suggestions (${hidden})…`, onClick: () => setResetOf({ name, count: hidden }) }] : []),
+      "sep" as const,
+      { label: "Delete…", onClick: () => setDeleteOf(name), danger: true },
+    ];
+  };
 
   return (
     <div className="flex min-h-0 flex-1">
@@ -67,28 +84,24 @@ export default function BoardsPage() {
           </>
         }
       >
-        <div className="flex-1 px-2 pb-4">
-          {(boards.data ?? []).map((b) => (
-            <div
-              key={b.name}
-              className={`trow ${b.name === current ? "sel" : ""}`}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setMenu({ name: b.name, x: e.clientX, y: e.clientY });
-              }}
-            >
-              <button type="button" className="tree-select" aria-current={b.name === current ? "page" : undefined} onClick={() => open(b.name)}>{b.name}</button>
-              <span className="count">{b.count}</span>
-              <button type="button" className="tree-actions" aria-label={`Actions for ${b.name}`} onClick={(e) => {
-                const r = e.currentTarget.getBoundingClientRect();
-                setMenu({ name: b.name, x: r.left, y: r.bottom });
-              }}><Icon name="more" /></button>
-            </div>
-          ))}
-          {boards.data?.length === 0 && (
-            <p className="px-2 text-xs text-fg-subtle">No boards yet. Create one, or select images in any grid and press B.</p>
-          )}
-        </div>
+        <FolderTree
+          nodes={tree.data ?? []}
+          ops={{
+            move: (v) => moveM.mutate(v),
+            createFolder: (v) => createFolderM.mutate(v),
+            renameFolder: (v) => renameFolderM.mutate(v),
+            deleteFolder: (v) => deleteFolderM.mutate(v),
+          }}
+          onOpen={(b) => open(b.name)}
+          leafMenu={(b) => boardMenu(b.name)}
+          isSelected={(b) => b.name === current}
+          leafCount={(b) => info.get(b.name)?.count}
+          empty={
+            tree.data && (
+              <p className="px-2 text-xs text-fg-subtle">No boards yet. Create one, or select images in any grid and press B.</p>
+            )
+          }
+        />
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
@@ -134,22 +147,6 @@ export default function BoardsPage() {
           danger
           onConfirm={() => resetHidden.mutate({ name: resetOf.name })}
           onClose={() => setResetOf(null)}
-        />
-      )}
-      {menu && (
-        <ContextMenu
-          x={menu.x}
-          y={menu.y}
-          onClose={() => setMenu(null)}
-          items={(() => {
-            const hidden = boards.data?.find((b) => b.name === menu.name)?.hidden ?? 0;
-            return [
-              { label: "Rename…", onClick: () => setRenameOf(menu.name) },
-              ...(hidden > 0 ? [{ label: `Reset hidden suggestions (${hidden})…`, onClick: () => setResetOf({ name: menu.name, count: hidden }) }] : []),
-              "sep" as const,
-              { label: "Delete…", onClick: () => setDeleteOf(menu.name), danger: true },
-            ];
-          })()}
         />
       )}
     </div>

@@ -4,7 +4,7 @@ import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
 import * as boards from "refr/server/services/boards";
 import { paths } from "refr/server/services/dataDir";
-import { BOARD_GAP, BOARD_ITEM_WIDTH } from "refr/lib/boards";
+import { BOARD_GAP, BOARD_ITEM_WIDTH, type BoardTreeNode } from "refr/lib/boards";
 
 describe("boards service", () => {
   it("setup files", async () => {
@@ -84,5 +84,39 @@ describe("board schema migration", () => {
       arrows: [],
       hidden: [],
     });
+  });
+});
+
+describe("boards sidebar tree", () => {
+  const mine = ["TreeA", "TreeB", "TreeC"];
+  // other suites' boards share the dir — look only at ours
+  const shape = (nodes: BoardTreeNode[]): string[] =>
+    nodes.flatMap((n) =>
+      n.t === "folder"
+        ? [`[${n.name}:${shape(n.children).join(",")}]`]
+        : mine.includes(n.name) || n.name === "TreeZ" ? [n.name] : [],
+    );
+
+  it("lists new boards, then keeps folders/order across rename and delete", () => {
+    for (const n of mine) boards.create(n);
+    expect(shape(boards.tree())).toEqual(expect.arrayContaining(mine));
+
+    boards.createFolder("Refs", null);
+    boards.move("s:TreeB", "Refs", null);
+    boards.move("s:TreeC", "Refs", "s:TreeB");
+    expect(shape(boards.tree())).toContain("[Refs:TreeC,TreeB]");
+
+    boards.rename("TreeC", "TreeZ");
+    expect(shape(boards.tree())).toContain("[Refs:TreeZ,TreeB]");
+
+    boards.remove("TreeZ");
+    expect(shape(boards.tree())).toContain("[Refs:TreeB]");
+
+    boards.deleteFolder("Refs");
+    const flat = shape(boards.tree());
+    expect(flat).toContain("TreeB");
+    expect(flat.some((s) => s.startsWith("[Refs"))).toBe(false);
+    boards.remove("TreeA");
+    boards.remove("TreeB");
   });
 });

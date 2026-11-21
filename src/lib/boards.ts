@@ -1,5 +1,10 @@
 /** Moodboard document shape + pure geometry — shared by the boards service and the canvas. */
 import { z } from "zod";
+import type { TreeNode } from "./folder-tree";
+
+/** Sidebar entry for a board (folders/order are stored apart from the board files). */
+export type BoardLeaf = { t: "board"; name: string };
+export type BoardTreeNode = TreeNode<BoardLeaf>;
 
 /** Colour names map to theme tokens in CSS (never raw colours in the document). */
 export const BOARD_COLORS = ["fg", "muted", "accent", "danger"] as const;

@@ -5,9 +5,23 @@ import crypto from "node:crypto";
 import { paths } from "./dataDir";
 import { listJson, readJson, safeName, writeJson } from "./jsonStore";
 import { db } from "refr/server/db";
-import { BOARD_GAP, BOARD_ITEM_WIDTH, boardSchema, type Board, type ImageItem } from "refr/lib/boards";
+import { z } from "zod";
+import { BOARD_GAP, BOARD_ITEM_WIDTH, boardSchema, type Board, type BoardTreeNode, type ImageItem } from "refr/lib/boards";
+import {
+  addFolder,
+  deleteFolderIn,
+  filterLeaves,
+  findLeaf,
+  leaves,
+  moveNode,
+  renameFolderIn,
+} from "refr/lib/folder-tree";
 
-/** Moodboards: one plaintext JSON file per board in data/boards/. */
+/**
+ * Moodboards: one plaintext JSON file per board in data/boards/. Sidebar
+ * folders and order live separately in data/boards.json; the board files are
+ * the source of truth for which boards exist (see `tree()`).
+ */
 
 const fileFor = (name: string) => path.join(paths.boards, safeName(name) + ".json");
 
@@ -47,8 +61,16 @@ export function rename(from: string, to: string): string {
   const dst = fileFor(to);
   if (!fs.existsSync(src)) throw new Error(`board '${from}' not found`);
   if (src !== dst && fs.existsSync(dst)) throw new Error(`a board named '${safeName(to)}' already exists`);
+  // read the tree while the old file still exists, so the entry keeps its place
+  const items = tree();
   fs.renameSync(src, dst);
-  return safeName(to);
+  const stored = safeName(to);
+  const leaf = findLeaf(items, safeName(from));
+  if (leaf && leaf.name !== stored) {
+    leaf.name = stored;
+    persistTree(items);
+  }
+  return stored;
 }
 
 /** Clear the board's hidden-suggestions list. */
@@ -58,6 +80,52 @@ export function resetHidden(name: string) {
 
 export function remove(name: string) {
   fs.rmSync(fileFor(name), { force: true });
+  persistTree(tree()); // tree() already drops the missing board
+}
+
+// ---------------------------------------------------------------- sidebar tree
+
+const leafSchema = z.object({ t: z.literal("board"), name: z.string().min(1) });
+const treeNodeSchema: z.ZodType<BoardTreeNode, z.ZodTypeDef, unknown> = z.lazy(() =>
+  z.union([z.object({ t: z.literal("folder"), name: z.string().min(1), children: z.array(treeNodeSchema) }), leafSchema]),
+);
+const treeStoreSchema = z.object({ items: z.array(treeNodeSchema) });
+
+/**
+ * The stored tree reconciled with the board files: entries whose file is gone
+ * are dropped, and boards missing from the tree (new, or pre-folder installs)
+ * are appended to the root, most recently changed first.
+ */
+export function tree(): BoardTreeNode[] {
+  const onDisk = list();
+  const exists = new Set(onDisk.map((b) => b.name));
+  const items = filterLeaves(readJson(paths.boardsIndex, treeStoreSchema)?.items ?? [], (b) => exists.has(b.name));
+  const placed = new Set(leaves(items).map((b) => b.name));
+  for (const b of onDisk) if (!placed.has(b.name)) items.push({ t: "board", name: b.name });
+  return items;
+}
+
+function persistTree(items: BoardTreeNode[]) {
+  writeJson(paths.boardsIndex, { items });
+}
+
+export function createFolder(name: string, parent: string | null) {
+  const items = tree();
+  if (addFolder(items, name, parent)) persistTree(items);
+}
+
+export function renameFolder(folderPath: string, newName: string) {
+  const items = tree();
+  if (renameFolderIn(items, folderPath, newName)) persistTree(items);
+}
+
+export function deleteFolder(folderPath: string) {
+  const items = tree();
+  if (deleteFolderIn(items, folderPath)) persistTree(items);
+}
+
+export function move(key: string, parent: string | null, beforeKey: string | null) {
+  persistTree(moveNode(tree(), key, parent, beforeKey));
 }
 
 /**

@@ -5,14 +5,15 @@ import { z } from "zod";
 import { paths } from "./dataDir";
 import { readJson, writeJson } from "./jsonStore";
 import { tokenSchema } from "./search";
+import type { SavedFolderNode, SavedNode, SavedSearchNode } from "refr/lib/saved-searches";
 import {
-  childrenAt,
-  locateFolder,
+  addFolder,
+  deleteFolderIn,
+  filterLeaves,
+  findLeaf,
   moveNode,
-  type SavedFolderNode,
-  type SavedNode,
-  type SavedSearchNode,
-} from "refr/lib/saved-searches";
+  renameFolderIn,
+} from "refr/lib/folder-tree";
 
 /**
  * Saved searches in a nested folder tree, stored as one ordered file at
@@ -98,36 +99,17 @@ export function rename(oldName: string, newName: string) {
 
 export function createFolder(name: string, parent: string | null) {
   const items = list();
-  const siblings = childrenAt(items, parent);
-  if (!siblings) return;
-  const clean = cleanName(name);
-  if (siblings.some((n) => n.t === "folder" && n.name === clean)) return;
-  siblings.push({ t: "folder", name: clean, children: [] });
-  persist(items);
+  if (addFolder(items, name, parent)) persist(items);
 }
 
 export function renameFolder(folderPath: string, newName: string) {
   const items = list();
-  const loc = locateFolder(items, folderPath);
-  if (!loc) return;
-  const clean = cleanName(newName);
-  if (clean === loc.folder.name) return;
-  const clash = loc.siblings.find((n): n is SavedFolderNode => n.t === "folder" && n.name === clean);
-  if (clash) {
-    clash.children.push(...loc.folder.children);
-    loc.siblings.splice(loc.index, 1);
-  } else {
-    loc.folder.name = clean;
-  }
-  persist(items);
+  if (renameFolderIn(items, folderPath, newName)) persist(items);
 }
 
 export function deleteFolder(folderPath: string) {
   const items = list();
-  const loc = locateFolder(items, folderPath);
-  if (!loc) return;
-  loc.siblings.splice(loc.index, 1, ...loc.folder.children); // promote contents to the parent
-  persist(items);
+  if (deleteFolderIn(items, folderPath)) persist(items);
 }
 
 // ---------------------------------------------------------------- ordering
@@ -138,24 +120,5 @@ export function move(key: string, parent: string | null, beforeKey: string | nul
 
 // ---------------------------------------------------------------- helpers
 
-/** "/" is the path separator, so it can't appear in a folder name. */
-function cleanName(name: string): string {
-  return name.trim().replace(/\//g, "-") || "folder";
-}
-
-function filterSearches(items: SavedNode[], name: string): SavedNode[] {
-  return items
-    .filter((n) => !(n.t === "search" && n.name === name))
-    .map((n): SavedNode => (n.t === "folder" ? { ...n, children: filterSearches(n.children, name) } : n));
-}
-
-function findSearch(items: SavedNode[], name: string): SavedSearchNode | null {
-  for (const n of items) {
-    if (n.t === "search" && n.name === name) return n;
-    if (n.t === "folder") {
-      const c = findSearch(n.children, name);
-      if (c) return c;
-    }
-  }
-  return null;
-}
+const filterSearches = (items: SavedNode[], name: string) => filterLeaves(items, (s) => s.name !== name);
+const findSearch = (items: SavedNode[], name: string) => findLeaf(items, name);

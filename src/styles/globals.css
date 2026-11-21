@@ -781,6 +781,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 }
 .pcard .pname:hover { color: var(--accent); }
 .pcard .pfolder { margin-left: auto; flex: none; max-width: 50%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; font-weight: 400; color: var(--fg-subtle); }
+/* drag to a folder: dim the source card; .drag-ghost is the offscreen clone used as the drag image */
+.pcard.dragging { opacity: .35; }
+.pcard.drag-ghost { position: fixed; top: -10000px; left: -10000px; opacity: .5; pointer-events: none; transform: none; transition: none; }
 .pcard:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (hover: hover) {
   .pcard:hover { transform: translateY(-2px); box-shadow: var(--shadow-2); border-color: var(--line-strong); }

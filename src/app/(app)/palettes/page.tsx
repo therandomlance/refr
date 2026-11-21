@@ -39,6 +39,8 @@ export default function PalettesPage() {
   const [filter, setFilter] = useState("");
   const [dropOn, setDropOn] = useState<string | null>(null);
   const dragPal = useRef<{ name: string; folder: string } | null>(null);
+  // the card being dragged, dimmed like a queue tile during drag-reorder
+  const [draggingKey, setDraggingKey] = useState<string | null>(null);
 
   const utils = api.useUtils();
   const palettes = api.palettes.list.useQuery();
@@ -161,7 +163,7 @@ export default function PalettesPage() {
           {shown.map((p) => (
             <div
               key={`${p.folder}/${p.name}`}
-              className="pcard"
+              className={`pcard ${draggingKey === `${p.folder}/${p.name}` ? "dragging" : ""}`}
               draggable
               tabIndex={0}
               aria-label={`Open palette ${p.name}`}
@@ -169,8 +171,10 @@ export default function PalettesPage() {
                 dragPal.current = { name: p.name, folder: p.folder };
                 e.dataTransfer.effectAllowed = "move";
                 e.dataTransfer.setData(PALETTE_DRAG, `${p.folder}/${p.name}`);
+                setTranslucentDragImage(e);
+                setDraggingKey(`${p.folder}/${p.name}`);
               }}
-              onDragEnd={() => { dragPal.current = null; setDropOn(null); }}
+              onDragEnd={() => { dragPal.current = null; setDropOn(null); setDraggingKey(null); }}
               onDoubleClick={() => open(p)}
               onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) open(p); }}
               onContextMenu={(e) => {
@@ -729,3 +733,16 @@ function XIcon() {
   );
 }
 
+/** Replace the browser's drag ghost with a 50%-opacity copy of the card (as
+ *  the queue grid does for tiles) so the folder rows underneath stay visible.
+ *  The clone only lives for the snapshot. */
+function setTranslucentDragImage(e: React.DragEvent<HTMLElement>) {
+  const r = e.currentTarget.getBoundingClientRect();
+  const ghost = e.currentTarget.cloneNode(true) as HTMLElement;
+  ghost.classList.add("drag-ghost");
+  ghost.style.width = `${r.width}px`;
+  ghost.style.height = `${r.height}px`;
+  document.body.appendChild(ghost);
+  e.dataTransfer.setDragImage(ghost, e.clientX - r.left, e.clientY - r.top);
+  setTimeout(() => ghost.remove(), 0);
+}
