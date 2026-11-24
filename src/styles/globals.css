@@ -381,6 +381,9 @@ code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border
   font-size: 12px; font-weight: 500; border-radius: calc(var(--r-md) - 3px); cursor: pointer;
   transition: background var(--dur-fast), color var(--dur-fast), box-shadow var(--dur-fast);
 }
+/* full-width segmented control whose buttons share the space (narrow sidebars) */
+.seg.seg-fill { display: flex; width: 100%; }
+.seg.seg-fill button { flex: 1 1 0; min-width: 0; padding-inline: 4px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .seg button.on { background: var(--surface-3); color: var(--fg); box-shadow: var(--shadow-1), 0 0 0 1px var(--line-subtle); }
 @media (hover: hover) { .seg button:not(.on):hover { color: var(--fg); } }
 

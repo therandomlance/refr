@@ -73,15 +73,15 @@ export default function TaggingPage() {
     <div className="flex min-h-0 flex-1">
       <SidePanel
         head={
-          <>
+          <div className="flex min-w-0 flex-1 flex-col gap-2">
             <h2 className="text-[13px] font-semibold">Tagging</h2>
-            <div className="seg">
+            <div className="seg seg-fill">
               <button className={view === "tags" ? "on" : ""} onClick={() => go({ tag })}>Tags</button>
               <button className={view === "files" ? "on" : ""} onClick={() => go({ view: "files" })}>Files</button>
               <button className={view === "rules" ? "on" : ""} onClick={() => go({ view: "rules" })}>Rules</button>
               <button className={view === "duplicates" ? "on" : ""} onClick={() => go({ view: "duplicates" })}>Dupes</button>
             </div>
-          </>
+          </div>
         }
       >
         <div className="flex flex-col gap-2 px-4 pb-3">

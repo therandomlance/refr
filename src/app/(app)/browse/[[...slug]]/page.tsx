@@ -225,82 +225,83 @@ export default function BrowsePage() {
             )}
           </div>
         ) : (
-          <>
-            {mode === "tags" && anySuggestionData && (
-              <div className="mx-4 mb-2 flex-none rounded card">
-                <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
-                  <button className="hover:underline" aria-expanded={suggestionsOpen} onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
-                    <Icon name={suggestionsOpen ? "down" : "right"} /> Image suggestions
-                  </button>
-                  <span className="text-fg-subtle font-normal">{totalSuggestions}</span>
-                </div>
-                {suggestionsOpen && (
-                  <div className="px-1 pb-1">
-                    <SuggestionStrip
-                      title="Suggested for this tag"
-                      items={suggestedItems}
-                      hasData={(suggestions.data?.length ?? 0) > 0}
-                      refreshKey={suggestions.dataUpdatedAt}
-                      open={stripOpen}
-                      setOpen={setStripOpen}
-                      onRefresh={() => void suggestions.refetch()}
-                      onOpen={(id) => openWith(suggestedItems, id)}
-                       onAccept={decisions.accept}
-                       onDeny={decisions.deny}
-                       isPending={decisions.isPending}
-                    />
-                    {parentTag !== null && (
-                      <SuggestionStrip
-                        title="Suggested within parent tag"
-                        items={parentItems}
-                        hasData={(withinParent.data?.length ?? 0) > 0}
-                        refreshKey={withinParent.dataUpdatedAt}
-                        open={parentStripOpen}
-                        setOpen={setParentStripOpen}
-                        onRefresh={() => void withinParent.refetch()}
-                        onOpen={(id) => openWith(parentItems, id)}
-                         onAccept={decisions.accept}
-                         onDeny={decisions.deny}
-                         isPending={decisions.isPending}
-                      />
-                    )}
-                    {parentTag !== null && (
-                      <SuggestionStrip
-                        title="Suggested outside root tag"
-                        items={outsideItems}
-                        hasData={(outsideRoot.data?.length ?? 0) > 0}
-                        refreshKey={outsideRoot.dataUpdatedAt}
-                        open={outsideStripOpen}
-                        setOpen={setOutsideStripOpen}
-                        onRefresh={() => void outsideRoot.refetch()}
-                        onOpen={(id) => openWith(outsideItems, id)}
-                         onAccept={decisions.accept}
-                         onDeny={decisions.deny}
-                         isPending={decisions.isPending}
-                      />
+          <MediaGrid
+            source={mode === "folders" ? { kind: "files", pathPrefix: selected } : { kind: "files", tag: selected }}
+            tagBadges={{ context: mode === "tags" ? selected : null }}
+            selection={selection}
+            onSelectionChange={setSelection}
+            onContextMenu={fileMenu.open}
+            onFileKey={fileMenu.handleKey}
+            // inside the grid's scroll area, so it scrolls away with the images
+            header={
+              <>
+                {mode === "tags" && anySuggestionData && (
+                  <div className="mb-2 mt-1 rounded card">
+                    <div className="flex w-full items-center gap-2 px-3 py-2 text-xs font-semibold">
+                      <button className="hover:underline" aria-expanded={suggestionsOpen} onClick={() => setSuggestionsOpen(!suggestionsOpen)}>
+                        <Icon name={suggestionsOpen ? "down" : "right"} /> Image suggestions
+                      </button>
+                      <span className="text-fg-subtle font-normal">{totalSuggestions}</span>
+                    </div>
+                    {suggestionsOpen && (
+                      <div className="px-1 pb-1">
+                        <SuggestionStrip
+                          title="Suggested for this tag"
+                          items={suggestedItems}
+                          hasData={(suggestions.data?.length ?? 0) > 0}
+                          refreshKey={suggestions.dataUpdatedAt}
+                          open={stripOpen}
+                          setOpen={setStripOpen}
+                          onRefresh={() => void suggestions.refetch()}
+                          onOpen={(id) => openWith(suggestedItems, id)}
+                           onAccept={decisions.accept}
+                           onDeny={decisions.deny}
+                           isPending={decisions.isPending}
+                        />
+                        {parentTag !== null && (
+                          <SuggestionStrip
+                            title="Suggested within parent tag"
+                            items={parentItems}
+                            hasData={(withinParent.data?.length ?? 0) > 0}
+                            refreshKey={withinParent.dataUpdatedAt}
+                            open={parentStripOpen}
+                            setOpen={setParentStripOpen}
+                            onRefresh={() => void withinParent.refetch()}
+                            onOpen={(id) => openWith(parentItems, id)}
+                             onAccept={decisions.accept}
+                             onDeny={decisions.deny}
+                             isPending={decisions.isPending}
+                          />
+                        )}
+                        {parentTag !== null && (
+                          <SuggestionStrip
+                            title="Suggested outside root tag"
+                            items={outsideItems}
+                            hasData={(outsideRoot.data?.length ?? 0) > 0}
+                            refreshKey={outsideRoot.dataUpdatedAt}
+                            open={outsideStripOpen}
+                            setOpen={setOutsideStripOpen}
+                            onRefresh={() => void outsideRoot.refetch()}
+                            onOpen={(id) => openWith(outsideItems, id)}
+                             onAccept={decisions.accept}
+                             onDeny={decisions.deny}
+                             isPending={decisions.isPending}
+                          />
+                        )}
+                      </div>
                     )}
                   </div>
                 )}
-              </div>
-            )}
-            <MediaGrid
-              source={mode === "folders" ? { kind: "files", pathPrefix: selected } : { kind: "files", tag: selected }}
-              tagBadges={{ context: mode === "tags" ? selected : null }}
-              selection={selection}
-              onSelectionChange={setSelection}
-              onContextMenu={fileMenu.open}
-              onFileKey={fileMenu.handleKey}
-              header={
-                childCards.length > 0 ? (
+                {childCards.length > 0 && (
                   <div className="folder-card-grid pb-3 pt-1">
                     {childCards.map((c) => (
                       <Card key={c.key} node={c} onOpen={() => selectNode(c.key)} />
                     ))}
                   </div>
-                ) : null
-              }
-            />
-          </>
+                )}
+              </>
+            }
+          />
         )}
       </main>
 
