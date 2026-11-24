@@ -19,7 +19,14 @@ function arm() {
   const scanTime = get().scanTime;
   if (!scanTime) return;
   timer = setTimeout(() => {
-    void scanNow().finally(arm);
+    void scanNow()
+      .then(async () => {
+        if (!get().backup.enabled) return;
+        const { snapshotDb } = await import("./backup");
+        await snapshotDb();
+      })
+      .catch((e) => console.error("[scheduler] nightly scan/backup failed:", e))
+      .finally(arm);
   }, msUntilNext(scanTime));
   timer.unref?.();
 }

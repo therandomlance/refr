@@ -40,6 +40,7 @@ data/
   searches/          # saved searches, one JSON file each: <name>.json
   palettes/
     <folder>/<name>.json   # subfolders = palette folders
+  backups/           # refr-YYYYMMDD-HHMMSS.db — VACUUM INTO snapshots (backup.ts)
   tag-rules.json     # {aliases: {from: to}, implications: {tag: [implied]}} — §7.3
   boards/
     <name>.json      # moodboard: {items, arrows, hidden} — schema in src/lib/boards.ts
@@ -63,6 +64,7 @@ skipTagRemoveConfirm: false
 sendToPaths: []               # {path: "/absolute/path", alias?: "label"}; legacy strings accepted
 sessionHistoryCap: 1000
 theme: slate                  # slate|paper|ember|forest|velvet|mono
+backup: {enabled: true, keep: 7}  # snapshot refr.db after each nightly scan
 ml:                           # see §13.9
   enabled: false
   port: 3777
@@ -279,6 +281,19 @@ boot fallback in `instrumentation-node.ts` can `CREATE TABLE IF NOT EXISTS` idem
   and buckets > 400 are skipped. Reviewed on Tagging → Dupes: keep one (tags, favorite,
   source, note merge onto it; the other gets `duplicateOf`), or dismiss ("Not duplicates",
   `DuplicateDismissal`). Hidden files are never deleted; `duplicates.unhide` restores.
+
+### 7.5 Metadata & backup
+
+- EXIF: `probe()` parses `sharp().metadata().exif` with a dependency-free reader
+  (`exif.ts`: DateTimeOriginal/Digitized, Make + Model) into `FileMeta.takenAt/camera`;
+  scan pass 2.6 backfills images not yet checked (`exifChecked`). Keyword `taken:`.
+- Source URL + Markdown note per file (`files.setMeta`), edited in the viewer's left
+  panel. Keywords `source:<text>`, `has:source`, `has:note`.
+- `GET /api/export` streams JSON lines `{id, paths, tags, favorite?, source?, note?}`;
+  `POST /api/import` (raw body) matches by id then path and only adds (tags through
+  `setTags`, so tag rules apply). Settings → Backup.
+- Snapshots: `VACUUM INTO data/backups/refr-<stamp>.db` after the nightly scan when
+  `backup.enabled`, pruned to `backup.keep`; `settings.backupNow`.
 
 ## 8. tRPC API surface
 

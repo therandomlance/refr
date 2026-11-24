@@ -213,6 +213,8 @@ const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   "orient:portrait": () => ({ text: `f.height > f.width * 1.02`, params: [] }),
   "orient:square": () => ({ text: `f.width <= f.height * 1.02 AND f.height <= f.width * 1.02`, params: [] }),
   fav: () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.favorite = 1)`, params: [] }),
+  "has:note": () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND trim(coalesce(m.note, '')) <> '')`, params: [] }),
+  "has:source": () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND trim(coalesce(m.source, '')) <> '')`, params: [] }),
   "is:duplicate": () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.duplicateOf IS NOT NULL)`, params: [] }),
 };
 
@@ -245,6 +247,16 @@ function valueKeywordClause(t: Token): Sql | null {
       return { text: `f.addedAt >= ?`, params: [Date.now() - k.days * 86_400_000] };
     case "date":
       return { text: `(f.mtime >= ? AND f.mtime < ?)`, params: [k.from.getTime(), k.to.getTime()] };
+    case "taken":
+      return {
+        text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.takenAt >= ? AND m.takenAt < ?)`,
+        params: [k.from.getTime(), k.to.getTime()],
+      };
+    case "source":
+      return {
+        text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.source LIKE ? ESCAPE '\\')`,
+        params: ["%" + escapeLike(k.text) + "%"],
+      };
   }
 }
 

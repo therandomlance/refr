@@ -23,7 +23,7 @@ export default function SettingsPage() {
       <header className="page-header page-header-inset"><div><h1>Settings</h1><p className="page-tagline">Your workspace, libraries, and background services.</p></div></header>
       <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
-        <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#maintenance">Maintenance</a>
+        <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#backup">Backup</a><a href="#maintenance">Maintenance</a>
       </nav>
       <div className="flex min-w-0 flex-col gap-6">
         <div className="settings-group" id="libraries"><h2>Libraries</h2>
@@ -100,6 +100,14 @@ export default function SettingsPage() {
 
         <Section title="Semantic search (CLIP)">
           <MlControls ml={s.ml} />
+        </Section>
+        </div>
+        <div className="settings-group" id="backup"><h2>Backup</h2>
+        <Section title="Tags and notes">
+          <TagExportControls />
+        </Section>
+        <Section title="Database snapshots">
+          <SnapshotControls enabled={s.backup.enabled} keep={s.backup.keep} onChange={(backup) => save({ backup })} />
         </Section>
         </div>
         <div className="settings-group" id="maintenance"><h2>Maintenance</h2>
@@ -608,6 +616,92 @@ function MlControls({ ml }: { ml: MlSettings }) {
           onClose={() => setReembedConfirm(false)}
         />
       )}
+    </div>
+  );
+}
+
+/** Export / import tags, favorites, sources and notes as JSON lines (backup.ts). */
+function TagExportControls() {
+  const utils = api.useUtils();
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<string | null>(null);
+  const onFile = async (file: File) => {
+    setBusy(true);
+    setResult(null);
+    try {
+      const res = await fetch("/api/import", { method: "POST", body: file });
+      if (!res.ok) throw new Error(`Import failed (${res.status})`);
+      const r = (await res.json()) as { lines: number; matched: number; unmatched: number; invalid: number; changedFiles: number };
+      setResult(`Read ${r.lines} entries: ${r.matched} matched, ${r.unmatched} not in this library${r.invalid ? `, ${r.invalid} unreadable` : ""}. ${r.changedFiles} files updated.`);
+      void utils.invalidate();
+    } catch (e) {
+      setResult(e instanceof Error ? e.message : "Import failed.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-xs text-fg-subtle">
+        Tags, favorites, sources and notes live only in the database. Export them as a plain-text file you can keep
+        anywhere; importing merges a file back in (matched by content, then by path) and only ever adds.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <a className="btn" href="/api/export" download>Export tags</a>
+        <label className={`btn ${busy ? "pointer-events-none opacity-60" : ""}`}>
+          {busy ? "Importing…" : "Import tags…"}
+          <input
+            type="file"
+            accept=".jsonl,.json,application/x-ndjson"
+            className="sr-only"
+            disabled={busy}
+            onChange={(e) => {
+              const f = e.target.files?.[0];
+              e.target.value = "";
+              if (f) void onFile(f);
+            }}
+          />
+        </label>
+      </div>
+      {result && <p role="status" className="text-xs text-fg-muted">{result}</p>}
+    </div>
+  );
+}
+
+/** Nightly `VACUUM INTO` snapshots of refr.db in data/backups/. */
+function SnapshotControls({ enabled, keep, onChange }: { enabled: boolean; keep: number; onChange: (b: { enabled?: boolean; keep?: number }) => void }) {
+  const utils = api.useUtils();
+  const snapshots = api.settings.snapshots.useQuery();
+  const backupNow = api.settings.backupNow.useMutation({ onSuccess: () => void utils.settings.snapshots.invalidate() });
+  const latest = snapshots.data?.[0];
+  return (
+    <div className="flex flex-col gap-2">
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={enabled} onChange={(e) => onChange({ enabled: e.target.checked })} />
+        Snapshot the database after each nightly scan
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        Keep the newest
+        <input
+          className="input w-20"
+          type="number"
+          min={1}
+          max={100}
+          defaultValue={keep}
+          onBlur={(e) => onChange({ keep: Math.max(1, Math.min(100, Number(e.target.value) || 7)) })}
+        />
+        snapshots
+      </label>
+      <div className="flex flex-wrap items-center gap-3">
+        <button className="btn" disabled={backupNow.isPending} onClick={() => backupNow.mutate()}>
+          {backupNow.isPending ? "Backing up…" : "Back up now"}
+        </button>
+        <span className="text-xs text-fg-subtle">
+          {latest
+            ? `Latest: ${new Date(latest.createdAt).toLocaleString()} (${(latest.size / (1 << 20)).toFixed(1)} MB), ${snapshots.data!.length} kept in data/backups/`
+            : "No snapshots yet."}
+        </span>
+      </div>
     </div>
   );
 }

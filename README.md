@@ -118,6 +118,8 @@ saved to the sidebar.
 | `wallpaper:any`, `wallpaper:16:9`, `wallpaper:16:10`, `wallpaper:21:9` | images ≥720 px tall at a wallpaper aspect ratio |
 | `w>2000`, `h<=1080`, `tags=0` | dimensions / tag count |
 | `added:7d`, `date:2024-03` | added recently / file date (d, w, m, y) |
+| `taken:2024-03` | EXIF date taken (photos) |
+| `source:artstation`, `has:source`, `has:note` | source URL contains text / has a source / has a note |
 | `path:<folder or alias>` | files in a folder (`=path:` for direct children only) |
 | `suggest:<tag>` | images the model thinks belong in `<tag>` *(ML)* |
 | `"a stormy sea at dusk"` | semantic text search *(ML)* |
@@ -248,6 +250,15 @@ three density levels. All of them can be set in Settings or `config.yaml`. Here 
 with the teal accent:
 
 ![Paper theme with teal accent](docs/screenshots/light-theme.webp)
+
+### Notes, sources and backups
+
+The viewer's metadata panel shows a photo's EXIF date taken and camera. It also lets you
+record where an image came from (source URL) and a Markdown note. **Settings → Backup**
+exports tags, favorites, sources and notes as a plain JSON-lines file and imports one back.
+Import matches by content hash, then by path, and only adds. A snapshot of `refr.db` is
+written to `data/backups/` after each nightly scan (newest 7 kept), or on demand with
+**Back up now**.
 
 ## Test
 

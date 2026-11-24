@@ -51,6 +51,13 @@ const configObject = z.object({
   theme: z.enum(THEMES).default("obsidian"),
   accent: z.enum(ACCENTS).default("blue"),
   density: z.enum(DENSITIES).default("comfortable"),
+  /** refr.db snapshot after each nightly scan, keeping the newest `keep` */
+  backup: z
+    .object({
+      enabled: z.boolean().default(true),
+      keep: z.number().int().min(1).max(100).default(7),
+    })
+    .default({}),
   ml: z
     .object({
       enabled: z.boolean().default(false),

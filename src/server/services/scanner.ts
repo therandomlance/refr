@@ -6,6 +6,7 @@ import crypto from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { db } from "refr/server/db";
+import { parseExif, type ExifInfo } from "./exif";
 import * as config from "./config";
 import { catchUpMissingThumbs, deleteThumb, setOnThumbDrain } from "./thumbs";
 import { enqueueEmbeddings } from "./ml";
@@ -79,12 +80,18 @@ export function displayDims(
   return { width: swap ? height : width, height: swap ? width : height };
 }
 
+/** Store EXIF date/camera and mark the file checked (so the backfill skips it). */
+async function saveExif(fileId: string, exif: ExifInfo) {
+  const data = { takenAt: exif.takenAt ?? null, camera: exif.camera ?? null, exifChecked: true };
+  await db.fileMeta.upsert({ where: { fileId }, create: { fileId, ...data }, update: data });
+}
+
 async function probe(filePath: string, mediaType: "image" | "video") {
   if (mediaType === "image") {
     try {
       const sharp = (await import("sharp")).default;
       const meta = await sharp(filePath).metadata();
-      return { width: meta.autoOrient.width, height: meta.autoOrient.height };
+      return { width: meta.autoOrient.width, height: meta.autoOrient.height, exif: parseExif(meta.exif) };
     } catch {
       return {};
     }
@@ -212,6 +219,26 @@ async function runScan() {
       });
     }
 
+    // Pass 2.6: read EXIF (date taken, camera) for images indexed before it was
+    // recorded. Once per file (FileMeta.exifChecked), keyset-paged, resumable.
+    progress.phase = "reading photo metadata";
+    for (let after = ""; ;) {
+      const rows = await db.$queryRawUnsafe<{ id: string; path: string | null }[]>(
+        `SELECT f.id, (SELECT MIN(p.path) FROM FilePath p WHERE p.fileId = f.id) AS path
+         FROM File f LEFT JOIN FileMeta m ON m.fileId = f.id
+         WHERE f.mediaType = 'image' AND COALESCE(m.exifChecked, 0) = 0 AND f.id > ?
+         ORDER BY f.id LIMIT 200`,
+        after,
+      );
+      if (rows.length === 0) break;
+      after = rows[rows.length - 1]!.id;
+      for (const r of rows) {
+        if (!r.path) continue; // missing from disk: retry when it returns
+        const probed = await probe(r.path, "image");
+        await saveExif(r.id, ("exif" in probed ? probed.exif : undefined) ?? {});
+      }
+    }
+
     // Pass 3: update File.mtime = max mtime across current paths (touched files only)
     progress.phase = "finalizing";
     for (const fileId of touchedFiles) {
@@ -262,6 +289,7 @@ async function hashAndAttach(
         duration: "duration" in probed ? probed.duration : undefined,
       },
     });
+    if ("exif" in probed && probed.exif) await saveExif(hash, probed.exif);
   }
   touched.add(hash);
 

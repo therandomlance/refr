@@ -5,6 +5,7 @@ import * as config from "refr/server/services/config";
 import * as auth from "refr/server/services/auth";
 import { scanNow, scanStatus } from "refr/server/services/scanner";
 import { thumbStatus } from "refr/server/services/thumbs";
+import { listSnapshots, snapshotDb } from "refr/server/services/backup";
 import { enqueueTagVectors } from "refr/server/services/ml";
 
 export const settingsRouter = createTRPCRouter({
@@ -32,6 +33,7 @@ export const settingsRouter = createTRPCRouter({
           theme: z.enum(config.THEMES),
           accent: z.enum(config.ACCENTS),
           density: z.enum(config.DENSITIES),
+          backup: z.object({ enabled: z.boolean(), keep: z.number().int().min(1).max(100) }).partial(),
           ml: z
             .object({
               port: z.number().int(),
@@ -58,6 +60,9 @@ export const settingsRouter = createTRPCRouter({
   }),
 
   scanStatus: protectedProcedure.query(() => scanStatus()),
+
+  snapshots: protectedProcedure.query(() => listSnapshots()),
+  backupNow: protectedProcedure.mutation(() => snapshotDb()),
 
   thumbStatus: protectedProcedure.query(() => thumbStatus()),
 

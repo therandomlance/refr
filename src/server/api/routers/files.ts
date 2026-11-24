@@ -6,7 +6,7 @@ import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { withVisible } from "refr/server/services/search";
-import { setFavorite } from "refr/server/services/fileMeta";
+import { setFavorite, setMeta } from "refr/server/services/fileMeta";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
 import { purgeOrphanThumbs } from "refr/server/services/thumbs";
 import * as config from "refr/server/services/config";
@@ -160,6 +160,10 @@ export const filesRouter = createTRPCRouter({
     if (!file) throw new TRPCError({ code: "NOT_FOUND" });
     return file;
   }),
+
+  setMeta: protectedProcedure
+    .input(z.object({ fileId: z.string(), source: z.string().max(2000).optional(), note: z.string().max(20_000).optional() }))
+    .mutation(({ input }) => setMeta(input.fileId, input)),
 
   setFavorite: protectedProcedure
     .input(z.object({ fileIds: z.array(z.string()).min(1), favorite: z.boolean().optional() }))

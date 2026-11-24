@@ -18,6 +18,8 @@ export const KEYWORD_NAMES = [
   "orient:square",
   "fav",
   "is:duplicate",
+  "has:note",
+  "has:source",
 ] as const;
 
 /** Namespaces whose keywords collapse into one fill row in the autocomplete
@@ -30,7 +32,7 @@ export const DUPLICATE_KEYWORD = "is:duplicate";
 
 /** Prefixes of the value-carrying keywords, offered as fill rows in the search
  *  autocomplete (picking one fills the input; the user types the value). */
-export const KEYWORD_HINTS = ["w>", "h>", "tags=", "added:", "date:"] as const;
+export const KEYWORD_HINTS = ["w>", "h>", "tags=", "added:", "date:", "taken:", "source:"] as const;
 
 export type CompareOp = ">" | "<" | ">=" | "<=" | "=";
 
@@ -40,7 +42,11 @@ export type ValueKeyword =
   /** added within the last N days */
   | { kind: "added"; days: number }
   /** file date (mtime) within [from, to) — local calendar year / month / day */
-  | { kind: "date"; from: Date; to: Date };
+  | { kind: "date"; from: Date; to: Date }
+  /** EXIF date taken within [from, to) */
+  | { kind: "taken"; from: Date; to: Date }
+  /** source URL contains the text (case-insensitive) */
+  | { kind: "source"; text: string };
 
 const UNIT_DAYS = { d: 1, w: 7, m: 30, y: 365 } as const;
 
@@ -59,16 +65,19 @@ export function parseValueKeyword(tag: string): ValueKeyword | null {
   }
   m = /^added:(\d+)([dwmy])$/.exec(tag);
   if (m) return { kind: "added", days: Number(m[1]) * UNIT_DAYS[m[2] as keyof typeof UNIT_DAYS] };
-  m = /^date:(\d{4})(?:-(\d{1,2})(?:-(\d{1,2}))?)?$/.exec(tag);
-  if (m) {
-    const y = Number(m[1]);
-    const mo = m[2] ? Number(m[2]) - 1 : null;
-    const d = m[3] ? Number(m[3]) : null;
+  m = /^source:(.+)$/s.exec(tag);
+  if (m) return { kind: "source", text: m[1]! };
+  const dm = /^(?<kind>date|taken):(?<y>\d{4})(?:-(?<mo>\d{1,2})(?:-(?<d>\d{1,2}))?)?$/.exec(tag)?.groups;
+  if (dm) {
+    const kind = dm.kind as "date" | "taken";
+    const y = Number(dm.y);
+    const mo = dm.mo ? Number(dm.mo) - 1 : null;
+    const d = dm.d ? Number(dm.d) : null;
     if (mo !== null && (mo < 0 || mo > 11)) return null;
     if (d !== null && (d < 1 || d > 31)) return null;
     const from = new Date(y, mo ?? 0, d ?? 1);
     const to = d !== null ? new Date(y, mo!, d + 1) : mo !== null ? new Date(y, mo + 1, 1) : new Date(y + 1, 0, 1);
-    return { kind: "date", from, to };
+    return { kind, from, to };
   }
   return null;
 }

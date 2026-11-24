@@ -12,10 +12,11 @@ import { useTagEdit } from "./tag-actions";
 import { useActionFeedback } from "./action-feedback";
 import { copyText } from "refr/lib/clipboard";
 import type { FileSummary } from "refr/server/services/search";
-import { FILE_SHORTCUTS, matchViewerShortcut, VIEWER_SHORTCUTS } from "refr/lib/keyboard";
+import { FILE_SHORTCUTS, isTypingTarget, matchViewerShortcut, VIEWER_SHORTCUTS } from "refr/lib/keyboard";
 import { ZOOM_RESET, type ZoomState } from "refr/lib/zoom";
 import { studyFilter, useStudyTools } from "./study-tools";
 import { StudyFilterDefs, StudyImage } from "./study-image";
+import { Markdown } from "./markdown";
 
 /** gap between adjacent panes in the swipe track, px */
 const PANE_GAP = 16;
@@ -166,7 +167,7 @@ export function Viewer({
   // The ref always holds the latest closure, so the listener never goes stale.
   const keyHandler = useRef<(e: KeyboardEvent) => void>(() => undefined);
   keyHandler.current = (e: KeyboardEvent) => {
-    if ((e.target as HTMLElement)?.tagName === "INPUT") return;
+    if (isTypingTarget(e.target)) return;
     const action = matchViewerShortcut(e);
     if (sheetOpen) {
       if (action === "close") setSheetOpen(false);
@@ -332,6 +333,10 @@ export function Viewer({
           <div className="kv"><span>Date</span><b>{new Date(currentFile.mtime).toLocaleString()}</b></div>
           <div className="kv"><span>Added</span><b>{new Date(currentFile.addedAt).toLocaleString()}</b></div>
           <div className="kv"><span>Type</span><b>{currentFile.mediaType}</b></div>
+          {currentFile.meta?.takenAt && (
+            <div className="kv"><span>Taken</span><b>{new Date(currentFile.meta.takenAt).toLocaleString()}</b></div>
+          )}
+          {currentFile.meta?.camera && <div className="kv"><span>Camera</span><b>{currentFile.meta.camera}</b></div>}
           {currentFile.meta?.duplicateOf && (
             <div className="mt-3 flex items-center justify-between gap-2 rounded-md bg-fill px-2 py-1.5 text-xs text-fg-muted">
               <span>Hidden as a duplicate</span>
@@ -351,6 +356,7 @@ export function Viewer({
             <a className="btn" href={`/api/file/${currentFile.id}`} target="_blank" rel="noopener noreferrer">Open original</a>
             <a className="btn" href={`/api/file/${currentFile.id}`} download={currentFile.paths[0]?.path.split("/").pop() ?? true}>Download</a>
           </div>
+          <FileNotes key={currentFile.id} fileId={currentFile.id} source={currentFile.meta?.source ?? ""} note={currentFile.meta?.note ?? ""} />
           <h3>Paths</h3>
           {currentFile.paths.map((p) => (
             <button
@@ -628,4 +634,52 @@ export function formatBytes(n: number): string {
   let u = -1;
   do { v /= 1024; u++; } while (v >= 1024 && u < units.length - 1);
   return `${v.toFixed(1)} ${units[u]}`;
+}
+
+/** Source URL + markdown note for a file (FileMeta), saved when a field loses focus. */
+function FileNotes({ fileId, source, note }: { fileId: string; source: string; note: string }) {
+  const utils = api.useUtils();
+  const save = api.files.setMeta.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: () => void utils.files.byId.invalidate({ id: fileId }),
+  });
+  const [src, setSrc] = useState(source);
+  const [text, setText] = useState(note);
+  const [editing, setEditing] = useState(false);
+  const href = /^https?:\/\//i.test(source) ? source : null;
+  return (
+    <>
+      <h3>Source</h3>
+      <input
+        className="input w-full text-xs"
+        placeholder="Where this image came from (URL)"
+        aria-label="Source URL"
+        value={src}
+        onChange={(e) => setSrc(e.target.value)}
+        onBlur={() => src !== source && save.mutate({ fileId, source: src })}
+      />
+      {href && (
+        <a className="mt-1 block truncate text-xs text-accent underline" href={href} target="_blank" rel="noopener noreferrer">{href}</a>
+      )}
+      <h3>Note</h3>
+      {editing || !note ? (
+        <textarea
+          className="input min-h-20 w-full text-xs"
+          placeholder="Notes (markdown)"
+          aria-label="Note"
+          value={text}
+          autoFocus={editing}
+          onChange={(e) => setText(e.target.value)}
+          onBlur={() => {
+            setEditing(false);
+            if (text !== note) save.mutate({ fileId, note: text });
+          }}
+        />
+      ) : (
+        <button type="button" className="block w-full text-left text-xs" title="Click to edit" onClick={() => setEditing(true)}>
+          <Markdown text={note} />
+        </button>
+      )}
+    </>
+  );
 }

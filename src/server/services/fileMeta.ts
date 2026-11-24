@@ -5,6 +5,14 @@ import { db } from "refr/server/db";
 
 const CHUNK = 400;
 
+/** Update a file's source URL and/or note. Empty strings clear them. */
+export async function setMeta(fileId: string, patch: { source?: string; note?: string }) {
+  const data: { source?: string | null; note?: string | null } = {};
+  if (patch.source !== undefined) data.source = patch.source.trim() ? patch.source.trim() : null;
+  if (patch.note !== undefined) data.note = patch.note.trim() ? patch.note : null;
+  await db.fileMeta.upsert({ where: { fileId }, create: { fileId, ...data }, update: data });
+}
+
 /** Set or clear the favorite flag on files. `favorite` omitted = toggle: clear
  *  when every file is already a favorite, otherwise set. Unknown ids are ignored. */
 export async function setFavorite(fileIds: string[], favorite?: boolean): Promise<{ favorite: boolean; updated: number }> {
