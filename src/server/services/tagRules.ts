@@ -11,6 +11,7 @@ import { readJson, writeJson } from "./jsonStore";
 const rulesSchema = z.object({
   aliases: z.record(z.string(), z.string()).default({}),
   implications: z.record(z.string(), z.array(z.string())).default({}),
+  timelineHidden: z.array(z.string()).default([]),
 });
 
 export class TagRulesInvalid extends Error {

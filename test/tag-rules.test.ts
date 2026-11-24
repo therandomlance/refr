@@ -1,11 +1,13 @@
 import fs from "node:fs";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { db } from "refr/server/db";
 import { paths } from "refr/server/services/dataDir";
 import { getRules, saveRules, TagRulesInvalid } from "refr/server/services/tagRules";
 import { applyRulesToExisting, merge, rename, searchTags, setTags } from "refr/server/services/tags";
 import { makeToken, resolveTagAliases } from "refr/server/services/search";
 import { searchRouter } from "refr/server/api/routers/search";
+import { mainTimelineWhere } from "refr/server/services/fileQuery";
+import * as config from "refr/server/services/config";
 import { expandImplications, resolveAlias, sanitizeRules, validateRules, type TagRules } from "refr/lib/tag-rules";
 
 // tag-rules.json is global to the shared test data dir: every test here leaves
@@ -18,7 +20,7 @@ async function tagsOf(fileId: string): Promise<string[]> {
   return rows.map((r) => r.tag.name).sort();
 }
 
-const rules = (r: Partial<TagRules>): TagRules => sanitizeRules({ aliases: {}, implications: {}, ...r });
+const rules = (r: Partial<TagRules>): TagRules => sanitizeRules({ aliases: {}, implications: {}, timelineHidden: [], ...r });
 
 describe("tag rules (pure)", () => {
   it("resolves aliases by longest prefix, one hop", () => {
@@ -41,6 +43,12 @@ describe("tag rules (pure)", () => {
     expect(validateRules(rules({ aliases: { x: "x/y" } }))).not.toEqual([]);
     expect(validateRules(rules({ implications: { "a/b": ["a"] } }))).not.toEqual([]);
     expect(validateRules(rules({ aliases: { fig: "reference/figure" }, implications: { a: ["b"] } }))).toEqual([]);
+  });
+
+  it("normalizes timeline-hidden tags and rejects aliases", () => {
+    expect(rules({ timelineHidden: ["NSFW", "nsfw/gore", "wip", "wip"] }).timelineHidden).toEqual(["nsfw", "wip"]);
+    expect(validateRules(rules({ aliases: { x: "y" }, timelineHidden: ["x"] }))).not.toEqual([]);
+    expect(validateRules(rules({ aliases: { x: "y" }, timelineHidden: ["y"] }))).toEqual([]);
   });
 
   it("rewrites alias chips in search tokens, leaving keywords and wildcards", () => {
@@ -109,5 +117,30 @@ describe("tag rules (applied)", () => {
     expect(await tagsOf("tr4")).toEqual(["trimplied", "trsrc/child"]);
     // idempotent
     expect(await applyRulesToExisting()).toEqual({ renamedTags: 0, changedFiles: 0 });
+  });
+
+  it("timeline-hidden tags leave the main timeline but stay searchable", async () => {
+    clearRules();
+    // fixtures have no library paths: test only the tag half of the timeline filter
+    const previous = config.get().libraries;
+    config.patch({ libraries: [] });
+    onTestFinished(() => { config.patch({ libraries: previous }); });
+    await setTags(["tr1"], ["trhide/sub"], []);
+    const onTimeline = async () => {
+      const where = mainTimelineWhere();
+      const rows = await db.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT f.id FROM File f WHERE (${where?.text ?? "1=1"}) AND f.id IN (${IDS.map(() => "?").join(",")}) ORDER BY f.id`,
+        ...(where?.params ?? []), ...IDS,
+      );
+      return rows.map((r) => r.id);
+    };
+    expect(await onTimeline()).toContain("tr1");
+    saveRules(rules({ timelineHidden: ["trhide"] }));
+    expect(await onTimeline()).toEqual(IDS.filter((id) => id !== "tr1"));
+    const search = searchRouter.createCaller({ db, authed: true, headers: new Headers() });
+    expect((await search.query({ tokens: [makeToken({ tag: "trhide" })] })).items.map((i) => i.id)).toEqual(["tr1"]);
+    await rename("trhide", "trhidden");
+    expect(getRules().timelineHidden).toEqual(["trhidden"]);
+    expect(await onTimeline()).not.toContain("tr1");
   });
 });

@@ -3,7 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
 import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases, resolveTagAliases, withVisible, type Token } from "refr/server/services/search";
 import { getRules } from "refr/server/services/tagRules";
-import { executeList, libraryRootsWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
+import { executeList, mainTimelineWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
 import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
 
@@ -57,7 +57,7 @@ export const searchRouter = createTRPCRouter({
         );
       }
       const where = tokens.length === 0
-        ? withVisible(libraryRootsWhere(config.timelineRoots()))
+        ? withVisible(mainTimelineWhere())
         : tokensToWhere(tokens);
       if (input.month) return timelineMonth(where, input.month);
       return executeList({ where, sort: input.sort, cursor, limit: input.limit });
@@ -68,8 +68,9 @@ export const searchRouter = createTRPCRouter({
     .input(z.object({ tokens: z.array(tokenSchema) }))
     .query(({ input }) =>
       timelineBuckets(
-        tokensToWhere(resolveTokens(input.tokens)),
-        input.tokens.length === 0 ? config.timelineRoots() : undefined,
+        input.tokens.length === 0
+          ? withVisible(mainTimelineWhere())
+          : tokensToWhere(resolveTokens(input.tokens)),
       ),
     ),
 

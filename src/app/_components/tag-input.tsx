@@ -22,6 +22,7 @@ export function TagInput({
   suggestAutocomplete = false,
   hotkey = false,
   seed,
+  keepOnCommit = false,
 }: {
   placeholder?: string;
   onCommit: (raw: string, suggestion?: string) => void;
@@ -41,6 +42,8 @@ export function TagInput({
   hotkey?: boolean;
   /** pre-fill the input and focus it; `key` changes re-apply the same text */
   seed?: { text: string; key: number } | null;
+  /** single-value picker: a commit leaves the chosen value in the input instead of clearing it */
+  keepOnCommit?: boolean;
 }) {
   const [raw, setRaw] = useState("");
   const [open, setOpen] = useState(false);
@@ -153,10 +156,12 @@ export function TagInput({
   }, []);
 
   const commit = (value: string, suggestion?: string) => {
-    onCommit(value, suggestion);
-    setRaw("");
+    const left = keepOnCommit ? (suggestion ?? value) : "";
+    setRaw(left);
     setOpen(false);
-    onRawChange?.("");
+    // before onCommit, so a caller that resets its own state there has the last word
+    onRawChange?.(left);
+    onCommit(value, suggestion);
   };
 
   const commitSemantic = () => {

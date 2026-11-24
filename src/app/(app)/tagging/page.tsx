@@ -141,7 +141,7 @@ export default function TaggingPage() {
               {view === "duplicates"
                 ? "Near-identical images. Keep one and its twin's tags merge onto it; the other is hidden, never deleted."
                 : view === "rules"
-                ? "Aliases and implications that keep your tags consistent."
+                ? "Aliases, implications and timeline hiding that keep your tags consistent."
                 : view === "files"
                 ? "Confident tag matches for your newest files."
                 : tag

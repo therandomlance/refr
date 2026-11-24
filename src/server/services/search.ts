@@ -101,7 +101,7 @@ export type Sort = "date" | "name" | "size" | "random" | "similarity";
 
 type Sql = { text: string; params: unknown[] };
 
-function escapeLike(s: string): string {
+export function escapeLike(s: string): string {
   return s.replace(/[\\%_]/g, (c) => "\\" + c);
 }
 

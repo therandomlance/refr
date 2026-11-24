@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { Dialog } from "refr/app/_components/dialog";
 import { Icon } from "refr/app/_components/icon";
@@ -10,10 +10,13 @@ import { useActionFeedback } from "refr/app/_components/action-feedback";
 import { normalize } from "refr/lib/tag-names";
 import { EMPTY_RULES, sanitizeRules, validateRules, type TagRules } from "refr/lib/tag-rules";
 
+type Section = "aliases" | "implications" | "timeline";
+
 /**
  * Tagging → Rules: tag aliases (`fig → reference/figure`) and implications
- * (`artist/x ⇒ medium/digital`). Every edit is validated with the same pure
- * functions the server uses, then saved straight to data/tag-rules.json.
+ * (`artist/x ⇒ medium/digital`), plus tags hidden from the main timeline. Each section adds a rule from one "A → B"
+ * form; edits are validated with the same pure functions the server uses,
+ * then saved straight to data/tag-rules.json. Removals offer undo.
  */
 export function TagRulesEditor() {
   const utils = api.useUtils();
@@ -21,11 +24,17 @@ export function TagRulesEditor() {
   const rulesQ = api.tagRules.get.useQuery();
   const save = api.tagRules.save.useMutation({
     meta: { customFeedback: true },
-    onSuccess: (rules) => utils.tagRules.get.setData(undefined, rules),
+    onSuccess: (rules) => {
+      utils.tagRules.get.setData(undefined, rules);
+      // timeline-hidden tags change what the main timeline shows
+      void utils.files.invalidate();
+      void utils.search.invalidate();
+    },
   });
   const apply = api.tagRules.applyToExisting.useMutation({
     meta: { customFeedback: true },
     onSuccess: ({ renamedTags, changedFiles }) => {
+      setUnapplied(false);
       void utils.invalidate();
       notify({
         message: renamedTags || changedFiles
@@ -34,30 +43,42 @@ export function TagRulesEditor() {
       });
     },
   });
-  const [problems, setProblems] = useState<string[]>([]);
-  const [aliasFrom, setAliasFrom] = useState("");
+  const [problems, setProblems] = useState<{ section: Section; list: string[] } | null>(null);
   const [confirmApply, setConfirmApply] = useState(false);
-  // an implication row picked but not yet given any implied tags (not saved until it has one)
-  const [pendingTag, setPendingTag] = useState<string | null>(null);
+  // a rule was added this visit; existing files don't follow it until applied
+  const [unapplied, setUnapplied] = useState(false);
+  // implication row whose "add another" input is open
+  const [extending, setExtending] = useState<string | null>(null);
 
   const rules = rulesQ.data ?? EMPTY_RULES;
 
-  const commit = (next: TagRules) => {
+  /** Validate + save. Returns false (and shows why under `section`) when invalid. */
+  const commit = (next: TagRules, section: Section): boolean => {
     const clean = sanitizeRules(next);
     const errors = validateRules(clean);
-    setProblems(errors);
-    if (errors.length === 0) save.mutate(clean, { onError: (e) => setProblems(e.message.split("\n")) });
+    setProblems(errors.length ? { section, list: errors } : null);
+    if (errors.length) return false;
+    save.mutate(clean, { onError: (e) => setProblems({ section, list: e.message.split("\n") }) });
+    return true;
+  };
+
+  const remove = (next: TagRules, section: Section, message: string) => {
+    const before = rules;
+    if (commit(next, section)) notify({ message, undo: async () => { await save.mutateAsync(before); } });
+  };
+
+  const added = (ok: boolean) => {
+    if (ok) setUnapplied(true);
+    return ok;
   };
 
   const aliases = Object.entries(rules.aliases).sort(([a], [b]) => a.localeCompare(b));
   const implications = Object.entries(rules.implications).sort(([a], [b]) => a.localeCompare(b));
-  if (pendingTag && !rules.implications[pendingTag]) implications.unshift([pendingTag, []]);
 
   const setImplied = (tag: string, implied: string[]) => {
     const next = { ...rules.implications, [tag]: implied };
     if (implied.length === 0) delete next[tag];
-    if (tag === pendingTag && implied.length) setPendingTag(null);
-    commit({ ...rules, implications: next });
+    return commit({ ...rules, implications: next }, "implications");
   };
 
   if (!rulesQ.data) return <p className="px-5 py-4 text-sm text-fg-subtle">Loading…</p>;
@@ -65,39 +86,23 @@ export function TagRulesEditor() {
   return (
     <div className="scroll-thin flex-1 overflow-y-auto px-5 py-4">
       <div className="flex max-w-3xl flex-col gap-8">
-        {problems.length > 0 && (
-          <div role="alert" className="card border-danger px-4 py-3 text-sm text-danger">
-            {problems.map((p) => <p key={p}>{p}</p>)}
-          </div>
-        )}
-
         <section className="flex flex-col gap-3">
-          <h2 className="text-[15px] font-semibold">
-            Aliases
-            <Hint text="A shorthand that always means another tag, when tagging and searching. fig/arms becomes reference/figure/arms if fig is an alias for reference/figure." />
-          </h2>
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              className="input w-44"
-              placeholder="Shorthand"
-              aria-label="Alias shorthand"
-              value={aliasFrom}
-              onChange={(e) => setAliasFrom(e.target.value)}
-            />
-            <span className="text-fg-subtle">→</span>
-            <div className="min-w-56 flex-1">
-              <TagInput
-                placeholder={aliasFrom.trim() ? `Tag "${normalize(aliasFrom)}" stands for…` : "Target tag…"}
-                onCommit={(raw, suggestion) => {
-                  const from = normalize(aliasFrom);
-                  const to = normalize(suggestion ?? raw);
-                  if (!from || !to) return;
-                  commit({ ...rules, aliases: { ...rules.aliases, [from]: to } });
-                  setAliasFrom("");
-                }}
-              />
-            </div>
+          <div>
+            <h2 className="text-[15px] font-semibold">
+              Aliases
+              <Hint text="A shorthand also works as a prefix: fig/arms becomes reference/figure/arms if fig is an alias for reference/figure." />
+            </h2>
+            <p className="text-xs text-fg-muted">Type a shorthand while tagging or searching and it&apos;s swapped for the full tag.</p>
           </div>
+          <PairForm
+            leftIsTag={false}
+            leftPlaceholder="Shorthand, e.g. fig"
+            rightPlaceholder="Full tag…"
+            arrow="→"
+            submitLabel="Add alias"
+            problems={problems?.section === "aliases" ? problems.list : []}
+            onAdd={(from, to) => added(commit({ ...rules, aliases: { ...rules.aliases, [from]: to } }, "aliases"))}
+          />
           {aliases.length > 0 ? (
             <ul className="card divide-y divide-line">
               {aliases.map(([from, to]) => (
@@ -108,10 +113,11 @@ export function TagRulesEditor() {
                   <button
                     className="btn ghost sm"
                     aria-label={`Remove alias ${from}`}
+                    title="Remove alias"
                     onClick={() => {
                       const next = { ...rules.aliases };
                       delete next[from];
-                      commit({ ...rules, aliases: next });
+                      remove({ ...rules, aliases: next }, "aliases", `Removed alias ${from}.`);
                     }}
                   >
                     <Icon name="close" />
@@ -125,53 +131,84 @@ export function TagRulesEditor() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <h2 className="text-[15px] font-semibold">
-            Implications
-            <Hint text="Adding a tag, or any tag beneath it, also adds the tags it implies, and theirs in turn. Files that already carry an implied tag or one of its children are left alone." />
-          </h2>
-          <div className="max-w-sm">
-            <TagInput
-              placeholder="Add a rule for tag…"
-              onCommit={(raw, suggestion) => {
-                const tag = normalize(suggestion ?? raw);
-                if (tag && !rules.implications[tag]) setPendingTag(tag);
-              }}
-            />
+          <div>
+            <h2 className="text-[15px] font-semibold">
+              Implications
+              <Hint text="A rule also covers tags beneath it, and implied tags pull in their own implications. Files that already carry an implied tag or one of its children are left alone." />
+            </h2>
+            <p className="text-xs text-fg-muted">When a file gets the first tag, it also gets the second.</p>
           </div>
+          <PairForm
+            leftIsTag
+            leftPlaceholder="When tagged…"
+            rightPlaceholder="Also add…"
+            arrow="⇒"
+            submitLabel="Add rule"
+            problems={problems?.section === "implications" ? problems.list : []}
+            onAdd={(tag, also) => {
+              const current = rules.implications[tag] ?? [];
+              return added(current.includes(also) || setImplied(tag, [...current, also]));
+            }}
+          />
           {implications.length > 0 ? (
             <ul className="card divide-y divide-line">
               {implications.map(([tag, implied]) => (
-                <li key={tag} className="flex flex-col gap-2 px-3 py-3 text-sm sm:flex-row sm:items-start">
-                  <div className="flex min-w-0 items-center gap-2 sm:w-56 sm:pt-1.5">
+                <li key={tag} className="flex items-start gap-2 px-3 py-2 text-sm">
+                  <div className="flex min-w-0 items-center gap-2 pt-1 sm:w-56 sm:shrink-0">
                     <span className="min-w-0 truncate font-medium" title={tag}>{tag}</span>
                     <span className="text-fg-subtle">⇒</span>
                   </div>
-                  <div className="flex min-w-0 flex-1 flex-col gap-2">
-                    {implied.length > 0 && (
-                      <div className="flex flex-wrap gap-1">
-                        {implied.map((t) => (
-                          <span key={t} className="chip">
-                            {t}
-                            <button className="x" aria-label={`Remove ${t} from ${tag}`} onClick={() => setImplied(tag, implied.filter((x) => x !== t))}>
-                              <Icon name="close" />
-                            </button>
-                          </span>
-                        ))}
+                  <div className="flex min-w-0 flex-1 flex-wrap items-center gap-1">
+                    {implied.map((t) => (
+                      <span key={t} className="chip">
+                        {t}
+                        <button
+                          className="x"
+                          aria-label={`Remove ${t} from ${tag}`}
+                          onClick={() => {
+                            const next = { ...rules.implications, [tag]: implied.filter((x) => x !== t) };
+                            if (next[tag]!.length === 0) delete next[tag];
+                            remove({ ...rules, implications: next }, "implications", `${tag} no longer adds ${t}.`);
+                          }}
+                        >
+                          <Icon name="close" />
+                        </button>
+                      </span>
+                    ))}
+                    {extending === tag ? (
+                      <div className="flex min-w-48 flex-1 items-center gap-1">
+                        <div className="flex-1">
+                          <TagInput
+                            autoFocus
+                            placeholder="Also add…"
+                            onCommit={(raw, suggestion) => {
+                              const t = normalize(suggestion ?? raw);
+                              if (t && !implied.includes(t)) added(setImplied(tag, [...implied, t]));
+                            }}
+                          />
+                        </div>
+                        <button className="btn ghost sm" onClick={() => setExtending(null)}>Done</button>
                       </div>
+                    ) : (
+                      <button
+                        className="btn ghost sm"
+                        aria-label={`Add another tag to ${tag}`}
+                        title="Add another tag"
+                        onClick={() => setExtending(tag)}
+                      >
+                        <Icon name="plus" />
+                      </button>
                     )}
-                    <TagInput
-                      placeholder="Also add…"
-                      autoFocus={tag === pendingTag}
-                      onCommit={(raw, suggestion) => {
-                        const t = normalize(suggestion ?? raw);
-                        if (t && !implied.includes(t)) setImplied(tag, [...implied, t]);
-                      }}
-                    />
                   </div>
                   <button
-                    className="btn ghost sm self-end sm:self-start"
+                    className="btn ghost sm"
                     aria-label={`Remove rules for ${tag}`}
-                    onClick={() => (implied.length ? setImplied(tag, []) : setPendingTag(null))}
+                    title="Remove rule"
+                    onClick={() => {
+                      const next = { ...rules.implications };
+                      delete next[tag];
+                      remove({ ...rules, implications: next }, "implications", `Removed rule for ${tag}.`);
+                    }}
                   >
                     <Icon name="close" />
                   </button>
@@ -183,9 +220,66 @@ export function TagRulesEditor() {
           )}
         </section>
 
+        <section className="flex flex-col gap-3">
+          <div>
+            <h2 className="text-[15px] font-semibold">
+              Hidden from timeline
+              <Hint text="Works like turning off a library's timeline: the files are still indexed and turn up in search, tag and folder views. Tags beneath a hidden tag are hidden too." />
+            </h2>
+            <p className="text-xs text-fg-muted">Files with these tags stay out of the main timeline.</p>
+          </div>
+          <div className="flex flex-col gap-2">
+            <div className="max-w-sm">
+              <TagInput
+                placeholder="Hide tag…"
+                onCommit={(raw, suggestion) => {
+                  const t = normalize(suggestion ?? raw);
+                  if (t && !rules.timelineHidden.includes(t)) commit({ ...rules, timelineHidden: [...rules.timelineHidden, t] }, "timeline");
+                }}
+              />
+            </div>
+            {problems?.section === "timeline" && (
+              <div role="alert" className="text-xs text-danger">
+                {problems.list.map((p) => <p key={p}>{p}</p>)}
+              </div>
+            )}
+          </div>
+          {rules.timelineHidden.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {rules.timelineHidden.map((t) => (
+                <span key={t} className="chip">
+                  {t}
+                  <button
+                    className="x"
+                    aria-label={`Show ${t} in the timeline again`}
+                    onClick={() => remove(
+                      { ...rules, timelineHidden: rules.timelineHidden.filter((x) => x !== t) },
+                      "timeline",
+                      `${t} shows in the timeline again.`,
+                    )}
+                  >
+                    <Icon name="close" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-fg-subtle">No hidden tags.</p>
+          )}
+        </section>
+
         <section className="flex flex-col items-start gap-2 border-t border-line pt-5">
           <h2 className="text-[15px] font-semibold">Existing files</h2>
-          <button className="btn" disabled={apply.isPending || (aliases.length === 0 && implications.length === 0)} onClick={() => setConfirmApply(true)}>
+          <p className="text-xs text-fg-muted">
+            {unapplied
+              ? "Your new aliases and implications only affect tags added from now on. Apply them to bring files tagged earlier in line."
+              : "Aliases and implications apply automatically whenever tags are added. Files tagged before a rule existed change only when you apply the rules."}
+          </p>
+          <button
+            className={`btn ${unapplied ? "primary" : ""}`}
+            disabled={apply.isPending || (aliases.length === 0 && implications.length === 0)}
+            onClick={() => setConfirmApply(true)}
+          >
             {apply.isPending ? "Applying…" : "Apply to existing files"}
           </button>
         </section>
@@ -202,6 +296,107 @@ export function TagRulesEditor() {
             <button className="btn primary" onClick={() => { setConfirmApply(false); apply.mutate(); }}>Apply</button>
           </div>
         </Dialog>
+      )}
+    </div>
+  );
+}
+
+/**
+ * "A → B [Add]" in one row. Enter in the first field moves to the second;
+ * Enter (or picking a suggestion) in the second adds the rule. Fields keep
+ * their text when the rule is rejected so it can be fixed in place.
+ */
+function PairForm({
+  leftIsTag,
+  leftPlaceholder,
+  rightPlaceholder,
+  arrow,
+  submitLabel,
+  problems,
+  onAdd,
+}: {
+  leftIsTag: boolean;
+  leftPlaceholder: string;
+  rightPlaceholder: string;
+  arrow: string;
+  submitLabel: string;
+  problems: string[];
+  /** normalized, non-empty values; return true when saved (the form then clears) */
+  onAdd: (left: string, right: string) => boolean;
+}) {
+  const [left, setLeft] = useState("");
+  const [right, setRight] = useState("");
+  // bumped to remount (and so clear) the TagInputs after a successful add
+  const [generation, setGeneration] = useState(0);
+  const leftRef = useRef<HTMLDivElement>(null);
+  const rightRef = useRef<HTMLDivElement>(null);
+  const focus = (box: React.RefObject<HTMLDivElement | null>) => box.current?.querySelector("input")?.focus();
+
+  const submit = (l = left, r = right) => {
+    const a = normalize(l);
+    const b = normalize(r);
+    if (!a) return focus(leftRef);
+    if (!b) return focus(rightRef);
+    if (!onAdd(a, b)) return;
+    setLeft("");
+    setRight("");
+    setGeneration((g) => g + 1);
+    requestAnimationFrame(() => focus(leftRef));
+  };
+
+  return (
+    <div className="flex flex-col gap-2">
+      <form
+        className="flex flex-wrap items-center gap-2"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
+        }}
+      >
+        <div ref={leftRef} className="w-52">
+          {leftIsTag ? (
+            <TagInput
+              key={`l${generation}`}
+              keepOnCommit
+              placeholder={leftPlaceholder}
+              onRawChange={setLeft}
+              onCommit={(raw, suggestion) => {
+                const v = suggestion ?? raw;
+                setLeft(v);
+                if (normalize(right)) submit(v, right);
+                else focus(rightRef);
+              }}
+            />
+          ) : (
+            <input
+              className="input w-full"
+              placeholder={leftPlaceholder}
+              aria-label={leftPlaceholder}
+              value={left}
+              onChange={(e) => setLeft(e.target.value)}
+            />
+          )}
+        </div>
+        <span className="text-fg-subtle">{arrow}</span>
+        <div ref={rightRef} className="min-w-52 flex-1">
+          <TagInput
+            key={`r${generation}`}
+            keepOnCommit
+            placeholder={rightPlaceholder}
+            onRawChange={setRight}
+            onCommit={(raw, suggestion) => {
+              const v = suggestion ?? raw;
+              setRight(v);
+              submit(left, v);
+            }}
+          />
+        </div>
+        <button type="submit" className="btn" disabled={!left.trim() || !right.trim()}>{submitLabel}</button>
+      </form>
+      {problems.length > 0 && (
+        <div role="alert" className="text-xs text-danger">
+          {problems.map((p) => <p key={p}>{p}</p>)}
+        </div>
       )}
     </div>
   );

@@ -4,7 +4,7 @@ import path from "node:path";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
-import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
+import { executeList, listByOrderedIds, mainTimelineWhere, sourceWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { withVisible } from "refr/server/services/search";
 import { setFavorite, setMeta } from "refr/server/services/fileMeta";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
@@ -92,7 +92,7 @@ export const filesRouter = createTRPCRouter({
       limit: z.number().int().min(1).max(1000).default(1000),
     }))
     .query(async ({ input }) => {
-      const where = withVisible(sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots()));
+      const where = withVisible(sourceWhere(input) ?? mainTimelineWhere());
       const rows = await db.$queryRawUnsafe<{ id: string }[]>(
         `SELECT f.id FROM File f WHERE (${where?.text ?? "1=1"}) AND f.id > ?
          ORDER BY f.id ASC LIMIT ?`,
@@ -126,7 +126,7 @@ export const filesRouter = createTRPCRouter({
         pathPrefix: input.pathPrefix,
         tag: input.tag,
         recursive: input.recursive,
-      }) ?? libraryRootsWhere(config.timelineRoots()));
+      }) ?? mainTimelineWhere());
       if (input.month) return timelineMonth(where, input.month);
       return executeList({
         where,
@@ -146,7 +146,7 @@ export const filesRouter = createTRPCRouter({
       }),
     )
     .query(({ input }) => timelineBuckets(
-      withVisible(sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots())),
+      withVisible(sourceWhere(input) ?? mainTimelineWhere()),
     )),
 
   byId: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {

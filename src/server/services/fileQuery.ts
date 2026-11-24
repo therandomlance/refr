@@ -2,7 +2,10 @@ import "server-only";
 import { z } from "zod";
 import { db } from "refr/server/db";
 import type { TimelineBucket } from "refr/lib/timeline";
+import * as config from "./config";
+import { getRules } from "./tagRules";
 import {
+  escapeLike,
   SUMMARY_COLS,
   buildListQuery,
   nextCursorFor,
@@ -29,6 +32,26 @@ export function libraryRootsWhere(roots?: string[]): Sql | undefined {
       .join(" OR ")}))`,
     params: roots.map((r) => r.replace(/[\\%_]/g, (c) => "\\" + c) + "/%"),
   };
+}
+
+/** Files carrying none of `tags` (or any tag beneath them). */
+export function withoutTagsWhere(tags: string[]): Sql | undefined {
+  if (tags.length === 0) return undefined;
+  return {
+    text: `NOT EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId WHERE ft.fileId = f.id AND (${tags
+      .map(() => "t.name = ? OR t.name LIKE ? ESCAPE '\\'")
+      .join(" OR ")}))`,
+    params: tags.flatMap((t) => [t, escapeLike(t) + "/%"]),
+  };
+}
+
+/** The unfiltered main timeline: timeline-enabled libraries, minus files with
+ *  a timeline-hidden tag (Tagging → Rules). undefined = unrestricted. */
+export function mainTimelineWhere(): Sql | undefined {
+  const parts = [libraryRootsWhere(config.timelineRoots()), withoutTagsWhere(getRules().timelineHidden)]
+    .filter((p): p is Sql => p !== undefined);
+  if (parts.length === 0) return undefined;
+  return { text: parts.map((p) => `(${p.text})`).join(" AND "), params: parts.flatMap((p) => p.params) };
 }
 
 /** Is there any row (matching `where`) newer than (mtime,id)? Drives
