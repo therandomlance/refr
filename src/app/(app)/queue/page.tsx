@@ -56,17 +56,14 @@ export default function QueuePage() {
     <div className="flex min-h-0 flex-1">
       <SidePanel
         head={
-          <div>
-            <h2 className="text-[13px] font-semibold">Queue</h2>
-            <p className="mt-1 text-xs text-fg-subtle">{ids.length} images</p>
-          </div>
+          <h2 className="text-[13px] font-semibold">Queue</h2>
         }
       >
         <div className="flex gap-2 px-4 pb-3">
           <button className="btn flex-1" style={{ fontSize: 12 }} disabled={ids.length === 0} onClick={() => setSavePrompt(true)}>Save as…</button>
           <button className="btn flex-1" style={{ fontSize: 12 }} disabled={ids.length === 0} onClick={() => setClearConfirm(true)}>Clear</button>
         </div>
-        <div className="px-4 pt-2 pb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+        <div className="label px-4 pt-2 pb-1">
           Saved queues
         </div>
         <div className="flex-1 px-2 pb-4">
@@ -94,7 +91,7 @@ export default function QueuePage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header">
-          <div><h1>Queue</h1><p>{ids.length} images ready for review.</p></div>
+          <div><h1>Queue</h1><p>{ids.length} images</p></div>
           <button
             className="btn ml-auto"
             disabled={ids.length === 0}

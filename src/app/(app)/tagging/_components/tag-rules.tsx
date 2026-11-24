@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api } from "refr/trpc/react";
 import { Dialog } from "refr/app/_components/dialog";
 import { Icon } from "refr/app/_components/icon";
+import { Hint } from "refr/app/_components/hint";
 import { TagInput } from "refr/app/_components/tag-input";
 import { useActionFeedback } from "refr/app/_components/action-feedback";
 import { normalize } from "refr/lib/tag-names";
@@ -71,13 +72,10 @@ export function TagRulesEditor() {
         )}
 
         <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">Aliases</h2>
-            <p className="text-xs text-fg-subtle">
-              A shorthand that always means another tag, when tagging and searching. <code>fig/arms</code> becomes{" "}
-              <code>reference/figure/arms</code> if <code>fig</code> is an alias for <code>reference/figure</code>.
-            </p>
-          </div>
+          <h2 className="text-[15px] font-semibold">
+            Aliases
+            <Hint text="A shorthand that always means another tag, when tagging and searching. fig/arms becomes reference/figure/arms if fig is an alias for reference/figure." />
+          </h2>
           <div className="flex flex-wrap items-center gap-2">
             <input
               className="input w-44"
@@ -127,13 +125,10 @@ export function TagRulesEditor() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">Implications</h2>
-            <p className="text-xs text-fg-subtle">
-              Adding a tag, or any tag beneath it, also adds the tags it implies, and theirs in turn. Files that already
-              carry an implied tag or one of its children are left alone.
-            </p>
-          </div>
+          <h2 className="text-[15px] font-semibold">
+            Implications
+            <Hint text="Adding a tag, or any tag beneath it, also adds the tags it implies, and theirs in turn. Files that already carry an implied tag or one of its children are left alone." />
+          </h2>
           <div className="max-w-sm">
             <TagInput
               placeholder="Add a rule for tag…"
@@ -190,10 +185,6 @@ export function TagRulesEditor() {
 
         <section className="flex flex-col items-start gap-2 border-t border-line pt-5">
           <h2 className="text-[15px] font-semibold">Existing files</h2>
-          <p className="text-xs text-fg-subtle">
-            Rules apply to new tagging automatically. To bring older tags in line, rename tags named like an alias to
-            its target and add missing implied tags.
-          </p>
           <button className="btn" disabled={apply.isPending || (aliases.length === 0 && implications.length === 0)} onClick={() => setConfirmApply(true)}>
             {apply.isPending ? "Applying…" : "Apply to existing files"}
           </button>

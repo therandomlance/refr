@@ -59,7 +59,7 @@ export function SavedSearches({
         isSelected={(s) => editing === s.name}
         empty={
           <p className="px-2 text-xs text-fg-subtle">
-            No saved searches yet. Save a search or create a folder.
+            No saved searches.
           </p>
         }
       />

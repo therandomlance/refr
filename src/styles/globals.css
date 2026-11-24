@@ -160,17 +160,13 @@ code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border
 /* empty / zero states */
 .empty-state {
   display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
-  gap: 6px; padding: 56px 24px; color: var(--fg-muted);
+  gap: 6px; padding: 56px 24px; margin: 0; color: var(--fg-muted); font-size: 13px;
 }
-.empty-state .empty-icon {
-  display: grid; place-items: center; width: 52px; height: 52px; margin-bottom: 8px;
-  border-radius: var(--r-lg); background: var(--fill); color: var(--fg-subtle);
-}
-.empty-state strong { color: var(--fg); font-size: 15px; font-weight: 600; }
-.empty-state p, .empty-state .empty-text { margin: 0; max-width: 360px; font-size: 13px; }
 
 /* labels */
-.eyebrow { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .08em; color: var(--fg-subtle); }
+.label { font-size: 12px; font-weight: 500; color: var(--fg-muted); }
+.hint { display: inline-flex; vertical-align: -3px; margin-left: 6px; color: var(--fg-subtle); cursor: help; }
+.hint:hover { color: var(--fg-muted); }
 
 /* ---------- toast ---------- */
 .action-feedback {
@@ -245,20 +241,18 @@ code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border
 .settings-group form { flex-wrap: wrap; }
 .settings-group form .input { min-width: 0; flex-basis: 180px; }
 .maintenance-panel {
-  margin-top: 16px; padding: 16px; border-radius: var(--r-md);
+  padding: 16px; border-radius: var(--r-md);
   border: 1px solid color-mix(in oklab, var(--danger) 35%, transparent);
   background: color-mix(in oklab, var(--danger) 6%, transparent);
 }
-.maintenance-panel h3 { font-size: 13px; font-weight: 600; }
-.maintenance-panel > p { font-size: 12px; color: var(--fg-muted); margin: 4px 0 12px; }
-.maintenance-panel > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 12px; }
+.maintenance-panel > div { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.maintenance-panel > div + div { margin-top: 12px; }
 
 @media (max-width: 640px) {
   .gallery-search { flex-basis: 100%; }
   /* phone: compact header + one swipeable control row instead of 2–3 wrapped rows */
   .page-header { padding: 10px 12px 4px; min-height: 44px; }
   .page-header h1 { font-size: 17px; }
-  .page-header .page-tagline { display: none; }
   .page-header h1:has(+ .page-breadcrumbs) { display: none; }
   .page-breadcrumbs { font-size: 14px; }
   .sidepanel-collapsed ~ main > .page-header:not(.page-header-inset) { padding-left: 54px; }
@@ -289,9 +283,8 @@ code { font-family: var(--font-mono); font-size: .92em; padding: 1px 5px; border
 }
 .rail .logo, .brand-mark {
   width: 36px; height: 36px; border-radius: var(--r-md); flex: none;
-  background: linear-gradient(145deg, color-mix(in oklab, var(--accent) 88%, white), var(--accent));
+  background: var(--accent);
   color: var(--fg-on-accent); display: grid; place-items: center;
-  box-shadow: 0 4px 14px -4px var(--accent-ring), inset 0 1px 0 rgba(255,255,255,.25);
 }
 .rail .logo { margin-bottom: 16px; }
 .rail-btn {
@@ -405,7 +398,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast), box-shadow var(--dur-fast);
 }
 .btn:active:not(:disabled) { transform: translateY(1px); }
-.btn.primary { background: var(--accent); border-color: transparent; color: var(--fg-on-accent); box-shadow: 0 1px 2px var(--accent-ring), inset 0 1px 0 rgba(255,255,255,.18); }
+.btn.primary { background: var(--accent); border-color: transparent; color: var(--fg-on-accent); box-shadow: none; }
 .btn.danger { background: var(--danger); border-color: transparent; color: var(--danger-fg); }
 .btn.ghost { background: transparent; border-color: transparent; box-shadow: none; color: var(--fg-muted); }
 .btn.sm { min-height: 30px; padding: 4px 10px; font-size: 12px; }
@@ -520,7 +513,7 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .tile.dragging img { transform: scale(.92); }
 .tile.drop-before::before, .tile.drop-after::before {
   content: ""; position: absolute; top: 0; bottom: 0; width: 4px; z-index: 3; pointer-events: none;
-  background: var(--accent); box-shadow: 0 0 12px var(--accent);
+  background: var(--accent);
 }
 .tile.drop-before::before { left: 0; }
 .tile.drop-after::before { right: 0; }
@@ -835,13 +828,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 .theme-preview-rail i { width: 8px; height: 8px; background: var(--fg-subtle); border-radius: 2px; opacity: .6; }
 .theme-preview-rail i:first-child { background: var(--accent); opacity: 1; }
 .theme-preview-content { flex: 1; min-width: 0; padding: 9px 8px; }
-.theme-preview-content strong { display: block; font-size: 10px; font-weight: 600; }
-.theme-preview-content > span { color: var(--fg-muted); font-size: 9px; }
+.theme-preview-content > i { display: block; height: 5px; border-radius: 2px; background: var(--fg); opacity: .8; width: 70%; }
+.theme-preview-content > i + i { margin-top: 4px; background: var(--fg-muted); width: 45%; }
 .theme-preview-tiles { display: flex; gap: 3px; margin: 7px 0; }
 .theme-preview-tiles i { flex: 1; height: 26px; border-radius: 3px; background: var(--surface-2); }
 .theme-preview-tiles i:first-child { box-shadow: inset 0 0 0 1.5px var(--accent); background: var(--accent-soft); }
-.theme-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 3px; font-size: 9px; color: var(--fg-subtle); }
-.theme-preview-footer b { border-radius: 3px; padding: 2px 6px; background: var(--accent); color: var(--fg-on-accent); font-weight: 500; }
+.theme-preview-footer { display: flex; align-items: center; justify-content: space-between; gap: 3px; }
+.theme-preview-footer i { height: 4px; width: 30%; border-radius: 2px; background: var(--fg-subtle); }
+.theme-preview-footer b { height: 10px; width: 22px; border-radius: 3px; background: var(--accent); }
 
 .accent-swatches { display: flex; flex-wrap: wrap; gap: 10px; }
 .accent-swatch {

@@ -79,10 +79,7 @@ export default function BoardsPage() {
       <SidePanel
         head={
           <>
-            <div>
-              <h2 className="text-[13px] font-semibold">Boards</h2>
-              <p className="mt-1 text-xs text-fg-subtle">{boards.data?.length ?? 0} boards</p>
-            </div>
+            <h2 className="text-[13px] font-semibold">Boards</h2>
             <button className="btn" style={{ fontSize: 12 }} onClick={() => setNewPrompt(true)}>New</button>
           </>
         }
@@ -101,7 +98,7 @@ export default function BoardsPage() {
           leafCount={(b) => info.get(b.name)?.count}
           empty={
             tree.data && (
-              <p className="px-2 text-xs text-fg-subtle">No boards yet. Create one, or select images in any grid and press B.</p>
+              <p className="px-2 text-xs text-fg-subtle">No boards.</p>
             )
           }
         />
@@ -112,7 +109,7 @@ export default function BoardsPage() {
           <BoardCanvas key={current} name={current} resetHiddenSignal={resetSignal} />
         ) : (
           <>
-            <header className="page-header"><div><h1>Boards</h1><p>Freeform reference boards.</p></div></header>
+            <header className="page-header"><div><h1>Boards</h1></div></header>
             <div className="state-message m-auto">
               {boards.isLoading ? "Loading…" : "Create a board, or select images in Search, Browse or Queue and press B."}
             </div>

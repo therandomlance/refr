@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
 import { Icon } from "refr/app/_components/icon";
+import { Hint } from "refr/app/_components/hint";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
 import { BATCH_SIZE, formatConfidence, tagLabel } from "refr/lib/tagging";
 import { useReviewCommit } from "./use-review-commit";
@@ -119,13 +120,12 @@ export function TagReview({
   const header = (
     <div className="flex flex-col gap-3 pb-3 pt-1">
       <p className="text-xs text-fg-subtle">
-        Click an image to cycle <b>✓ accept</b> → <b>✕ reject</b> → <b>– skip</b>. Rejections teach the classifier.
-        {" "}<kbd>Ctrl</kbd>+<kbd>Enter</kbd> commits, <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Enter</kbd> commits and moves on,
-        {" "}<kbd>N</kbd> skips to the next tag, <kbd>Enter</kbd> on a hovered image opens it.
+        Click to cycle ✓ / ✕ / –
+        <Hint text="Rejections teach the classifier. Ctrl+Enter commits · Ctrl+Shift+Enter commits and moves on · N skips to the next tag · Enter opens the hovered image." />
       </p>
       {exemplars.length > 0 && (
         <div>
-          <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-fg-subtle">
+          <div className="label mb-1">
             Already tagged{exemplars.length > 1 ? ` · ${exemplars.length} styles` : ""}
           </div>
           <div className="exemplar-strip scroll-thin">

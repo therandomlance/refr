@@ -5,6 +5,7 @@ import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
 import { THEMES, ACCENTS, DENSITIES, type Theme, type Accent, type Density } from "refr/lib/themes";
 import { Icon } from "refr/app/_components/icon";
+import { Hint } from "refr/app/_components/hint";
 
 export default function SettingsPage() {
   const settings = api.settings.get.useQuery();
@@ -20,20 +21,15 @@ export default function SettingsPage() {
 
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
-      <header className="page-header page-header-inset"><div><h1>Settings</h1><p className="page-tagline">Your workspace, libraries, and background services.</p></div></header>
+      <header className="page-header page-header-inset"><div><h1>Settings</h1></div></header>
       <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
         <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#backup">Backup</a><a href="#maintenance">Maintenance</a>
       </nav>
       <div className="flex min-w-0 flex-col gap-6">
         <div className="settings-group" id="libraries"><h2>Libraries</h2>
-        <Section title="Library paths">
+        <Section title="Library paths" hint="Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.">
           <LibraryList values={s.libraries} onChange={(libraries) => save({ libraries })} />
-          <p className="mt-2 text-xs text-fg-subtle">
-            Libraries are read-only. Removing a path keeps its files in the database until they vanish or you purge.
-            The alias names a library for <code>path:&lt;alias&gt;</code> search; unchecking Timeline keeps a
-            library out of the main timeline, but its images remain indexed and searchable.
-          </p>
         </Section>
 
         <Section title="Scanning">
@@ -70,17 +66,13 @@ export default function SettingsPage() {
           </label>
         </Section>
 
-        <Section title="Send-to destinations">
+        <Section title="Send-to destinations" hint="Existing filenames are skipped, never overwritten or renamed.">
           <DestinationList values={s.sendToPaths} onChange={(sendToPaths) => save({ sendToPaths })} />
-          <p className="mt-2 text-xs text-fg-subtle">
-            Edit a path to change the destination; an optional alias names it in the Send to menu.
-            Existing filenames are skipped, never overwritten or renamed.
-          </p>
         </Section>
 
-        <Section title="Sessions">
+        <section>
           <label className="flex items-center gap-2 text-sm">
-            History cap (entries per template)
+            Session history per template
             <input
               className="input w-24"
               type="number"
@@ -90,7 +82,7 @@ export default function SettingsPage() {
               onBlur={(e) => save({ sessionHistoryCap: Math.max(1, Number(e.target.value) || 1000) })}
             />
           </label>
-        </Section>
+        </section>
 
         </div>
         <div className="settings-group" id="services"><h2>Services & security</h2>
@@ -103,7 +95,7 @@ export default function SettingsPage() {
         </Section>
         </div>
         <div className="settings-group" id="backup"><h2>Backup</h2>
-        <Section title="Tags and notes">
+        <Section title="Tags and notes" hint="Tags, favorites, sources and notes live only in the database. Export them as a .jsonl file; importing merges a file back in (matched by content, then path) and only ever adds.">
           <TagExportControls />
         </Section>
         <Section title="Database snapshots">
@@ -111,7 +103,6 @@ export default function SettingsPage() {
         </Section>
         </div>
         <div className="settings-group" id="maintenance"><h2>Maintenance</h2>
-          <p className="text-sm text-fg-muted">Cleanup changes the catalog or thumbnail cache. Original library files are never deleted.</p>
           <MaintenanceControls />
         </div>
       </div>
@@ -119,14 +110,6 @@ export default function SettingsPage() {
     </div>
   );
 }
-
-const THEME_BLURB: Record<Theme, string> = {
-  obsidian: "Deep neutral black",
-  midnight: "Deep navy",
-  dusk: "Rich plum",
-  fog: "Soft neutral light",
-  paper: "Warm paper light",
-};
 
 /** Theme / accent / density apply instantly via <html data-*> and roll back if the save fails. */
 function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: Accent; density: Density }) {
@@ -152,10 +135,9 @@ function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: 
               <div data-theme={t} className="theme-preview" aria-hidden="true">
                 <div className="theme-preview-rail"><i /><i /><i /></div>
                 <div className="theme-preview-content">
-                  <strong>Reference library</strong>
-                  <span>Images & collections</span>
+                  <i /><i />
                   <div className="theme-preview-tiles"><i /><i /><i /></div>
-                  <div className="theme-preview-footer"><span>24 images</span><b>Open</b></div>
+                  <div className="theme-preview-footer"><i /><b /></div>
                 </div>
               </div>
               <div className="mt-2 px-1 pb-0.5">
@@ -163,7 +145,6 @@ function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: 
                   <span>{t}</span>
                   {theme === t && <span className="text-accent"><Icon name="check" size={14} /></span>}
                 </div>
-                <div className="text-[11px] text-fg-subtle">{THEME_BLURB[t]}</div>
               </div>
             </button>
           ))}
@@ -191,7 +172,7 @@ function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: 
       </fieldset>
       <fieldset>
         <legend className="mb-2 text-xs text-fg-subtle">Density</legend>
-        <div className="seg" role="group" aria-label="Density">
+        <div className="seg" role="group" aria-label="Density" title="Spacing between thumbnails, row height, and corner rounding">
           {DENSITIES.map((d) => (
             <button
               key={d}
@@ -204,17 +185,17 @@ function AppearanceControls({ theme, accent, density }: { theme: Theme; accent: 
             </button>
           ))}
         </div>
-        <p className="mt-2 text-xs text-fg-subtle">Spacing between thumbnails, row height, and corner rounding.</p>
       </fieldset>
     </div>
   );
 }
 
-function Section({ title, children }: { title: string; children: React.ReactNode }) {
+function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
     <section>
       <h3 className="mb-3 text-[13px] font-semibold text-fg-muted">
         {title}
+        {hint && <Hint text={hint} />}
       </h3>
       {children}
     </section>
@@ -250,6 +231,7 @@ function DestinationList({ values, onChange }: { values: Destination[]; onChange
             name="alias"
             style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
             aria-label={`Destination alias ${i + 1}`}
+            title="Name shown in the Send to menu"
             placeholder="alias"
             defaultValue={v.alias ?? ""}
           />
@@ -290,13 +272,14 @@ function LibraryList({
             className="input"
             style={{ width: 130, padding: "5px 8px", fontSize: 12 }}
             placeholder="alias"
+            title="Search this library with path:<alias>"
             defaultValue={v.alias ?? ""}
             onBlur={(e) => {
               const next = e.target.value.trim() || undefined;
               if (next !== v.alias) update(i, { alias: next });
             }}
           />
-          <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include in the main timeline">
+          <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include in the main timeline. Unchecked libraries stay searchable.">
             <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
             Timeline
           </label>
@@ -402,8 +385,6 @@ function MaintenanceControls() {
   const [thumbsConfirm, setThumbsConfirm] = useState(false);
   return (
     <div className="maintenance-panel">
-      <h3>Catalog cleanup</h3>
-      <p>Removing catalog entries also removes their tags. Each action requires confirmation.</p>
       <div>
         <button className="btn" onClick={() => setPurgeConfirm(true)} disabled={!orphans.data}>
           Purge vanished files
@@ -482,7 +463,7 @@ function BackgroundStatus() {
   return (
     <div className="rounded-lg p-3 text-xs card">
       {rows.length === 0 ? (
-        <span className="text-fg-subtle">Idle — no background processes running.</span>
+        <span className="text-fg-subtle">Idle</span>
       ) : (
         rows.map((r) => (
           <div key={r.label} className="kv"><span>{r.label}</span><b>{r.detail}</b></div>
@@ -585,22 +566,22 @@ function MlControls({ ml }: { ml: MlSettings }) {
             <input
               className="input w-20"
               type="number" inputMode="decimal" step={0.05} min={0} max={1}
+              title="0 = image centroid only, 1 = tag name only"
               defaultValue={ml.tagSuggestionTextWeight}
               onBlur={(e) => patch.mutate({ ml: { tagSuggestionTextWeight: Number(e.target.value) } })}
             />
-            <span className="text-xs text-fg-subtle">0 = image centroid only, 1 = tag name only</span>
           </label>
           <label className="flex items-center gap-2 text-sm">
             Tag model
             <select
               className="input w-auto"
+              title="Classifiers learn from each tag's images, ✕ rejections and sibling tags"
               value={ml.tagModel}
               onChange={(e) => patch.mutate({ ml: { tagModel: e.target.value as MlSettings["tagModel"] } }, { onSuccess: () => void utils.ml.status.invalidate() })}
             >
               <option value="auto">Auto — classifier when a tag has 10+ images</option>
               <option value="vector">Tag vector only</option>
             </select>
-            <span className="text-xs text-fg-subtle">Classifiers learn from each tag&apos;s images, ✕ rejections and sibling tags. Switching is instant.</span>
           </label>
           <div>
             <button className="btn" onClick={() => setReembedConfirm(true)}>Re-embed all</button>
@@ -642,10 +623,6 @@ function TagExportControls() {
   };
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-fg-subtle">
-        Tags, favorites, sources and notes live only in the database. Export them as a plain-text file you can keep
-        anywhere; importing merges a file back in (matched by content, then by path) and only ever adds.
-      </p>
       <div className="flex flex-wrap gap-2">
         <a className="btn" href="/api/export" download>Export tags</a>
         <label className={`btn ${busy ? "pointer-events-none opacity-60" : ""}`}>

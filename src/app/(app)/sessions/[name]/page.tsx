@@ -1,5 +1,6 @@
 "use client";
 import { Icon } from "refr/app/_components/icon";
+import { Hint } from "refr/app/_components/hint";
 
 import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
@@ -94,7 +95,7 @@ export default function SessionEditPage() {
       <header className="page-header page-header-inset">
         <div className="flex items-center gap-3">
           <button className="btn" aria-label="Back to sessions" onClick={() => router.push("/sessions")}><Icon name="left" /></button>
-          <div><h1>{name}</h1><p>{blocks.length} study blocks</p></div>
+          <div><h1>{name}</h1></div>
         </div>
         <div className="ml-auto flex gap-2">
           <button className="btn" onClick={() => void doSave()} disabled={!dirty || save.isPending}>
@@ -107,11 +108,8 @@ export default function SessionEditPage() {
       </header>
 
       <div className="flex flex-col gap-2" style={{ maxWidth: 860 }}>
-        <p id="duration-help" className="text-xs text-fg-muted">
-          Each row draws random images from a search, like the search bar: tags, -exclude, ~or, keywords such as fav or orient:portrait. Time: mm:ss or seconds; leave blank for an untimed block.
-        </p>
-        <div className="hidden sm:grid sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] gap-2 px-2 text-[11px] font-semibold uppercase tracking-wide text-fg-muted">
-          <span>Search</span><span>Images</span><span>Time (mm:ss)</span><span>Auto-scroll</span><span />
+        <div className="label hidden sm:grid sm:grid-cols-[minmax(0,1fr)_90px_110px_120px_32px] gap-2 px-2">
+          <span>Search<Hint text="Each row draws random images from a search, like the search bar: tags, -exclude, ~or, keywords such as fav or orient:portrait. Leave time blank for an untimed block." /></span><span>Images</span><span>Time (mm:ss)</span><span>Auto-scroll</span><span />
         </div>
         {blocks.map((b, i) => (
           <div
@@ -169,7 +167,7 @@ export default function SessionEditPage() {
               <input
                 className="input"
                 aria-label={`Duration for block ${i + 1}`}
-                aria-describedby="duration-help"
+                title="mm:ss or seconds; blank = untimed"
                 aria-invalid={parseDuration(b.time) === undefined || (b.kind === "break" && !parseDuration(b.time))}
                 placeholder={b.kind === "break" ? "2:00" : "—"}
                 value={b.time}
@@ -177,7 +175,7 @@ export default function SessionEditPage() {
               />
             </label>
             {b.kind === "break" ? (
-              <span className="text-xs text-fg-subtle">Continues when done</span>
+              <span />
             ) : (
               <label className="flex items-center gap-2 text-xs text-fg-muted">
                 <input
@@ -222,10 +220,11 @@ export default function SessionEditPage() {
             min={0}
             max={1000}
             aria-label="Number of recent runs to avoid repeating"
+            title="0 = off; repeats are used if a search runs out"
             value={avoidRecent}
             onChange={(e) => { setAvoidRecent(Math.max(0, Math.min(1000, Number(e.target.value) || 0))); setDirty(true); }}
           />
-          runs <span className="text-xs text-fg-subtle">(0 = off; repeats are used if a search runs out)</span>
+          runs
         </label>
       </div>
 

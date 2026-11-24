@@ -127,7 +127,7 @@ export default function TaggingPage() {
           ))}
           {overview.data && tags.length === 0 && (
             <p className="px-2 text-xs text-fg-subtle">
-              {sweep?.running || sweep?.pending ? "Scanning…" : "No confident suggestions right now. New images are picked up automatically."}
+              {sweep?.running || sweep?.pending ? "Scanning…" : "Nothing to review."}
             </p>
           )}
         </div>
@@ -181,13 +181,13 @@ export default function TaggingPage() {
                   <b className="text-fg">{totalReady}</b> confident suggestions across <b className="text-fg">{tags.length}</b> tags.
                 </p>
                 <button className="btn primary" onClick={() => go({ tag: tags[0]!.tag })}>Start with {tags[0]!.tag}</button>
-                <button className="btn" onClick={() => go({ view: "files" })}>Review newest files instead</button>
+                <button className="btn" onClick={() => go({ view: "files" })}>Newest files</button>
               </div>
             ) : (
               <p className="text-sm text-fg-subtle">
                 {sweep?.running || sweep?.pending || !mlReady
                   ? "Scanning your library for confident suggestions…"
-                  : "Nothing to review — every tag is caught up at this confidence. Lower the threshold to see more."}
+                  : "Nothing above this confidence."}
               </p>
             )}
           </div>

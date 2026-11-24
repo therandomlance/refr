@@ -30,10 +30,7 @@ export default function LoginPage() {
       >
         <div className="mb-3 flex flex-col items-center gap-3 text-center">
           <div className="brand-mark" style={{ width: 48, height: 48 }}><BrandMark size={26} /></div>
-          <div>
-            <h1 className="text-xl font-semibold tracking-tight">refr</h1>
-            <p className="text-[13px] text-fg-subtle">Sign in to your reference library</p>
-          </div>
+          <h1 className="text-xl font-semibold tracking-tight">refr</h1>
         </div>
         <input
           type="password"

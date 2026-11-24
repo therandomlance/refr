@@ -158,7 +158,7 @@ export default function SearchPage() {
 
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header">
-          <div><h1>Search</h1><p className="page-tagline">Find references by tag, path, or similarity.</p></div>
+          <div><h1>Search</h1></div>
           {editingSaved && (
             <div role="status" className="flex items-center gap-2 text-xs text-fg-muted">
               <span>Editing saved search <b className="text-fg">{editingSaved}</b></span>

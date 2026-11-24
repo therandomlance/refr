@@ -44,7 +44,7 @@ export default function SessionsPage() {
   return (
     <div className="scroll-thin flex-1 overflow-y-auto p-6">
       <header className="page-header page-header-inset">
-        <div><h1>Sessions</h1><p>Build and revisit your reference studies.</p></div>
+        <div><h1>Sessions</h1></div>
         <button className="btn primary" onClick={() => setNewPrompt(true)}>New session</button>
       </header>
 
@@ -63,11 +63,7 @@ export default function SessionsPage() {
           />
         ))}
         {templates.data?.length === 0 && (
-          <div className="empty-state">
-            <span className="empty-icon"><Icon name="clock" size={24} /></span>
-            <strong>No sessions yet</strong>
-            <p>Create a session template to run timed, randomized study sessions from your references.</p>
-          </div>
+          <p className="empty-state">No sessions yet.</p>
         )}
       </div>
 

@@ -98,7 +98,7 @@ export function PracticeStats() {
 
         {data.tags.length > 0 && (
           <div className="min-w-48 flex-1">
-            <div className="mb-1 text-[11px] uppercase tracking-wide text-fg-subtle">Most practiced</div>
+            <div className="label mb-1">Most practiced</div>
             <ul className="flex flex-col gap-1.5">
               {data.tags.slice(0, 5).map((t) => (
                 <li key={t.tag} className="text-xs">

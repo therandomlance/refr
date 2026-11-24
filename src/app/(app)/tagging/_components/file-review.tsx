@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { MediaGrid } from "refr/app/_components/media-grid";
 import { Icon } from "refr/app/_components/icon";
+import { Hint } from "refr/app/_components/hint";
 import { formatConfidence, tagLabel } from "refr/lib/tagging";
 import { useReviewCommit } from "./use-review-commit";
 
@@ -81,8 +82,8 @@ export function FileReview({ minConfidence }: { minConfidence: number }) {
       onSelectionChange={setSelection}
       header={
         <p className="pb-3 pt-1 text-xs text-fg-subtle">
-          Newest files with confident tag matches. <b>✓</b> adds the highlighted tags, <b>✕</b> rejects them — click a tag chip to leave it out.
-          Click an image to open it.
+          Newest files with confident tag matches
+          <Hint text="✓ adds the highlighted tags, ✕ rejects them. Click a tag chip to leave it out." />
         </p>
       }
       emptyState={q.isLoading ? "Loading…" : `No files with tag matches above ${formatConfidence(minConfidence)}.`}

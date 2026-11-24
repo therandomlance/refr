@@ -311,9 +311,8 @@ export function SessionRunner({
     return (
       <div className="viewer">
         <div className="session-break">
-          <span className="text-sm uppercase tracking-wide text-fg-muted">{current.tag}</span>
+          <span className="text-base font-medium text-fg-muted">{current.tag}</span>
           {remaining !== null && <span className="timer" style={flash ? { animation: "flash 0.6s infinite alternate" } : undefined}>{clock(remaining)}</span>}
-          <p className="text-sm text-fg-subtle">Stretch, rest your eyes. The next image is up when the break ends.</p>
           <div className="flex flex-wrap items-center justify-center gap-2">{controls}</div>
           <button className="btn ghost sm" onClick={close}>Close session</button>
         </div>

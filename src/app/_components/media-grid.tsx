@@ -995,10 +995,7 @@ export function MediaGrid({
           <p role="status" className="state-message">Loading images…</p>
         )}
         {!timelineMode && items.length === 0 && !activeQuery.isLoading && !activeQuery.isError && (
-          <div className="empty-state">
-            <span className="empty-icon"><Icon name="image" size={24} /></span>
-            <div className="empty-text">{emptyState ?? "Nothing here yet."}</div>
-          </div>
+          <div className="empty-state">{emptyState ?? "Nothing here yet."}</div>
         )}
         {layout === "horizontal" && rows.length > 0 && (
           <div style={{ height: rowVirtualizer.getTotalSize(), position: "relative" }}>
