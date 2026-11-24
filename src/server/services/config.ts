@@ -127,6 +127,15 @@ export function get(): Config {
 }
 
 /** Resolved library roots (in config order). */
+/** Library aliases → resolved root, lowercased keys: `path:<alias>` lookup. */
+export function libraryAliases(): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const l of get().libraries) {
+    if (l.alias) out[l.alias.toLowerCase()] = path.resolve(l.path);
+  }
+  return out;
+}
+
 export function libraryRoots(): string[] {
   return get().libraries.map((l) => path.resolve(l.path));
 }

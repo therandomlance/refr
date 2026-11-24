@@ -570,6 +570,16 @@ truncated to `sessionHistoryCap` on append.
   (mm:ss, optional) | auto-scroll checkbox (disabled unless time set) | [X]; "+ Add row";
   drag to reorder. Save → template file. Rename = `sessions.renameTemplate` (renames history
   file too).
+- **Blocks (v2):** `{kind: "images"|"break", tag, tokens?, count, seconds, autoScroll}`.
+  Image blocks draw from `tokens` (canonical search chips, run through `tokensToWhere`, so
+  keywords, exclusions and hidden-duplicate filtering apply); legacy blocks with only `tag`
+  read as one plain chip. Break blocks are a timed rest step (always continue). Template
+  `avoidRecent: N` skips ids from the last N runs, then falls back to repeats if short.
+  History blocks record their own `kind/seconds/autoScroll`. `sessions.finish` stores
+  `finishedAt/elapsedSeconds/viewed` on the entry; `sessions.stats` aggregates per day
+  and per block across all templates (Sessions page heatmap).
+- **Runner extras:** chime on expiry (WebAudio, persisted toggle), `Q` queues the current
+  image, and its own pop-out window carrying the timer (see §10.5).
 - **Generate** (`sessions.generate`, server): for each block in order, resolve tag +
   descendants → distinct file ids, `ORDER BY RANDOM() LIMIT count`, excluding ids already
   drawn earlier in the same session. Append history entry (truncate to cap). Returns the

@@ -8,6 +8,7 @@ import { SessionRunner } from "refr/app/_components/session-runner";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { ContextMenu } from "refr/app/_components/context-menu";
 import type { HistoryEntry, SessionTemplate } from "refr/server/services/sessions";
+import { PracticeStats } from "./_components/practice-stats";
 
 export default function SessionsPage() {
   const [newPrompt, setNewPrompt] = useState(false);
@@ -46,6 +47,8 @@ export default function SessionsPage() {
         <div><h1>Sessions</h1><p>Build and revisit your reference studies.</p></div>
         <button className="btn primary" onClick={() => setNewPrompt(true)}>New session</button>
       </header>
+
+      <PracticeStats />
 
       <div className="flex flex-col gap-3">
         {(templates.data ?? []).map((name) => (
@@ -157,7 +160,10 @@ function SessionCard({
           {(history.data ?? []).map((h, i) => (
             <button type="button" key={i} className="trow mt-1 w-full text-left" onClick={() => onReplay(i)}>
               <span>{new Date(h.date).toLocaleString()}</span>
-              <span className="count">{h.blocks.reduce((n, b) => n + b.fileIds.length, 0)} images</span>
+              <span className="count">
+                {h.blocks.reduce((n, b) => n + b.fileIds.length, 0)} images
+                {h.elapsedSeconds ? ` · ${Math.round(h.elapsedSeconds / 60)} min` : ""}
+              </span>
             </button>
           ))}
           {history.data?.length === 0 && (

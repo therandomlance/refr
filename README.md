@@ -209,6 +209,14 @@ you can redo the same set of images later.
 
 ![Session editor](docs/screenshots/session-editor.webp)
 
+Each row is a full search, like the search bar (`figure -nude orient:portrait fav`), so a
+block can draw from more than one tag. Add timed **breaks** between blocks. A chime plays
+when the time is up (toggle 🔔), `Q` adds the current image to the queue, and a session
+can skip images used in its last N runs. Finished runs record time and progress, which
+the Sessions page sums into practice stats with a 12-week heatmap.
+
+A session can also **pop out** its current image and timer into a separate window.
+
 Sessions run in the regular viewer, so the study tools still work. Here a landscape value
 study is running with 3-value posterization and a rule-of-thirds grid:
 

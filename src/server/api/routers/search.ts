@@ -1,4 +1,3 @@
-import path from "node:path";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
@@ -10,18 +9,9 @@ import { semanticSearch, similarSearch, suggestSearch } from "refr/server/servic
 
 const sortEnum = z.enum(["date", "name", "size", "random", "similarity"]);
 
-/** Library aliases → resolved root, lowercased keys: `path:<alias>` lookup. */
-function libraryAliases(): Record<string, string> {
-  const out: Record<string, string> = {};
-  for (const l of config.get().libraries) {
-    if (l.alias) out[l.alias.toLowerCase()] = path.resolve(l.path);
-  }
-  return out;
-}
-
 /** API-boundary token rewrites: library path aliases, then tag-rule aliases. */
 function resolveTokens(tokens: Token[]): Token[] {
-  return resolveTagAliases(resolvePathAliases(tokens, libraryAliases()), getRules());
+  return resolveTagAliases(resolvePathAliases(tokens, config.libraryAliases()), getRules());
 }
 
 export const searchRouter = createTRPCRouter({

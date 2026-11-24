@@ -568,6 +568,9 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
 }
 .popout-hud .chip { cursor: pointer; padding: 6px 10px; border: 0; }
 .popout-hud .chip:disabled { opacity: .4; cursor: default; }
+.practice-cell { width: 12px; height: 12px; border-radius: 3px; flex: none; }
+.session-break { margin: auto; display: flex; flex-direction: column; align-items: center; gap: 16px; text-align: center; }
+.session-break .timer { font: 600 64px/1 var(--font-mono); font-variant-numeric: tabular-nums; }
 .viewer .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden; }
 /* swipe track: current pane fills the stage, neighbours wait just off either edge */
 .vtrack { position: absolute; inset: 0; will-change: transform; touch-action: pan-y pinch-zoom; }

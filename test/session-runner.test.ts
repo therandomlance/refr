@@ -43,3 +43,11 @@ it("pauses the timer, keeps the pause across navigation, and replay resumes", ()
   expect(sessionReducer(resumed, { type: "tick" }, items).remaining).toBe(2);
   expect(sessionReducer({ ...moved, done: true }, { type: "replay" }, items)).toEqual(start);
 });
+
+it("break steps count down and always continue to the next image", () => {
+  const items = [{ seconds: 1, autoScroll: false }, { seconds: 2, autoScroll: true }, { seconds: null, autoScroll: false }];
+  const onBreak = sessionReducer(initial, { type: "next" }, items);
+  expect(onBreak).toEqual({ index: 1, done: false, remaining: 2, flash: false });
+  const after = sessionReducer(sessionReducer(onBreak, { type: "tick" }, items), { type: "tick" }, items);
+  expect(after).toEqual({ index: 2, done: false, remaining: null, flash: false });
+});

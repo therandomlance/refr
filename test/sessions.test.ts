@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { db } from "refr/server/db";
-import { generate, getHistory, getTemplate, saveTemplate, replay, renameTemplate } from "refr/server/services/sessions";
+import { deleteTemplate, finish, generate, getHistory, getTemplate, saveTemplate, replay, renameTemplate, stats } from "refr/server/services/sessions";
+import { makeToken } from "refr/server/services/search";
 import { setTags } from "refr/server/services/tags";
 import * as config from "refr/server/services/config";
 
@@ -49,5 +50,64 @@ describe("sessions", () => {
   it("renaming to the same name keeps the template (no self-delete)", () => {
     renameTemplate(TPL, TPL);
     expect(getTemplate(TPL)).not.toBeNull();
+  });
+});
+
+describe("session upgrades", () => {
+  const NAME = "test-session-v2";
+  const tok = (tag: string, negate = false) => makeToken({ tag, negate });
+
+  it("draws token blocks, records breaks with timing", async () => {
+    await setTags(["s0", "s1"], ["figures/back"], []);
+    saveTemplate({
+      name: NAME,
+      blocks: [
+        { tag: "figures -figures/back", tokens: [tok("figures"), tok("figures/back", true)], count: 50, seconds: 30, autoScroll: true },
+        { kind: "break", seconds: 60 },
+        { tag: "hands", count: 2 },
+      ],
+    });
+    const entry = await generate(NAME);
+    const [figs, rest, hands] = entry.blocks;
+    expect(figs!.fileIds).toHaveLength(18); // 20 figures minus the 2 tagged back
+    expect(figs!.fileIds).not.toContain("s0");
+    expect(figs).toMatchObject({ seconds: 30, autoScroll: true, kind: "images" });
+    expect(rest).toMatchObject({ kind: "break", fileIds: [], seconds: 60, tag: "Break" });
+    expect(hands!.fileIds).toHaveLength(2);
+  });
+
+  it("legacy templates (tag only, no kind) still load and draw", async () => {
+    const tpl = getTemplate(TPL)!;
+    expect(tpl.blocks[0]).toMatchObject({ kind: "images", tag: "figures" });
+    expect(tpl.avoidRecent).toBe(0);
+  });
+
+  it("avoidRecent prefers unseen images, then falls back", async () => {
+    saveTemplate({ name: NAME, avoidRecent: 1, blocks: [{ tag: "hands", count: 6 }] });
+    const first = (await generate(NAME)).blocks[0]!.fileIds;
+    const second = (await generate(NAME)).blocks[0]!.fileIds;
+    expect(first).toHaveLength(6);
+    expect(second).toHaveLength(6);
+    // 10 hands images: the second run takes the 4 unseen ones before reusing any
+    const reused = second.filter((id) => first.includes(id));
+    expect(reused).toHaveLength(2);
+  });
+
+  it("finish records time and progress; stats aggregate finished runs", async () => {
+    const entry = getHistory(NAME)[0]!;
+    finish(NAME, entry.date, { elapsedSeconds: 300, viewed: 4 });
+    const after = getHistory(NAME)[0]!;
+    expect(after).toMatchObject({ elapsedSeconds: 300, viewed: 4 });
+    expect(after.finishedAt).toBeTruthy();
+    const s = stats();
+    expect(s.totals.seconds).toBeGreaterThanOrEqual(300);
+    expect(s.tags.find((t) => t.tag === "hands")?.images).toBeGreaterThanOrEqual(4);
+    expect(s.days.at(-1)!.seconds).toBeGreaterThanOrEqual(300);
+    deleteTemplate(NAME);
+  });
+
+  it("rejects image blocks without a search and breaks without a time", () => {
+    expect(() => saveTemplate({ name: NAME, blocks: [{ tag: "", count: 1 }] })).toThrow();
+    expect(() => saveTemplate({ name: NAME, blocks: [{ kind: "break" }] })).toThrow();
   });
 });
