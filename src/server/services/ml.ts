@@ -533,13 +533,27 @@ export async function knn(
   excludeTag?: string,
   excludeIds?: string[],
 ): Promise<{ fileId: string; score: number }[]> {
+  // near-duplicates hidden by the duplicate finder never surface as suggestions
+  const hidden = await hiddenDuplicateIds();
+  const exclude = hidden.length ? [...(excludeIds ?? []), ...hidden] : excludeIds;
   return post("/knn", {
     vector: Array.from(vector),
     k,
     skip,
     ...(excludeTag ? { excludeTag } : {}),
-    ...(excludeIds?.length ? { excludeIds } : {}),
+    ...(exclude?.length ? { excludeIds: exclude } : {}),
   });
+}
+
+let hiddenCache: { count: number; ids: string[] } | null = null;
+/** Ids hidden as duplicates (FileMeta.duplicateOf); re-read when the count changes. */
+async function hiddenDuplicateIds(): Promise<string[]> {
+  const count = await db.fileMeta.count({ where: { duplicateOf: { not: null } } });
+  if (hiddenCache?.count !== count) {
+    const rows = await db.fileMeta.findMany({ where: { duplicateOf: { not: null } }, select: { fileId: true } });
+    hiddenCache = { count, ids: rows.map((r) => r.fileId) };
+  }
+  return hiddenCache.ids;
 }
 
 export async function fileVector(fileId: string): Promise<Float32Array | null> {
@@ -735,7 +749,9 @@ async function computeTagVector(
 ): Promise<{ v: Float32Array; fileCount: number }> {
   const samples = await db.$queryRawUnsafe<{ vector: Buffer }[]>(
     `SELECT fe.vector FROM FileEmbedding fe
-     WHERE fe.model = ? AND fe.fileId IN (
+     WHERE fe.model = ?
+       AND NOT EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = fe.fileId AND m.duplicateOf IS NOT NULL)
+       AND fe.fileId IN (
        SELECT ft.fileId FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
        WHERE t.name = ? OR t.name LIKE ? ESCAPE '\\'
      )

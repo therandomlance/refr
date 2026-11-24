@@ -12,7 +12,7 @@ import { useTagEdit } from "./tag-actions";
 import { useActionFeedback } from "./action-feedback";
 import { copyText } from "refr/lib/clipboard";
 import type { FileSummary } from "refr/server/services/search";
-import { matchViewerShortcut, VIEWER_SHORTCUTS } from "refr/lib/keyboard";
+import { FILE_SHORTCUTS, matchViewerShortcut, VIEWER_SHORTCUTS } from "refr/lib/keyboard";
 import { ZOOM_RESET, type ZoomState } from "refr/lib/zoom";
 import { studyFilter, useStudyTools } from "./study-tools";
 import { StudyFilterDefs, StudyImage } from "./study-image";
@@ -106,6 +106,22 @@ export function Viewer({
     { enabled: mlStatus.data?.state === "ready" },
   );
   const setTags = useTagEdit();
+  const utils = api.useUtils();
+  const favorite = api.files.setFavorite.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: () => {
+      void utils.files.invalidate();
+      void utils.search.invalidate();
+    },
+  });
+  const unhide = api.duplicates.unhide.useMutation({
+    onSuccess: () => {
+      void utils.files.invalidate();
+      void utils.search.invalidate();
+      void utils.duplicates.invalidate();
+    },
+  });
+  const toggleFavorite = () => favorite.mutate({ fileIds: [currentId], favorite: !(file.data?.meta?.favorite ?? false) });
 
   // index of current file in the surrounding list
   const listIndex = items.findIndex((i) => i.id === currentId);
@@ -154,6 +170,11 @@ export function Viewer({
     const action = matchViewerShortcut(e);
     if (sheetOpen) {
       if (action === "close") setSheetOpen(false);
+      return;
+    }
+    // grid tile actions keep their keys in the viewer (FILE_SHORTCUTS precedence)
+    if (FILE_SHORTCUTS.favorite.match(e)) {
+      toggleFavorite();
       return;
     }
     switch (action) {
@@ -311,7 +332,22 @@ export function Viewer({
           <div className="kv"><span>Date</span><b>{new Date(currentFile.mtime).toLocaleString()}</b></div>
           <div className="kv"><span>Added</span><b>{new Date(currentFile.addedAt).toLocaleString()}</b></div>
           <div className="kv"><span>Type</span><b>{currentFile.mediaType}</b></div>
+          {currentFile.meta?.duplicateOf && (
+            <div className="mt-3 flex items-center justify-between gap-2 rounded-md bg-fill px-2 py-1.5 text-xs text-fg-muted">
+              <span>Hidden as a duplicate</span>
+              <button className="btn sm" onClick={() => unhide.mutate({ fileId: currentFile.id })}>Unhide</button>
+            </div>
+          )}
           <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={`btn ${currentFile.meta?.favorite ? "fav-on text-accent" : ""}`}
+              aria-pressed={currentFile.meta?.favorite ?? false}
+              title={`Favorite (${FILE_SHORTCUTS.favorite.hint()})`}
+              onClick={toggleFavorite}
+            >
+              <Icon name="heart" size={16} /> {currentFile.meta?.favorite ? "Favorite" : "Add to favorites"}
+            </button>
             <a className="btn" href={`/api/file/${currentFile.id}`} target="_blank" rel="noopener noreferrer">Open original</a>
             <a className="btn" href={`/api/file/${currentFile.id}`} download={currentFile.paths[0]?.path.split("/").pop() ?? true}>Download</a>
           </div>
@@ -390,6 +426,16 @@ export function Viewer({
         <button className="vbtn" aria-label="Close viewer" style={{ top: 14, right: 14 }} onClick={onClose}><Icon name="close" /></button>
         <button className="vbtn" style={{ top: 14, left: 14 }} onClick={() => setLeftOpen(!leftOpen)} title="Info" aria-label="Toggle file information" aria-expanded={leftOpen}><Icon name="info" /></button>
         <button className="vbtn" style={{ top: 14, right: 60 }} onClick={() => setRightOpen(!rightOpen)} title="Tags" aria-label="Toggle tags" aria-expanded={rightOpen}><Icon name="tag" /></button>
+        <button
+          className={`vbtn ${file.data?.meta?.favorite ? "fav-on text-accent" : ""}`}
+          style={{ top: 14, right: 106 }}
+          onClick={toggleFavorite}
+          title={`${file.data?.meta?.favorite ? "Remove from favorites" : "Add to favorites"} (${FILE_SHORTCUTS.favorite.hint()})`}
+          aria-label="Favorite"
+          aria-pressed={file.data?.meta?.favorite ?? false}
+        >
+          <Icon name="heart" />
+        </button>
         <button className="nav prev" aria-label="Previous image" style={{ left: 18 }} onClick={() => nav(-1)}><Icon name="left" /></button>
         <button className="nav next" aria-label="Next image" style={{ right: 18 }} onClick={() => nav(1)}><Icon name="right" /></button>
         {!isPhone && carouselOpen && items.length > 1 && (

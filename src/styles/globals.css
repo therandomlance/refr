@@ -535,6 +535,12 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
 }
 .tile.vid .badge { opacity: 1; left: 8px; right: auto; pointer-events: none; }
+.tile-fav {
+  position: absolute; bottom: 7px; right: 7px; z-index: 2; display: grid; place-items: center; width: 22px; height: 22px;
+  border-radius: 50%; background: rgba(0,0,0,.45); color: var(--accent); pointer-events: none;
+  backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+}
+.tile-fav svg, .fav-on svg { fill: currentColor; }
 
 /* ponytail: hover-only states gated to hover-capable devices; :hover sticks after tap on touch */
 @media (hover: hover) {

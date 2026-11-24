@@ -3,6 +3,7 @@ import { z } from "zod";
 import { db } from "refr/server/db";
 import type { TimelineBucket } from "refr/lib/timeline";
 import {
+  SUMMARY_COLS,
   buildListQuery,
   nextCursorFor,
   PAGE_SIZE,
@@ -73,6 +74,7 @@ export async function executeList(input: {
     height: r.height,
     duration: r.duration,
     mtime: toMs(r.mtime),
+    favorite: Boolean(r.favorite),
   }));
 
   // nextCursor (older) only for forward pages; a backward page's "more" is newer
@@ -106,15 +108,15 @@ export async function timelineMonth(where: Sql | undefined, month: z.infer<typeo
   start.setHours(0, 0, 0, 0);
   const end = new Date(start);
   end.setMonth(end.getMonth() + 1);
-  const rows = await db.$queryRawUnsafe<(Omit<FileSummary, "mtime"> & { mtime: number | bigint | Date })[]>(
-    `SELECT f.id, f.mediaType, f.width, f.height, f.duration, f.mtime FROM File f
+  const rows = await db.$queryRawUnsafe<(Omit<FileSummary, "mtime" | "favorite"> & { mtime: number | bigint | Date; favorite: number | bigint })[]>(
+    `SELECT ${SUMMARY_COLS} FROM File f
      WHERE (${where?.text ?? "1=1"}) AND f.mtime >= ? AND f.mtime < ?
      ORDER BY f.mtime DESC, f.id DESC`,
     ...(where?.params ?? []), start.getTime(), end.getTime(),
   );
   // ponytail: whole-month metadata, like Immich; page within a month if a single month exhausts memory.
   return {
-    items: rows.map((r) => ({ ...r, mtime: r.mtime instanceof Date ? r.mtime.getTime() : Number(r.mtime) })),
+    items: rows.map((r) => ({ ...r, mtime: r.mtime instanceof Date ? r.mtime.getTime() : Number(r.mtime), favorite: Boolean(r.favorite) })),
     nextCursor: null, prevCursor: null,
   };
 }
@@ -218,9 +220,9 @@ export async function listByOrderedIds(ids: string[]): Promise<FileSummary[]> {
   for (let i = 0; i < ids.length; i += CHUNK) {
     const rows = await db.file.findMany({
       where: { id: { in: ids.slice(i, i + CHUNK) } },
-      select: { id: true, mediaType: true, width: true, height: true, duration: true, mtime: true },
+      select: { id: true, mediaType: true, width: true, height: true, duration: true, mtime: true, meta: { select: { favorite: true } } },
     });
-    for (const r of rows) byId.set(r.id, { ...r, mtime: r.mtime.getTime() });
+    for (const { meta, ...r } of rows) byId.set(r.id, { ...r, mtime: r.mtime.getTime(), favorite: meta?.favorite ?? false });
   }
   return ids.map((id) => byId.get(id)).filter((r): r is FileSummary => r !== undefined);
 }

@@ -5,6 +5,8 @@ import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import { executeList, libraryRootsWhere, listByOrderedIds, sourceWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
+import { withVisible } from "refr/server/services/search";
+import { setFavorite } from "refr/server/services/fileMeta";
 import { countExternal, countOrphans, purgeExternal, purgeOrphans } from "refr/server/services/scanner";
 import { purgeOrphanThumbs } from "refr/server/services/thumbs";
 import * as config from "refr/server/services/config";
@@ -90,7 +92,7 @@ export const filesRouter = createTRPCRouter({
       limit: z.number().int().min(1).max(1000).default(1000),
     }))
     .query(async ({ input }) => {
-      const where = sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots());
+      const where = withVisible(sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots()));
       const rows = await db.$queryRawUnsafe<{ id: string }[]>(
         `SELECT f.id FROM File f WHERE (${where?.text ?? "1=1"}) AND f.id > ?
          ORDER BY f.id ASC LIMIT ?`,
@@ -120,11 +122,11 @@ export const filesRouter = createTRPCRouter({
       if (input.ids) {
         return { items: await listByOrderedIds(input.ids), nextCursor: null, prevCursor: null };
       }
-      const where = sourceWhere({
+      const where = withVisible(sourceWhere({
         pathPrefix: input.pathPrefix,
         tag: input.tag,
         recursive: input.recursive,
-      }) ?? libraryRootsWhere(config.timelineRoots());
+      }) ?? libraryRootsWhere(config.timelineRoots()));
       if (input.month) return timelineMonth(where, input.month);
       return executeList({
         where,
@@ -144,17 +146,24 @@ export const filesRouter = createTRPCRouter({
       }),
     )
     .query(({ input }) => timelineBuckets(
-      sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots()),
+      withVisible(sourceWhere(input) ?? libraryRootsWhere(config.timelineRoots())),
     )),
 
   byId: protectedProcedure.input(z.object({ id: z.string() })).query(async ({ input }) => {
     const file = await db.file.findUnique({
       where: { id: input.id },
-      include: { paths: { orderBy: { path: "asc" } } },
+      include: {
+        paths: { orderBy: { path: "asc" } },
+        meta: { select: { favorite: true, duplicateOf: true, source: true, note: true, takenAt: true, camera: true } },
+      },
     });
     if (!file) throw new TRPCError({ code: "NOT_FOUND" });
     return file;
   }),
+
+  setFavorite: protectedProcedure
+    .input(z.object({ fileIds: z.array(z.string()).min(1), favorite: z.boolean().optional() }))
+    .mutation(({ input }) => setFavorite(input.fileIds, input.favorite)),
 
   /** §11.7 — copy every selected file without overwriting existing filenames. */
   sendTo: protectedProcedure

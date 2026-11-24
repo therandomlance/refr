@@ -30,7 +30,10 @@ vi.mock("refr/trpc/react", () => ({ api: {
     { path: "/references/drawing", alias: "Drawing references" }, { path: "/references/painting" },
   ] } }) } },
   ml: { status: { useQuery: () => ({}) } },
-  files: { sendTo: { useMutation: (options: typeof state.options) => { state.options = options; return { mutate: state.mutate }; } } },
+  files: {
+    sendTo: { useMutation: (options: typeof state.options) => { state.options = options; return { mutate: state.mutate }; } },
+    setFavorite: { useMutation: () => ({ mutate: vi.fn() }) },
+  },
 } }));
 
 import { useFileContextMenu } from "refr/app/_components/file-menu";

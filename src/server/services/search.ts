@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { parseValueKeyword, type KEYWORD_NAMES } from "refr/lib/keywords";
+import { DUPLICATE_KEYWORD, parseValueKeyword, type KEYWORD_NAMES } from "refr/lib/keywords";
 import { normalize } from "refr/lib/tag-names";
 import { resolveAlias, type TagRules } from "refr/lib/tag-rules";
 
@@ -212,7 +212,21 @@ const KEYWORD_SQL: Record<(typeof KEYWORD_NAMES)[number], () => Sql> = {
   "orient:landscape": () => ({ text: `f.width > f.height * 1.02`, params: [] }),
   "orient:portrait": () => ({ text: `f.height > f.width * 1.02`, params: [] }),
   "orient:square": () => ({ text: `f.width <= f.height * 1.02 AND f.height <= f.width * 1.02`, params: [] }),
+  fav: () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.favorite = 1)`, params: [] }),
+  "is:duplicate": () => ({ text: `EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.duplicateOf IS NOT NULL)`, params: [] }),
 };
+
+/** Excludes near-duplicates hidden by the duplicate finder (§ duplicates.ts). */
+export const VISIBLE_SQL: Sql = {
+  text: `NOT EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.duplicateOf IS NOT NULL)`,
+  params: [],
+};
+
+/** AND `VISIBLE_SQL` onto a where clause (undefined = unrestricted). */
+export function withVisible(where: Sql | undefined): Sql {
+  if (!where) return VISIBLE_SQL;
+  return { text: `(${where.text}) AND ${VISIBLE_SQL.text}`, params: [...where.params, ...VISIBLE_SQL.params] };
+}
 
 /** Value-carrying keywords (`w>2000`, `tags=0`, `added:7d`, `date:2024-03`) —
  *  grammar in parseValueKeyword (lib, client-safe). `=` exact is meaningless
@@ -270,6 +284,11 @@ export function tokensToWhere(tokens: Token[]): Sql {
     clauses.push("(" + parts.map((p) => p.text).join(" OR ") + ")");
     params.push(...parts.flatMap((p) => p.params));
   }
+  // hidden duplicates only appear when asked for
+  if (!tagTokens.some((t) => t.tag === DUPLICATE_KEYWORD && !t.negate)) {
+    clauses.push(VISIBLE_SQL.text);
+    params.push(...VISIBLE_SQL.params);
+  }
 
   return { text: clauses.length ? clauses.join(" AND ") : "1=1", params };
 }
@@ -283,6 +302,7 @@ export type FileSummary = {
   height: number | null;
   duration: number | null;
   mtime: number; // ms epoch — grids group by it
+  favorite?: boolean;
 };
 
 export type ListInput = {
@@ -299,7 +319,8 @@ export type ListResult = {
   prevCursor?: string | null;
 };
 
-const SUMMARY_COLS = `f.id, f.mediaType, f.width, f.height, f.duration, f.mtime`;
+export const SUMMARY_COLS = `f.id, f.mediaType, f.width, f.height, f.duration, f.mtime,
+  EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = f.id AND m.favorite = 1) AS favorite`;
 
 /**
  * Build the shared list query (§9.4). Keyset for date, offset for name/size,

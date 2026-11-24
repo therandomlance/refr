@@ -252,6 +252,18 @@ export function MediaGrid({
         : ((source.kind === "files" ? filesData : searchData)?.pages.flatMap((p) => p.items) ?? [])
     );
   }, [timelineMode, monthQueries, source.kind, idsQ.data, sourceIds, filesData, searchData]);
+  const favoriteIds = useMemo(() => new Set(items.filter((f) => f.favorite).map((f) => f.id)), [items]);
+  const allSelectedFav = selection.size > 0 && [...selection].every((id) => favoriteIds.has(id));
+  // liking a selection is usually "done with these": the selection clears
+  const favorite = api.files.setFavorite.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: ({ favorite: on }, { fileIds }) => {
+      void utils.files.invalidate();
+      void utils.search.invalidate();
+      if (on) onSelectionChange(new Set());
+      notify({ message: `${on ? "Added" : "Removed"} ${fileIds.length === 1 ? "1 file" : `${fileIds.length} files`} ${on ? "to" : "from"} favorites.` });
+    },
+  });
   const visibleItems = useMemo(() => hiddenIds?.size ? items.filter((f) => !hiddenIds.has(f.id)) : items, [items, hiddenIds]);
 
   const fetchNextPage = source.kind === "files" ? filesQ.fetchNextPage : searchQ.fetchNextPage;
@@ -453,7 +465,10 @@ export function MediaGrid({
     for (const id of current) all.delete(id);
     onSelectionChange(all);
   };
-  const gridActions: GridMenuActions = { invertSelection: () => void invertSelection() };
+  const gridActions: GridMenuActions = {
+    invertSelection: () => void invertSelection(),
+    isFavorite: (id) => favoriteIds.has(id),
+  };
   const anchor = useRef<number>(-1);
   const toggle = useCallback(
     (id: string) => {
@@ -872,6 +887,7 @@ export function MediaGrid({
         {f.mediaType === "video" && (
           <div className="badge">{formatDuration(f.duration)}</div>
         )}
+        {f.favorite && <div className="tile-fav" title="Favorite"><Icon name="heart" size={14} /></div>}
       </div>
     );
   };
@@ -937,6 +953,16 @@ export function MediaGrid({
             else setSelMenu({ x: rect.left, y: rect.bottom + 8 });
           }}>
             <Icon name="more" />
+          </button>
+          <button
+            className={`btn ${allSelectedFav ? "fav-on text-accent" : ""}`}
+            disabled={selectingAll || favorite.isPending}
+            title={allSelectedFav ? `Remove from favorites (${FILE_SHORTCUTS.favorite.hint()})` : `Add to favorites (${FILE_SHORTCUTS.favorite.hint()})`}
+            aria-label={allSelectedFav ? "Remove selection from favorites" : "Add selection to favorites"}
+            aria-pressed={allSelectedFav}
+            onClick={() => favorite.mutate({ fileIds: [...selection] })}
+          >
+            <Icon name="heart" />
           </button>
         </>
       )}

@@ -77,6 +77,7 @@ export async function batch(input: {
          SELECT 1 FROM FileTag ft JOIN Tag t2 ON t2.id = ft.tagId
          WHERE ft.fileId = c.fileId AND (t2.name = ? OR t2.name LIKE ? ESCAPE '\\'))
        AND NOT EXISTS (SELECT 1 FROM SuggestionDenial d WHERE d.tagName = ? AND d.fileId = c.fileId)
+       AND NOT EXISTS (SELECT 1 FROM FileMeta m WHERE m.fileId = c.fileId AND m.duplicateOf IS NOT NULL)
      ORDER BY (c.confidence >= ?) DESC, c.rank
      LIMIT ?`,
     tag.id, floor, ...exclude, tag.name, escapeLike(tag.name) + "/%", tag.name, input.minConfidence, input.size,

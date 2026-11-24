@@ -10,8 +10,9 @@ import { DEFAULT_MIN_CONFIDENCE, formatConfidence } from "refr/lib/tagging";
 import { TagReview } from "./_components/tag-review";
 import { FileReview } from "./_components/file-review";
 import { TagRulesEditor } from "./_components/tag-rules";
+import { DuplicateReview } from "./_components/duplicate-review";
 
-type View = "tags" | "files" | "rules";
+type View = "tags" | "files" | "rules" | "duplicates";
 
 /** Tagging inbox: tags with confident untagged candidates from the background
  *  sweep (src/server/services/sweep.ts), reviewed a batch at a time. The Rules
@@ -20,7 +21,7 @@ export default function TaggingPage() {
   const router = useRouter();
   const params = useSearchParams();
   const viewParam = params.get("view");
-  const view: View = viewParam === "files" || viewParam === "rules" ? viewParam : "tags";
+  const view: View = viewParam === "files" || viewParam === "rules" || viewParam === "duplicates" ? viewParam : "tags";
   const tag = params.get("tag");
 
   const [minConfidence, setMinConfidence] = usePersistentNumber("refr:tagging:min-confidence", DEFAULT_MIN_CONFIDENCE, 0.3, 0.95);
@@ -78,6 +79,7 @@ export default function TaggingPage() {
               <button className={view === "tags" ? "on" : ""} onClick={() => go({ tag })}>Tags</button>
               <button className={view === "files" ? "on" : ""} onClick={() => go({ view: "files" })}>Files</button>
               <button className={view === "rules" ? "on" : ""} onClick={() => go({ view: "rules" })}>Rules</button>
+              <button className={view === "duplicates" ? "on" : ""} onClick={() => go({ view: "duplicates" })}>Dupes</button>
             </div>
           </>
         }
@@ -134,9 +136,11 @@ export default function TaggingPage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header">
           <div>
-            <h1>{view === "rules" ? "Tag rules" : view === "files" ? "Tagging · new files" : (tag ?? "Tagging")}</h1>
+            <h1>{view === "duplicates" ? "Duplicates" : view === "rules" ? "Tag rules" : view === "files" ? "Tagging · new files" : (tag ?? "Tagging")}</h1>
             <p>
-              {view === "rules"
+              {view === "duplicates"
+                ? "Near-identical images. Keep one and its twin's tags merge onto it; the other is hidden, never deleted."
+                : view === "rules"
                 ? "Aliases and implications that keep your tags consistent."
                 : view === "files"
                 ? "Confident tag matches for your newest files."
@@ -150,7 +154,9 @@ export default function TaggingPage() {
           </div>
         </header>
 
-        {view === "rules" ? (
+        {view === "duplicates" ? (
+          <DuplicateReview fileId={params.get("file")} />
+        ) : view === "rules" ? (
           <TagRulesEditor />
         ) : !mlStatus.data ? null : !mlStatus.data.enabled ? (
           <div className="px-5 py-4 text-sm text-fg-muted">

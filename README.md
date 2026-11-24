@@ -112,6 +112,8 @@ saved to the sidebar.
 | `=subject/figure` | exact tag only, no descendants |
 | `artist/*`, `*/watercolor` | wildcard over the full tag path |
 | `untagged`, `tagged`, `missing` | metadata keywords |
+| `fav` | favorites (`L` on a tile or in the viewer) |
+| `is:duplicate` | near-duplicates hidden from every other view |
 | `type:image`, `type:video`, `orient:portrait` | media type / orientation |
 | `wallpaper:any`, `wallpaper:16:9`, `wallpaper:16:10`, `wallpaper:21:9` | images ≥720 px tall at a wallpaper aspect ratio |
 | `w>2000`, `h<=1080`, `tags=0` | dimensions / tag count |
@@ -153,7 +155,7 @@ zoom in to inspect detail.
 | | | | `R` | grid overlay (thirds / 4×4) |
 
 Shortcuts on grid tiles: `Q` queue, `T` add tag, `Shift+T` remove tag, `P` palette, `S`
-send to, `B` add to board, `Ctrl/⌘+I` invert selection. Right-click any tile (or a
+send to, `B` add to board, `L` favorite, `Ctrl/⌘+I` invert selection. Right-click any tile (or a
 selection) for the same actions.
 
 ### Tagging
@@ -165,6 +167,12 @@ train a per-tag classifier, so suggestions improve over time. A confidence slide
 threshold.
 
 ![Reviewing subject/landscape suggestions in batch](docs/screenshots/tagging.webp)
+
+The **Dupes** view lists near-identical images (resized or re-encoded copies), found by
+a perceptual hash of each thumbnail. Keep one image of a pair and the other's tags,
+favorite, source and note merge onto it. The other image is then hidden from every view
+(search `is:duplicate` to see hidden copies) but never deleted. "Not duplicates"
+dismisses a pair.
 
 The **Rules** view holds tag aliases and implications. An alias makes a shorthand stand
 for another tag when tagging and searching (`fig` → `reference/figure`). An implication

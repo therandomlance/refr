@@ -26,6 +26,7 @@ export const FILE_SHORTCUTS = {
   palette: { hint: () => "P", match: (e: KeyboardEvent) => plain(e) && !e.shiftKey && e.key.toLowerCase() === "p" },
   sendTo: { hint: () => "S", match: (e: KeyboardEvent) => plain(e) && !e.shiftKey && e.key.toLowerCase() === "s" },
   addToBoard: { hint: () => "B", match: (e: KeyboardEvent) => plain(e) && !e.shiftKey && e.key.toLowerCase() === "b" },
+  favorite: { hint: () => "L", match: (e: KeyboardEvent) => plain(e) && !e.shiftKey && e.key.toLowerCase() === "l" },
   invert: {
     hint: () => (isMac() ? "⌘I" : "Ctrl+I"),
     match: (e: KeyboardEvent) => (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "i",

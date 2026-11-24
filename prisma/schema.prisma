@@ -24,6 +24,7 @@ model File {
     embedding FileEmbedding?
     denials   SuggestionDenial[]
     candidates TagCandidate[]
+    meta      FileMeta?
 
     @@index([mtime, id]) // keyset pagination for default sort
     @@index([mediaType])
@@ -142,4 +143,31 @@ model TagSweep {
     exemplars String // JSON string[][] (per mode)
     sweptAt   DateTime
     tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
+}
+
+/// Per-file user data + derived extras, 1:1 with File, created lazily (upsert).
+/// A separate table rather than File columns: CREATE TABLE IF NOT EXISTS stays
+/// idempotent with the boot fallback in instrumentation-node.ts; ALTER ADD COLUMN isn't.
+model FileMeta {
+    fileId      String    @id
+    favorite    Boolean   @default(false)
+    dhash       BigInt? // 64-bit difference hash of the thumbnail (duplicates.ts)
+    duplicateOf String? // set = hidden near-duplicate of this keeper fileId
+    source      String? // origin URL
+    note        String? // markdown note
+    takenAt     DateTime? // EXIF DateTimeOriginal
+    camera      String? // EXIF Make + Model
+    exifChecked Boolean   @default(false) // probed for EXIF (backfill runs once per file)
+    file        File      @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+    @@index([favorite])
+    @@index([duplicateOf])
+}
+
+/// "Not duplicates" decisions from the duplicate finder; a < b.
+model DuplicateDismissal {
+    a String
+    b String
+
+    @@id([a, b])
 }

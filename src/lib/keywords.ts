@@ -16,11 +16,17 @@ export const KEYWORD_NAMES = [
   "orient:landscape",
   "orient:portrait",
   "orient:square",
+  "fav",
+  "is:duplicate",
 ] as const;
 
 /** Namespaces whose keywords collapse into one fill row in the autocomplete
  *  (like `path:`): the members are listed only once the prefix is typed. */
 export const KEYWORD_GROUPS = ["wallpaper:"] as const;
+
+/** Hidden near-duplicates (FileMeta.duplicateOf) are left out of every query
+ *  unless it carries this keyword. */
+export const DUPLICATE_KEYWORD = "is:duplicate";
 
 /** Prefixes of the value-carrying keywords, offered as fill rows in the search
  *  autocomplete (picking one fills the input; the user types the value). */

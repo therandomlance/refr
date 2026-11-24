@@ -12,7 +12,7 @@ import { useActionFeedback } from "./action-feedback";
 import { FILE_SHORTCUTS, matchFileShortcut } from "refr/lib/keyboard";
 
 /** Grid-owned actions the grid hands the menu when it opens (e.g. invert needs all IDs). */
-export type GridMenuActions = { invertSelection: () => void };
+export type GridMenuActions = { invertSelection: () => void; isFavorite?: (fileId: string) => boolean };
 
 /**
  * Shared context actions (§10.2) for grid tiles + viewer: queue, palette,
@@ -64,6 +64,15 @@ export function useFileContextMenu(
     }),
   });
   const setTags = useTagEdit();
+  const favorite = api.files.setFavorite.useMutation({
+    meta: { customFeedback: true },
+    onSuccess: ({ favorite: on }, { fileIds }) => {
+      void utils.files.invalidate();
+      void utils.search.invalidate();
+      notify({ message: `${on ? "Added" : "Removed"} ${fileIds.length === 1 ? "1 file" : `${fileIds.length} files`} ${on ? "to" : "from"} favorites.` });
+    },
+  });
+  const toggleFavorite = (fileIds: string[], value?: boolean) => favorite.mutate({ fileIds, favorite: value });
 
   const open = (e: React.MouseEvent, fileId: string, grid?: GridMenuActions) => {
     // Actions on an unselected tile act on it alone; selected tiles act on the selection.
@@ -115,6 +124,7 @@ export function useFileContextMenu(
       case "palette": createPalette(fileIds); return true;
       case "sendTo": openSendPicker(fileIds); return true;
       case "addToBoard": setBoardPicker({ fileIds, startNew: false }); return true;
+      case "favorite": toggleFavorite(fileIds); return true;
       case "moveUp": case "moveDown": case "moveStart": case "moveEnd":
         if (!reorderMoves) return false;
         reorderMoves[action](fileIds);
@@ -193,6 +203,13 @@ export function useFileContextMenu(
       { label: allQueued ? "Remove from queue" : "Add to queue", hint: FILE_SHORTCUTS.queue.hint(), onClick: () => toggleQueue(fileIds) },
       { label: "Create palette", hint: FILE_SHORTCUTS.palette.hint(), onClick: () => createPalette(fileIds) },
     ];
+    const allFav = grid?.isFavorite ? fileIds.every(grid.isFavorite) : undefined;
+    items.push({
+      label: allFav === undefined ? "Toggle favorite" : allFav ? "Remove from favorites" : "Add to favorites",
+      hint: FILE_SHORTCUTS.favorite.hint(),
+      onClick: () => toggleFavorite(fileIds, allFav === undefined ? undefined : !allFav),
+    });
+    items.push({ label: "Find duplicates", onClick: () => router.push(`/tagging?view=duplicates&file=${fileIds[0]}`) });
     if (mlStatus.data?.state === "ready") {
       items.push({
         label: "Find similar",

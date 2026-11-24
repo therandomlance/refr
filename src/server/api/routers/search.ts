@@ -2,7 +2,7 @@ import path from "node:path";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
-import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases, resolveTagAliases, type Token } from "refr/server/services/search";
+import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases, resolveTagAliases, withVisible, type Token } from "refr/server/services/search";
 import { getRules } from "refr/server/services/tagRules";
 import { executeList, libraryRootsWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
@@ -67,7 +67,7 @@ export const searchRouter = createTRPCRouter({
         );
       }
       const where = tokens.length === 0
-        ? libraryRootsWhere(config.timelineRoots())
+        ? withVisible(libraryRootsWhere(config.timelineRoots()))
         : tokensToWhere(tokens);
       if (input.month) return timelineMonth(where, input.month);
       return executeList({ where, sort: input.sort, cursor, limit: input.limit });

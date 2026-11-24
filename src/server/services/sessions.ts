@@ -8,6 +8,7 @@ import { paths } from "./dataDir";
 import { listJson, readJson, safeName, writeJson } from "./jsonStore";
 import { resolveAlias } from "refr/lib/tag-rules";
 import { getRules } from "./tagRules";
+import { VISIBLE_SQL } from "./search";
 
 export const blockSchema = z.object({
   tag: z.string().min(1),
@@ -100,7 +101,7 @@ export async function generate(name: string): Promise<HistoryEntry> {
       `SELECT DISTINCT f.id FROM File f
        JOIN FileTag ft ON ft.fileId = f.id
        JOIN Tag t ON t.id = ft.tagId
-       WHERE (t.name = ? OR t.name LIKE ? ESCAPE '\\')
+       WHERE (t.name = ? OR t.name LIKE ? ESCAPE '\\') AND ${VISIBLE_SQL.text}
        ORDER BY RANDOM() LIMIT ?`,
       tag,
       `${tag.replace(/[\\%_]/g, (c) => "\\" + c)}/%`,

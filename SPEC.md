@@ -265,6 +265,21 @@ Pure logic in `src/lib/tag-rules.ts`, storage in `src/server/services/tagRules.t
 - "Apply to existing files" renames alias-named tags to their targets and backfills
   implications (`tagRules.applyToExisting`).
 
+### 7.4 Favorites & near-duplicates
+
+`FileMeta` (1:1 with File, lazily upserted) holds `favorite`, `dhash`, `duplicateOf`,
+`source`, `note`, `takenAt`, `camera`. A separate table rather than File columns so the
+boot fallback in `instrumentation-node.ts` can `CREATE TABLE IF NOT EXISTS` idempotently.
+
+- Favorite: `files.setFavorite(fileIds, favorite?)` (omitted = toggle), hotkey `L` in grid
+  and viewer, heart badge on tiles.
+- Duplicates (`src/server/services/duplicates.ts`): 64-bit dHash of each image thumbnail,
+  hashed by a single-flight background pass after thumbnail drains. Pairs within 3 bits are
+  found with 4×16-bit LSH banding (pigeonhole guarantees recall at ≤ 3). Near-flat hashes
+  and buckets > 400 are skipped. Reviewed on Tagging → Dupes: keep one (tags, favorite,
+  source, note merge onto it; the other gets `duplicateOf`), or dismiss ("Not duplicates",
+  `DuplicateDismissal`). Hidden files are never deleted; `duplicates.unhide` restores.
+
 ## 8. tRPC API surface
 
 Depends on: §3, §4. `src/server/api/root.ts` replaces the boilerplate `post` router.
@@ -350,6 +365,9 @@ WHERE
 
 Metadata keywords, registry pattern (`KEYWORDS: Record<string, (b: Builder) => void>`):
 - `untagged` → `NOT EXISTS (SELECT 1 FROM FileTag WHERE fileId = f.id)`; `tagged`; `missing` (no remaining FilePath).
+- `fav` (FileMeta.favorite). `is:duplicate` lists near-duplicates hidden by the duplicate finder;
+  every other query (`tokensToWhere`, `withVisible()` for unfiltered lists, session generation,
+  `ml.knn`) excludes them via `VISIBLE_SQL`.
 - `type:image|video`, `wallpaper:any|16:9|16:10|21:9` (image, height ≥ 720, w/h in 1.72–1.84,
   1.56–1.65 or 2.30–2.45; `any` = all three; bare `wallpaper` is a tag), `orient:landscape|portrait|square` (±2% = square). Namespaced because a
   keyword shadows a same-named tag.

@@ -46,7 +46,7 @@ vi.mock("refr/trpc/react", () => {
       state.monthRequests = queries.filter((q) => q.enabled && !q.initialData).length;
       return options.combine(queries.map((q) => ({ data: state.loadedMonth ? { items: [file] } : q.initialData, error: state.failed || state.monthFailed ? new Error("offline") : null, refetch: vi.fn() })));
     },
-    files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: timeline } },
+    files: { list: { useQuery: query, useInfiniteQuery: query }, timeline: { useQuery: timeline }, setFavorite: { useMutation: mutation } },
     search: { query: { useInfiniteQuery: (_input: unknown, options: { staleTime?: string }) => { state.searchOptions = options; return query(); } }, timeline: { useQuery: timeline } },
     settings: { get: { useQuery: () => ({}) }, patch: { useMutation: mutation } },
     tags: { setTags: { useMutation: mutation }, undo: { useMutation: mutation } },

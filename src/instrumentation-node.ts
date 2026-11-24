@@ -82,6 +82,31 @@ export async function registerNode() {
     console.error("[schema] TagCandidate/TagSweep fallback failed:", e instanceof Error ? e.message : e);
   }
 
+  try {
+    // mirrors prisma/migrations/20261124000000_file_meta
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "FileMeta" (
+    "fileId" TEXT NOT NULL PRIMARY KEY,
+    "favorite" BOOLEAN NOT NULL DEFAULT false,
+    "dhash" BIGINT,
+    "duplicateOf" TEXT,
+    "source" TEXT,
+    "note" TEXT,
+    "takenAt" DATETIME,
+    "camera" TEXT,
+    "exifChecked" BOOLEAN NOT NULL DEFAULT false,
+    CONSTRAINT "FileMeta_fileId_fkey" FOREIGN KEY ("fileId") REFERENCES "File" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+)`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMeta_favorite_idx" ON "FileMeta"("favorite")`);
+    await db.$executeRawUnsafe(`CREATE INDEX IF NOT EXISTS "FileMeta_duplicateOf_idx" ON "FileMeta"("duplicateOf")`);
+    await db.$executeRawUnsafe(`CREATE TABLE IF NOT EXISTS "DuplicateDismissal" (
+    "a" TEXT NOT NULL,
+    "b" TEXT NOT NULL,
+    PRIMARY KEY ("a", "b")
+)`);
+  } catch (e) {
+    console.error("[schema] FileMeta/DuplicateDismissal fallback failed:", e instanceof Error ? e.message : e);
+  }
+
   const { watch } = await import("./server/services/config");
   watch();
 
@@ -91,7 +116,11 @@ export async function registerNode() {
   const { bootMl, enqueueEmbeddings } = await import("./server/services/ml");
   const { registerSweepHooks } = await import("./server/services/sweep");
   registerSweepHooks();
-  setOnThumbDrain(() => void enqueueEmbeddings());
+  const { catchUpDhash } = await import("./server/services/duplicates");
+  setOnThumbDrain(() => {
+    void enqueueEmbeddings();
+    void catchUpDhash().catch((e) => console.error("[dhash] catch-up failed:", e));
+  });
   const moved = await migrateThumbLayout();
   if (moved > 0) console.log(`[thumbs] migrated ${moved} thumbnails into sharded subdirs`);
   void catchUpMissingThumbs().catch((e) => console.error("[thumbs] catch-up failed:", e));

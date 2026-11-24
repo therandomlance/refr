@@ -30,6 +30,8 @@ const shapes = {
   "align-left": <path d="M4 6h16M4 10h10M4 14h16M4 18h10" />,
   "align-center": <path d="M4 6h16M7 10h10M4 14h16M7 18h10" />,
   "align-right": <path d="M4 6h16M10 10h10M4 14h16M10 18h10" />,
+  heart: <path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10Z" />,
+  duplicate: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
   gridlines: <><rect x="3" y="3" width="18" height="18" rx="2.5" /><path d="M9 3v18M15 3v18M3 9h18M3 15h18" /></>,
 };
 
