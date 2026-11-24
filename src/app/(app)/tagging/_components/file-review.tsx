@@ -80,16 +80,13 @@ export function FileReview({ minConfidence }: { minConfidence: number }) {
       source={{ kind: "ids", ids }}
       selection={selection}
       onSelectionChange={setSelection}
-      header={
-        <p className="pb-3 pt-1 text-xs text-fg-subtle">
-          Newest files with confident tag matches
-          <Hint text="✓ adds the highlighted tags, ✕ rejects them. Click a tag chip to leave it out." />
-        </p>
-      }
       emptyState={q.isLoading ? "Loading…" : `No files with tag matches above ${formatConfidence(minConfidence)}.`}
       toolbarActions={
         <>
-          <span className="text-xs text-fg-muted tabular-nums">{visible.length} files</span>
+          <span className="text-xs text-fg-muted tabular-nums">
+            {visible.length} files
+            <Hint text="✓ adds the highlighted tags, ✕ rejects them. Click a tag chip to leave it out." />
+          </span>
           {q.hasNextPage && (
             <button className="btn sm" disabled={q.isFetchingNextPage} onClick={() => void q.fetchNextPage()}>
               {q.isFetchingNextPage ? "Loading…" : "Load more"}

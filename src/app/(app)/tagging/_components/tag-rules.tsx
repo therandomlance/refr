@@ -221,13 +221,10 @@ export function TagRulesEditor() {
         </section>
 
         <section className="flex flex-col gap-3">
-          <div>
-            <h2 className="text-[15px] font-semibold">
-              Hidden from timeline
-              <Hint text="Works like turning off a library's timeline: the files are still indexed and turn up in search, tag and folder views. Tags beneath a hidden tag are hidden too." />
-            </h2>
-            <p className="text-xs text-fg-muted">Files with these tags stay out of the main timeline.</p>
-          </div>
+          <h2 className="text-[15px] font-semibold">
+            Hidden from timeline
+            <Hint text="Works like turning off a library's timeline: the files are still indexed and turn up in search, tag and folder views. Tags beneath a hidden tag are hidden too." />
+          </h2>
           <div className="flex flex-col gap-2">
             <div className="max-w-sm">
               <TagInput

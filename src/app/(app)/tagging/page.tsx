@@ -68,13 +68,18 @@ export default function TaggingPage() {
         : "Not scanned yet";
 
   const mlReady = mlStatus.data?.state === "ready";
+  const tagStats = view === "tags" && tag ? overview.data?.tags.find((x) => x.tag === tag) : undefined;
+  const subtitle = view === "duplicates"
+    ? "Near-identical images. Keep one and its twin's tags merge onto it; the other is hidden, never deleted."
+    : tagStats
+      ? `${tagStats.ready} ready · ${tagStats.flagged} flagged · ${tagStats.positives} already tagged`
+      : null;
 
   return (
     <div className="flex min-h-0 flex-1">
       <SidePanel
         head={
-          <div className="flex min-w-0 flex-1 flex-col gap-2">
-            <h2 className="text-[13px] font-semibold">Tagging</h2>
+          <div className="flex min-w-0 flex-1 flex-col">
             <div className="seg seg-fill">
               <button className={view === "tags" ? "on" : ""} onClick={() => go({ tag })}>Tags</button>
               <button className={view === "files" ? "on" : ""} onClick={() => go({ view: "files" })}>Files</button>
@@ -137,20 +142,7 @@ export default function TaggingPage() {
         <header className="page-header">
           <div>
             <h1>{view === "duplicates" ? "Duplicates" : view === "rules" ? "Tag rules" : view === "files" ? "Tagging · new files" : (tag ?? "Tagging")}</h1>
-            <p>
-              {view === "duplicates"
-                ? "Near-identical images. Keep one and its twin's tags merge onto it; the other is hidden, never deleted."
-                : view === "rules"
-                ? "Aliases, implications and timeline hiding that keep your tags consistent."
-                : view === "files"
-                ? "Confident tag matches for your newest files."
-                : tag
-                  ? (() => {
-                    const t = overview.data?.tags.find((x) => x.tag === tag);
-                    return t ? `${t.ready} ready · ${t.flagged} flagged · ${t.positives} already tagged` : "Reviewing suggestions";
-                  })()
-                  : "Confident suggestions across all your tags, ready to review in batches."}
-            </p>
+            {subtitle && <p>{subtitle}</p>}
           </div>
         </header>
 
