@@ -3,15 +3,11 @@ import { db } from "refr/server/db";
 import type { Prisma } from "../../../generated/prisma";
 import { invalidateTagVectors, invalidateAllTagVectors } from "./ml";
 
-/** trim, collapse repeated '/', strip leading/trailing '/', lowercase. */
-export function normalize(name: string): string {
-  return name.trim().replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "").toLowerCase();
-}
+import { ancestors, isUnder, normalize } from "refr/lib/tag-names";
+import { expandImplications, resolveAlias, rewriteRuleTags } from "refr/lib/tag-rules";
+import { getRules, updateRules } from "./tagRules";
 
-export function ancestors(name: string): string[] {
-  const parts = normalize(name).split("/");
-  return parts.map((_, i) => parts.slice(0, i + 1).join("/"));
-}
+export { ancestors, normalize };
 
 export type TagChange = { fileId: string; before: string[]; after: string[] };
 export class TagUndoConflict extends Error {}
@@ -36,14 +32,26 @@ async function getOrCreateTag(name: string): Promise<number> {
   return row.id;
 }
 
-/** Bulk add/remove tags on files. Adding a tag also removes its now-redundant
- *  ancestor tags from the affected files (a child implies its parents). */
+/** Bulk add/remove tags on files. Added names go through the tag-rule aliases
+ *  and pull in their implications (src/lib/tag-rules.ts). Adding a tag also
+ *  removes its now-redundant ancestor tags from the affected files (a child
+ *  implies its parents). */
 export async function setTags(fileIds: string[], add: string[], remove: string[]) {
+  const rules = getRules();
+  const explicit = [...new Set(add.map((name) => resolveAlias(rules, name)).filter(Boolean))];
+  // an implied tag that's an ancestor of an explicit one is already covered
+  const implied = expandImplications(rules, explicit).filter((t) => !explicit.some((e) => isUnder(e, t)));
+  return applyTags(fileIds, explicit, remove, implied);
+}
+
+/** `implied` tags are added only to files that don't already carry them or a
+ *  descendant, so a rule never stacks a redundant parent onto a tagged file. */
+async function applyTags(fileIds: string[], add: string[], remove: string[], implied: string[]) {
   if (fileIds.length === 0) return { changes: [] as TagChange[] };
   fileIds = [...new Set(fileIds)];
   const changes = await db.$transaction(async (tx) => {
     const before = await namesFor(tx, fileIds);
-    for (const name of add) {
+    for (const [names, onlyUncovered] of [[add, false], [implied, true]] as const) for (const name of names) {
       const n = normalize(name);
       if (!n) continue;
       const tag = await tx.tag.upsert({ where: { name: n }, create: { name: n }, update: {} });
@@ -51,11 +59,22 @@ export async function setTags(fileIds: string[], add: string[], remove: string[]
       // roll back the entire edit, including its undo snapshots.
       for (let i = 0; i < fileIds.length; i += 400) {
         const batch = fileIds.slice(i, i + 400);
-        await tx.$executeRawUnsafe(
-          `INSERT INTO FileTag (fileId, tagId) VALUES ${batch.map(() => "(?, ?)").join(",")}
-           ON CONFLICT (fileId, tagId) DO NOTHING`,
-          ...batch.flatMap((fileId) => [fileId, tag.id]),
-        );
+        if (onlyUncovered) {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO FileTag (fileId, tagId)
+             SELECT f.id, ? FROM File f WHERE f.id IN (${batch.map(() => "?").join(",")})
+               AND NOT EXISTS (SELECT 1 FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+                               WHERE ft.fileId = f.id AND (t.name = ? OR t.name LIKE ? ESCAPE '\\'))
+             ON CONFLICT (fileId, tagId) DO NOTHING`,
+            tag.id, ...batch, n, escapeLike(n) + "/%",
+          );
+        } else {
+          await tx.$executeRawUnsafe(
+            `INSERT INTO FileTag (fileId, tagId) VALUES ${batch.map(() => "(?, ?)").join(",")}
+             ON CONFLICT (fileId, tagId) DO NOTHING`,
+            ...batch.flatMap((fileId) => [fileId, tag.id]),
+          );
+        }
       }
       // the new tag implies its ancestors — remove explicit ancestor links
       for (const ancestor of ancestors(n).slice(0, -1)) {
@@ -174,6 +193,7 @@ export async function rename(oldName: string, newName: string) {
     }
     await rewriteDenials(tx, { exact: [from], prefix: from }, (name) => to + name.slice(from.length));
   });
+  updateRules((rules) => rewriteRuleTags(rules, (name) => (isUnder(name, from) ? to + name.slice(from.length) : name)));
   invalidateTreeCache();
   await invalidateAllTagVectors();
 }
@@ -201,6 +221,8 @@ export async function merge(sources: string[], target: string) {
       await tx.tag.delete({ where: { id: tag.id } }); // links cascade
     }
   });
+  const merged = new Set(srcNames);
+  updateRules((rules) => rewriteRuleTags(rules, (name) => (merged.has(name) ? to : name)));
   invalidateTreeCache();
   await invalidateAllTagVectors();
 }
@@ -255,14 +277,29 @@ async function loadTree(generation: number): Promise<TreeNode[]> {
   return data;
 }
 
-/** Fuzzy autocomplete: substring match ordered by count desc. */
-export async function searchTags(term: string, limit = 20): Promise<TreeNode[]> {
+export type TagSuggestion = TreeNode & { /** the alias source that matched, for `fig → reference/figure` rows */ alias?: string };
+
+/** Fuzzy autocomplete: substring match ordered by count desc. Alias sources
+ *  matching the term surface their target (exact alias hits first). */
+export async function searchTags(term: string, limit = 20): Promise<TagSuggestion[]> {
   const t = normalize(term);
   const all = await tree();
-  return all
+  const tags: TagSuggestion[] = all
     .filter((x) => x.name.includes(t))
     .sort((a, b) => b.count - a.count)
     .slice(0, limit);
+  const aliases = Object.entries(getRules().aliases).filter(([from]) => t && from.includes(t));
+  if (aliases.length === 0) return tags;
+  const counts = new Map(all.map((x) => [x.name, x.count]));
+  // one row per target (TagInput keys rows by name), preferring an exact alias hit
+  const byTarget = new Map<string, TagSuggestion>();
+  for (const [alias, name] of aliases) {
+    const prev = byTarget.get(name);
+    if (!prev || alias === t) byTarget.set(name, { name, count: counts.get(name) ?? 0, alias });
+  }
+  const rows = [...tags.filter((x) => !byTarget.has(x.name)), ...byTarget.values()].sort((a, b) => b.count - a.count);
+  const exact = rows.filter((r) => r.alias === t);
+  return [...exact, ...rows.filter((r) => r.alias !== t)].slice(0, limit);
 }
 
 /** Intersection of tags across files (for viewer/multi-select). */
@@ -276,6 +313,41 @@ export async function forFiles(fileIds: string[]): Promise<string[]> {
   const common = groups.filter((g) => g._count.fileId === fileIds.length).map((g) => g.tagId);
   const tags = await db.tag.findMany({ where: { id: { in: common } }, select: { name: true } });
   return tags.map((t) => t.name).sort();
+}
+
+/**
+ * Apply the current tag rules to files tagged before the rules existed:
+ * existing tags named by an alias source are renamed to the alias target (with
+ * descendants), then every implication is backfilled onto files carrying its
+ * tag or a descendant. Returns how many tags were renamed and files changed.
+ */
+export async function applyRulesToExisting(): Promise<{ renamedTags: number; changedFiles: number }> {
+  let renamedTags = 0;
+  for (const [from, to] of Object.entries(getRules().aliases)) {
+    const n = await db.tag.count({ where: { OR: [{ name: from }, { name: { startsWith: from + "/" } }] } });
+    if (n === 0) continue;
+    await rename(from, to);
+    renamedTags += n;
+  }
+  const rules = getRules();
+  const changed = new Set<string>();
+  for (const tag of Object.keys(rules.implications)) {
+    const implied = expandImplications(rules, [tag]);
+    let after = "";
+    for (;;) {
+      const rows = await db.$queryRawUnsafe<{ id: string }[]>(
+        `SELECT DISTINCT ft.fileId AS id FROM FileTag ft JOIN Tag t ON t.id = ft.tagId
+         WHERE (t.name = ? OR t.name LIKE ? ESCAPE '\\') AND ft.fileId > ?
+         ORDER BY ft.fileId LIMIT 400`,
+        tag, escapeLike(tag) + "/%", after,
+      );
+      if (rows.length === 0) break;
+      after = rows[rows.length - 1]!.id;
+      const { changes } = await applyTags(rows.map((r) => r.id), [], [], implied);
+      for (const c of changes) changed.add(c.fileId);
+    }
+  }
+  return { renamedTags, changedFiles: changed.size };
 }
 
 export function invalidateTreeCache() {

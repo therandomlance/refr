@@ -11,6 +11,7 @@ import { sessionsRouter } from "refr/server/api/routers/sessions";
 import { settingsRouter } from "refr/server/api/routers/settings";
 import { tagsRouter } from "refr/server/api/routers/tags";
 import { taggingRouter } from "refr/server/api/routers/tagging";
+import { tagRulesRouter } from "refr/server/api/routers/tagRules";
 import { createCallerFactory, createTRPCRouter } from "refr/server/api/trpc";
 
 export const appRouter = createTRPCRouter({
@@ -18,6 +19,7 @@ export const appRouter = createTRPCRouter({
   files: filesRouter,
   tags: tagsRouter,
   tagging: taggingRouter,
+  tagRules: tagRulesRouter,
   search: searchRouter,
   ml: mlRouter,
   searches: searchesRouter,

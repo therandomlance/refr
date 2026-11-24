@@ -40,6 +40,7 @@ data/
   searches/          # saved searches, one JSON file each: <name>.json
   palettes/
     <folder>/<name>.json   # subfolders = palette folders
+  tag-rules.json     # {aliases: {from: to}, implications: {tag: [implied]}} — §7.3
   boards/
     <name>.json      # moodboard: {items, arrows, hidden} — schema in src/lib/boards.ts
                      #   items: image {fileId,x,y,w,rot,flipX,study?} | text {x,y,w,h,text(markdown),size,color,bg,align}
@@ -246,6 +247,23 @@ never a parent FK. `src/server/services/tags.ts`:
   Used by Browse (filter to count ≥ 1) and autocomplete.
 - `search(prefix, limit 20)` — fuzzy autocomplete: `LIKE '%term%'` on name ordered by
   `count desc` (precomputed in memory from `tree()` cache, 5 s TTL).
+
+### 7.3 Tag rules (aliases + implications)
+
+`data/tag-rules.json`, edited on Tagging → Rules (or by hand; re-read on mtime change).
+Pure logic in `src/lib/tag-rules.ts`, storage in `src/server/services/tagRules.ts`.
+
+- **Alias** `from → to`: resolved by longest matching prefix, one hop (`fig/arms` →
+  `reference/figure/arms`). Applied to `setTags` adds, search tag chips (incl.
+  `suggest:<tag>`), session block tags, and autocomplete (shows `fig → reference/figure`).
+- **Implication** `tag ⇒ [implied]`: adding `tag` or any descendant also adds `implied`,
+  transitively. Implied tags are real `FileTag` rows (search SQL unchanged), skipped on
+  files already carrying the implied tag or a descendant.
+- Validation rejects alias chains, aliases pointing inside themselves, implication loops,
+  and implications onto a tag's own ancestor/descendant.
+- Tag rename/merge rewrite rule references; delete leaves rules alone.
+- "Apply to existing files" renames alias-named tags to their targets and backfills
+  implications (`tagRules.applyToExisting`).
 
 ## 8. tRPC API surface
 

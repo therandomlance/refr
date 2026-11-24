@@ -30,6 +30,8 @@ export const paths = {
   boards: path.join(DATA_DIR, "boards"),
   /** sidebar folder tree + order of the boards in boards/ */
   boardsIndex: path.join(DATA_DIR, "boards.json"),
+  /** tag aliases + implications (src/lib/tag-rules.ts) */
+  tagRules: path.join(DATA_DIR, "tag-rules.json"),
 };
 
 export function getSecret(): string {

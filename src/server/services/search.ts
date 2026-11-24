@@ -1,5 +1,7 @@
 import { z } from "zod";
 import { parseValueKeyword, type KEYWORD_NAMES } from "refr/lib/keywords";
+import { normalize } from "refr/lib/tag-names";
+import { resolveAlias, type TagRules } from "refr/lib/tag-rules";
 
 /**
  * §9.1 token model + §9.2 grammar + §9.3 SQL translation.
@@ -161,6 +163,21 @@ export function resolvePathAliases(
         })()
       : t,
   );
+}
+
+/** Rewrite tag chips (and `suggest:<tag>`) through the tag-rule aliases so a
+ *  shorthand searches its target. Keywords, paths and wildcards are left alone. */
+export function resolveTagAliases(tokens: Token[], rules: TagRules): Token[] {
+  if (Object.keys(rules.aliases).length === 0) return tokens;
+  const rewrite = (tag: string) => {
+    const resolved = resolveAlias(rules, tag);
+    return resolved === normalize(tag) ? tag : resolved;
+  };
+  return tokens.map((t) => {
+    if (t.kind !== "tag" || t.wildcard || t.tag.startsWith("path:") || KEYWORDS[t.tag] || parseValueKeyword(t.tag)) return t;
+    if (t.tag.startsWith("suggest:")) return { ...t, tag: "suggest:" + rewrite(t.tag.slice(8)) };
+    return { ...t, tag: rewrite(t.tag) };
+  });
 }
 
 /** Wallpaper-shaped images: at least 720 tall, aspect within a band (w/h).

@@ -6,7 +6,8 @@ import { db } from "refr/server/db";
 import * as config from "./config";
 import { paths } from "./dataDir";
 import { listJson, readJson, safeName, writeJson } from "./jsonStore";
-import { normalize } from "./tags";
+import { resolveAlias } from "refr/lib/tag-rules";
+import { getRules } from "./tagRules";
 
 export const blockSchema = z.object({
   tag: z.string().min(1),
@@ -90,10 +91,11 @@ function appendHistory(name: string, entry: HistoryEntry) {
 export async function generate(name: string): Promise<HistoryEntry> {
   const tpl = getTemplate(name);
   if (!tpl) throw new Error(`template '${name}' not found`);
+  const rules = getRules();
   const drawn = new Set<string>();
   const blocks: HistoryEntry["blocks"] = [];
   for (const block of tpl.blocks) {
-    const tag = normalize(block.tag);
+    const tag = resolveAlias(rules, block.tag);
     const rows = await db.$queryRawUnsafe<{ id: string }[]>(
       `SELECT DISTINCT f.id FROM File f
        JOIN FileTag ft ON ft.fileId = f.id

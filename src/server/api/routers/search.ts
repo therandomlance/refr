@@ -2,7 +2,8 @@ import path from "node:path";
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "refr/server/api/trpc";
 import * as config from "refr/server/services/config";
-import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases } from "refr/server/services/search";
+import { isVectorToken, tokenSchema, tokensToWhere, resolvePathAliases, resolveTagAliases, type Token } from "refr/server/services/search";
+import { getRules } from "refr/server/services/tagRules";
 import { executeList, libraryRootsWhere, timelineBuckets, timelineMonth, timelineMonthSchema } from "refr/server/services/fileQuery";
 import { searchTags } from "refr/server/services/tags";
 import { semanticSearch, similarSearch, suggestSearch } from "refr/server/services/semantic";
@@ -16,6 +17,11 @@ function libraryAliases(): Record<string, string> {
     if (l.alias) out[l.alias.toLowerCase()] = path.resolve(l.path);
   }
   return out;
+}
+
+/** API-boundary token rewrites: library path aliases, then tag-rule aliases. */
+function resolveTokens(tokens: Token[]): Token[] {
+  return resolveTagAliases(resolvePathAliases(tokens, libraryAliases()), getRules());
 }
 
 export const searchRouter = createTRPCRouter({
@@ -37,7 +43,7 @@ export const searchRouter = createTRPCRouter({
     )
     .query(async ({ input }) => {
       const cursor = input.cursor ?? input.seek;
-      const tokens = resolvePathAliases(input.tokens, libraryAliases());
+      const tokens = resolveTokens(input.tokens);
       const textChip = tokens.find((t) => t.kind === "text");
       const similarChip = tokens.find((t) => t.kind === "similar");
       const suggestChip = tokens.find(
@@ -72,7 +78,7 @@ export const searchRouter = createTRPCRouter({
     .input(z.object({ tokens: z.array(tokenSchema) }))
     .query(({ input }) =>
       timelineBuckets(
-        tokensToWhere(resolvePathAliases(input.tokens, libraryAliases())),
+        tokensToWhere(resolveTokens(input.tokens)),
         input.tokens.length === 0 ? config.timelineRoots() : undefined,
       ),
     ),

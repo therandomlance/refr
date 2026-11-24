@@ -9,13 +9,18 @@ import { usePersistentBoolean, usePersistentNumber } from "refr/lib/persistent-s
 import { DEFAULT_MIN_CONFIDENCE, formatConfidence } from "refr/lib/tagging";
 import { TagReview } from "./_components/tag-review";
 import { FileReview } from "./_components/file-review";
+import { TagRulesEditor } from "./_components/tag-rules";
+
+type View = "tags" | "files" | "rules";
 
 /** Tagging inbox: tags with confident untagged candidates from the background
- *  sweep (src/server/services/sweep.ts), reviewed a batch at a time. */
+ *  sweep (src/server/services/sweep.ts), reviewed a batch at a time. The Rules
+ *  view edits tag aliases + implications and works without ML. */
 export default function TaggingPage() {
   const router = useRouter();
   const params = useSearchParams();
-  const view = params.get("view") === "files" ? "files" : "tags";
+  const viewParam = params.get("view");
+  const view: View = viewParam === "files" || viewParam === "rules" ? viewParam : "tags";
   const tag = params.get("tag");
 
   const [minConfidence, setMinConfidence] = usePersistentNumber("refr:tagging:min-confidence", DEFAULT_MIN_CONFIDENCE, 0.3, 0.95);
@@ -37,9 +42,9 @@ export default function TaggingPage() {
   }, [overview.data, filter, includeUncertain]);
   const totalReady = tags.reduce((n, t) => n + t.ready, 0);
 
-  const go = useCallback((next: { tag?: string | null; view?: "tags" | "files" }) => {
+  const go = useCallback((next: { tag?: string | null; view?: View }) => {
     const p = new URLSearchParams();
-    if (next.view === "files") p.set("view", "files");
+    if (next.view && next.view !== "tags") p.set("view", next.view);
     else if (next.tag) p.set("tag", next.tag);
     router.push(p.size ? `/tagging?${p.toString()}` : "/tagging");
   }, [router]);
@@ -72,6 +77,7 @@ export default function TaggingPage() {
             <div className="seg">
               <button className={view === "tags" ? "on" : ""} onClick={() => go({ tag })}>Tags</button>
               <button className={view === "files" ? "on" : ""} onClick={() => go({ view: "files" })}>Files</button>
+              <button className={view === "rules" ? "on" : ""} onClick={() => go({ view: "rules" })}>Rules</button>
             </div>
           </>
         }
@@ -128,9 +134,11 @@ export default function TaggingPage() {
       <main className="flex min-w-0 flex-1 flex-col">
         <header className="page-header">
           <div>
-            <h1>{view === "files" ? "Tagging · new files" : (tag ?? "Tagging")}</h1>
+            <h1>{view === "rules" ? "Tag rules" : view === "files" ? "Tagging · new files" : (tag ?? "Tagging")}</h1>
             <p>
-              {view === "files"
+              {view === "rules"
+                ? "Aliases and implications that keep your tags consistent."
+                : view === "files"
                 ? "Confident tag matches for your newest files."
                 : tag
                   ? (() => {
@@ -142,7 +150,9 @@ export default function TaggingPage() {
           </div>
         </header>
 
-        {!mlStatus.data ? null : !mlStatus.data.enabled ? (
+        {view === "rules" ? (
+          <TagRulesEditor />
+        ) : !mlStatus.data ? null : !mlStatus.data.enabled ? (
           <div className="px-5 py-4 text-sm text-fg-muted">
             Tag suggestions need semantic features. Turn them on in <Link className="text-accent underline" href="/settings">Settings</Link>.
           </div>

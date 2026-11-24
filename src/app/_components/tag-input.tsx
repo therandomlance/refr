@@ -99,7 +99,7 @@ export function TagInput({
   const hintRows = !pathMode && !suggestMode && typedLower
     ? keywordHints.filter((h) => h.startsWith(typedLower) && h !== typedLower).map((h) => ({ name: h }))
     : [];
-  const rows: { name: string; count?: number }[] = [
+  const rows: { name: string; count?: number; alias?: string }[] = [
     ...pathRow,
     ...suggestRow,
     ...pathRows,
@@ -232,6 +232,7 @@ export function TagInput({
               onMouseEnter={() => { setHighlight(i); setNavigated(true); }}
               onClick={() => choose(r.name)}
             >
+              {r.alias && <span className="text-fg-subtle">{r.alias} →</span>}
               {r.name} {r.count != null && <span className="text-fg-subtle ml-auto">{r.count}</span>}
             </button>
           ))}

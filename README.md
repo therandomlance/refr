@@ -166,6 +166,11 @@ threshold.
 
 ![Reviewing subject/landscape suggestions in batch](docs/screenshots/tagging.webp)
 
+The **Rules** view holds tag aliases and implications. An alias makes a shorthand stand
+for another tag when tagging and searching (`fig` → `reference/figure`). An implication
+adds more tags automatically (`artist/x` ⇒ `medium/digital`). Rules are stored in
+`data/tag-rules.json` and can be applied retroactively to existing files.
+
 The **Files** view works the other way around: it lists your newest files with their most
 confident tag matches, so you can tag new images as they arrive.
 
