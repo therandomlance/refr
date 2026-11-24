@@ -560,6 +560,14 @@ input[type="checkbox"], input[type="radio"], input[type="range"] { accent-color:
   animation: fade-in var(--dur-med) var(--ease-out);
 }
 @keyframes fade-in { from { opacity: 0; } }
+/* pop-out reference window (popout.tsx): image fills the window, HUD floats at the bottom */
+.popout-view { animation: none; }
+.popout-hud {
+  position: absolute; left: 50%; bottom: 12px; transform: translateX(-50%); z-index: 10;
+  display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: calc(100% - 24px);
+}
+.popout-hud .chip { cursor: pointer; padding: 6px 10px; border: 0; }
+.popout-hud .chip:disabled { opacity: .4; cursor: default; }
 .viewer .stage { flex: 1; position: relative; display: flex; align-items: center; justify-content: center; min-width: 0; overflow: hidden; }
 /* swipe track: current pane fills the stage, neighbours wait just off either edge */
 .vtrack { position: absolute; inset: 0; will-change: transform; touch-action: pan-y pinch-zoom; }

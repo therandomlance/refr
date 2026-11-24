@@ -9,6 +9,8 @@ import { ContextMenu } from "refr/app/_components/context-menu";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 import { moveQueueItems } from "refr/lib/queue-order";
 import { Icon } from "refr/app/_components/icon";
+import { hasDocumentPip } from "refr/app/_components/popout";
+import { useReferenceWindow } from "refr/app/_components/reference-window";
 
 export default function QueuePage() {
   const [selection, setSelection] = useState<Set<string>>(new Set());
@@ -40,6 +42,11 @@ export default function QueuePage() {
   const ids = queue.data ?? [];
   const up = moveQueueItems(ids, selection, -1);
   const down = moveQueueItems(ids, selection, 1);
+  // pop-out reference window: steps through the queue in order, starting at the
+  // first selected image
+  const reference = useReferenceWindow();
+  const openPopout = () => reference.openImages(ids, ids.find((id) => selection.has(id)));
+
   const fileMenu = useFileContextMenu(selection, setSelection, {
     allIds: ids,
     onReorder: (next) => setQueue.mutate({ fileIds: next }),
@@ -86,7 +93,17 @@ export default function QueuePage() {
       </SidePanel>
 
       <main className="flex min-w-0 flex-1 flex-col">
-        <header className="page-header"><div><h1>Queue</h1><p>{ids.length} images ready for review.</p></div></header>
+        <header className="page-header">
+          <div><h1>Queue</h1><p>{ids.length} images ready for review.</p></div>
+          <button
+            className="btn ml-auto"
+            disabled={ids.length === 0}
+            title={hasDocumentPip() ? "Open the queue in a window that stays on top of other apps" : "Open the queue in a separate window"}
+            onClick={openPopout}
+          >
+            <Icon name="popout" size={16} /> Pop out
+          </button>
+        </header>
         <div className="flex flex-wrap items-center gap-2 px-4 py-2 text-xs text-fg-muted">
           <span>Select images to reorder. Drag or use:</span>
           <button className="btn" disabled={setQueue.isPending || up.every((id, i) => id === ids[i])} onClick={() => setQueue.mutate({ fileIds: up })}>↑ Move up</button>

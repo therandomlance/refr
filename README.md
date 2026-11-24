@@ -192,6 +192,13 @@ it again later.
 
 ![The study queue](docs/screenshots/queue.webp)
 
+**Pop out** opens images in a separate reference window with the study tools: the
+whole queue (from the Queue page), any thumbnail or selection ("Pop out" in its menu),
+or a whole board, read-only (from the board's header or sidebar menu). In Chromium
+browsers it's a Picture-in-Picture window meant to stay on top of your painting app;
+on KDE Wayland, add a "Keep above" window rule for it. Elsewhere it's a regular pop-up.
+The window stays open while you move around the app.
+
 ### Sessions
 
 A session is a randomized drawing practice set, built from rows of *tag × count × time*.

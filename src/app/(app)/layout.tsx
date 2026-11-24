@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { SESSION_COOKIE, verifySession } from "refr/server/services/auth";
 import { Rail } from "refr/app/_components/rail";
+import { ReferenceWindowProvider } from "refr/app/_components/reference-window";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +16,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     // clear the fixed bar. min-h-0 is still load-bearing for the virtualizer height.
     <div className="flex h-screen overflow-hidden">
       <Rail />
-      <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col">{children}</div>
+      <div className="app-content flex min-h-0 min-w-0 flex-1 flex-col">
+        <ReferenceWindowProvider>{children}</ReferenceWindowProvider>
+      </div>
     </div>
   );
 }

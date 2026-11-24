@@ -7,12 +7,14 @@ import { SidePanel } from "refr/app/_components/side-panel";
 import type { MenuItem } from "refr/app/_components/context-menu";
 import { FolderTree } from "refr/app/_components/folder-tree";
 import { BoardCanvas } from "./_components/board-canvas";
+import { useReferenceWindow } from "refr/app/_components/reference-window";
 import { ConfirmDialog, PromptDialog } from "refr/app/_components/dialog";
 
 export default function BoardsPage() {
   const params = useSearchParams();
   const router = useRouter();
   const utils = api.useUtils();
+  const reference = useReferenceWindow();
   const boards = api.boards.list.useQuery();
   const tree = api.boards.tree.useQuery();
   const [newPrompt, setNewPrompt] = useState(false);
@@ -64,6 +66,7 @@ export default function BoardsPage() {
   const boardMenu = (name: string): MenuItem[] => {
     const hidden = info.get(name)?.hidden ?? 0;
     return [
+      { label: "Pop out", onClick: () => reference.openBoard(name) },
       { label: "Rename…", onClick: () => setRenameOf(name) },
       ...(hidden > 0 ? [{ label: `Reset hidden suggestions (${hidden})…`, onClick: () => setResetOf({ name, count: hidden }) }] : []),
       "sep" as const,

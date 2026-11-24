@@ -480,6 +480,18 @@ Reference mockups live in `mockups/` (`index.html` links all themes on the Class
 the theme CSS files there are the source of truth for the var values — port them verbatim
 into `globals.css` blocks.
 
+### 10.5 Pop-out reference window
+
+`popout.tsx`: React renders into a second window through a portal: a Document
+Picture-in-Picture window where available (stays on top; KDE Wayland ignores that, so a
+"Keep above" window rule is needed there), else a same-origin `about:blank` popup. The
+portal shares the opener's state, so there's no sync protocol. `reference-window.tsx`
+owns one app-wide window in the (app) layout (survives navigation): `openImages(ids)`
+(Queue page, the thumbnail menu's "Pop out"; ids are filtered to files that still exist)
+and `openBoard(name)` (read-only `board-popout.tsx`, polls the saved board, wheel zoom,
+left/middle drag, double-click or middle double-click to fit). Sessions own a separate
+pop-out because it carries the run's timer.
+
 ## 11. Pages
 
 ### 11.1 Browse (`/browse`)

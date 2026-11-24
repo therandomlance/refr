@@ -32,6 +32,7 @@ import {
 } from "refr/lib/boards";
 import type { FileSummary } from "refr/server/services/search";
 import { useBoardDoc } from "./use-board-doc";
+import { useReferenceWindow } from "refr/app/_components/reference-window";
 import { BoardSuggestions } from "./board-suggestions";
 import { ArrowPane, StudyPane, TextPane } from "./board-panes";
 
@@ -60,7 +61,7 @@ type Gesture =
   | { kind: "arrow-end"; id: string; end: "from" | "to"; created: boolean };
 
 /** thumbnails are ~512px on the long edge; past that on screen, load the original */
-const THUMB_PX = 512;
+export const THUMB_PX = 512;
 const ARROW_PX = { s: 2, m: 4, l: 7 } as const;
 const uid = () => crypto.randomUUID();
 
@@ -73,6 +74,7 @@ function readView(name: string): ZoomState | null {
 }
 
 export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHiddenSignal: number }) {
+  const reference = useReferenceWindow();
   const doc = useBoardDoc(name);
   const { board, apply, begin, end, cancel, undo, redo } = doc;
 
@@ -646,6 +648,9 @@ export function BoardCanvas({ name, resetHiddenSignal }: { name: string; resetHi
           <h1>{name}</h1>
           <p>{imageCount} image{imageCount === 1 ? "" : "s"} · {doc.saving ? "Saving…" : "Saved"}</p>
         </div>
+        <button className="btn ml-auto" title="Show this board in a separate reference window" onClick={() => reference.openBoard(name)}>
+          <Icon name="popout" size={16} /> Pop out
+        </button>
       </header>
       <div className="flex min-h-0 flex-1">
         <div
@@ -805,7 +810,7 @@ function Handles({ rotate }: { rotate: boolean }) {
   );
 }
 
-function ImageTile({ item, height, selected, handles, full }: {
+export function ImageTile({ item, height, selected, handles, full }: {
   item: ImageItem;
   height: number;
   selected: boolean;
@@ -855,7 +860,7 @@ function replaceKeepingUndo(el: HTMLTextAreaElement, next: string) {
   }
 }
 
-function TextTile({ item, selected, handles, editing, onText, onDone }: {
+export function TextTile({ item, selected, handles, editing, onText, onDone }: {
   item: TextItem;
   selected: boolean;
   handles: boolean;
@@ -911,7 +916,7 @@ function TextTile({ item, selected, handles, editing, onText, onDone }: {
   );
 }
 
-function ArrowShape({ arrow, from, to, selected }: { arrow: Arrow; from: Pt; to: Pt; selected: boolean }) {
+export function ArrowShape({ arrow, from, to, selected }: { arrow: Arrow; from: Pt; to: Pt; selected: boolean }) {
   const w = ARROW_PX[arrow.width];
   const len = Math.hypot(to.x - from.x, to.y - from.y) || 1;
   const u = { x: (to.x - from.x) / len, y: (to.y - from.y) / len };

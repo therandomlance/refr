@@ -10,6 +10,7 @@ import { useTagEdit } from "./tag-actions";
 import { moveQueueItems } from "refr/lib/queue-order";
 import { useActionFeedback } from "./action-feedback";
 import { FILE_SHORTCUTS, matchFileShortcut } from "refr/lib/keyboard";
+import { useReferenceWindow } from "./reference-window";
 
 /** Grid-owned actions the grid hands the menu when it opens (e.g. invert needs all IDs). */
 export type GridMenuActions = { invertSelection: () => void; isFavorite?: (fileId: string) => boolean };
@@ -34,6 +35,7 @@ export function useFileContextMenu(
   const router = useRouter();
   const utils = api.useUtils();
   const notify = useActionFeedback();
+  const reference = useReferenceWindow();
 
   const queueQ = api.queue.get.useQuery();
   const boardsQ = api.boards.list.useQuery();
@@ -208,6 +210,10 @@ export function useFileContextMenu(
       label: allFav === undefined ? "Toggle favorite" : allFav ? "Remove from favorites" : "Add to favorites",
       hint: FILE_SHORTCUTS.favorite.hint(),
       onClick: () => toggleFavorite(fileIds, allFav === undefined ? undefined : !allFav),
+    });
+    items.push({
+      label: fileIds.length > 1 ? `Pop out ${fileIds.length} images` : "Pop out",
+      onClick: () => reference.openImages(fileIds),
     });
     items.push({ label: "Find duplicates", onClick: () => router.push(`/tagging?view=duplicates&file=${fileIds[0]}`) });
     if (mlStatus.data?.state === "ready") {

@@ -83,7 +83,9 @@ export function StudyImage({
   useLayoutEffect(() => {
     const el = frameRef.current;
     if (!el) return;
-    const ro = new ResizeObserver(() => setBox({ width: el.clientWidth, height: el.clientHeight }));
+    // the element's own window: inside the pop-out reference window it's another document
+    const RO = el.ownerDocument.defaultView?.ResizeObserver ?? ResizeObserver;
+    const ro = new RO(() => setBox({ width: el.clientWidth, height: el.clientHeight }));
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
