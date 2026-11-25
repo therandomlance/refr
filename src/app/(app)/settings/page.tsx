@@ -1,11 +1,28 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
 import { THEMES, ACCENTS, DENSITIES, type Theme, type Accent, type Density } from "refr/lib/themes";
 import { Icon } from "refr/app/_components/icon";
 import { Hint } from "refr/app/_components/hint";
+
+const SECTIONS = [
+  ["libraries", "Libraries"],
+  ["workspace", "Workspace"],
+  ["services", "Services & security"],
+  ["backup", "Backup"],
+  ["maintenance", "Maintenance"],
+] as const;
+
+function jumpTo(id: string, behavior: ScrollBehavior) {
+  const el = document.getElementById(id);
+  const scroller = el?.closest<HTMLElement>("[data-settings-scroller]");
+  if (!el || !scroller) return;
+  const margin = parseFloat(getComputedStyle(el).scrollMarginTop) || 0;
+  const top = el.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - margin;
+  scroller.scrollTo({ top, behavior });
+}
 
 export default function SettingsPage() {
   const settings = api.settings.get.useQuery();
@@ -14,17 +31,36 @@ export default function SettingsPage() {
     onSuccess: () => void utils.settings.get.invalidate(),
   });
 
+  // Scroll the page's own scroller instead of using native #hash jumps: those scroll
+  // every ancestor (including the overflow-hidden app shell) and push the rail off-screen.
+  const loaded = !!settings.data;
+  useEffect(() => {
+    if (loaded && location.hash) jumpTo(location.hash.slice(1), "instant");
+  }, [loaded]);
+
   if (!settings.data) return <p className="p-6 text-sm text-fg-subtle">Loading…</p>;
   const s = settings.data;
 
   const save = (p: Parameters<typeof patch.mutate>[0]) => patch.mutate(p);
 
   return (
-    <div className="scroll-thin flex-1 overflow-y-auto p-6">
+    <div data-settings-scroller className="scroll-thin flex-1 overflow-y-auto p-6">
       <header className="page-header page-header-inset"><div><h1>Settings</h1></div></header>
       <div className="settings-layout">
       <nav className="settings-nav" aria-label="Settings sections">
-        <a href="#libraries">Libraries</a><a href="#workspace">Workspace</a><a href="#services">Services & security</a><a href="#backup">Backup</a><a href="#maintenance">Maintenance</a>
+        {SECTIONS.map(([id, label]) => (
+          <a
+            key={id}
+            href={`#${id}`}
+            onClick={(e) => {
+              e.preventDefault();
+              history.replaceState(null, "", `#${id}`);
+              jumpTo(id, "smooth");
+            }}
+          >
+            {label}
+          </a>
+        ))}
       </nav>
       <div className="flex min-w-0 flex-col gap-6">
         <div className="settings-group" id="libraries"><h2>Libraries</h2>
