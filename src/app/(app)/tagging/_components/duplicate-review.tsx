@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { api, type RouterOutputs } from "refr/trpc/react";
 
@@ -22,19 +22,38 @@ const formatBytes = (n: number) =>
 export function DuplicateReview({ fileId }: { fileId: string | null }) {
   const utils = api.useUtils();
   const [offset, setOffset] = useState(0);
+  // Cards disappear as soon as they're clicked; the list refetches once the
+  // last in-flight action settles so a mid-stream refetch can't resurrect one.
+  const inFlight = useRef(0);
+  const listInput = { fileId: fileId ?? undefined, offset, limit: PAGE };
   const list = api.duplicates.list.useQuery(
-    { fileId: fileId ?? undefined, offset, limit: PAGE },
-    { refetchInterval: (q) => (q.state.data?.hashing.running ? 4000 : false) },
+    listInput,
+    { refetchInterval: (q) => (q.state.data?.hashing.running && inFlight.current === 0 ? 4000 : false) },
   );
-  const after = () => {
+  const drop = async (gone: (p: Pair) => boolean) => {
+    inFlight.current++;
+    await utils.duplicates.list.cancel();
+    utils.duplicates.list.setData(listInput, (d) => {
+      if (!d) return d;
+      const pairs = d.pairs.filter((p) => !gone(p));
+      return { ...d, pairs, total: d.total - (d.pairs.length - pairs.length) };
+    });
+  };
+  const settled = () => {
+    if (--inFlight.current > 0) return;
     void utils.duplicates.invalidate();
     void utils.files.invalidate();
     void utils.search.invalidate();
   };
-  const resolve = api.duplicates.resolve.useMutation({ onSuccess: after });
-  const dismiss = api.duplicates.dismiss.useMutation({ onSuccess: after });
+  const resolve = api.duplicates.resolve.useMutation({
+    onMutate: ({ copy }) => drop((p) => p.a.id === copy || p.b.id === copy),
+    onSettled: settled,
+  });
+  const dismiss = api.duplicates.dismiss.useMutation({
+    onMutate: ({ a, b }) => drop((p) => (p.a.id === a && p.b.id === b) || (p.a.id === b && p.b.id === a)),
+    onSettled: settled,
+  });
   const rehash = api.duplicates.rehash.useMutation({ onSuccess: () => void utils.duplicates.invalidate() });
-  const busy = resolve.isPending || dismiss.isPending;
 
   const data = list.data;
   const hashing = data?.hashing;
@@ -92,7 +111,6 @@ export function DuplicateReview({ fileId }: { fileId: string | null }) {
                     </div>
                     <button
                       className={`btn ${f.id === bigger ? "primary" : ""}`}
-                      disabled={busy}
                       onClick={() => resolve.mutate({ keeper: f.id, copy: (i === 0 ? right : left).id })}
                     >
                       Keep {i === 0 ? "left" : "right"}
@@ -102,7 +120,7 @@ export function DuplicateReview({ fileId }: { fileId: string | null }) {
               </div>
               <div className="mt-3 flex items-center justify-between gap-2 text-xs text-fg-subtle">
                 <span>{p.distance === 0 ? "Visually identical" : `${p.distance} bit${p.distance === 1 ? "" : "s"} different`}</span>
-                <button className="btn sm ghost" disabled={busy} onClick={() => dismiss.mutate({ a: p.a.id, b: p.b.id })}>
+                <button className="btn sm ghost" onClick={() => dismiss.mutate({ a: p.a.id, b: p.b.id })}>
                   Not duplicates
                 </button>
               </div>

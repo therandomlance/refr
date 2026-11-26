@@ -155,14 +155,30 @@ export function findPairs(
 
 let pairCache: { stamp: string; pairs: DuplicatePair[] } | null = null;
 
-/** All current candidate pairs among visible files. Cached until hashes,
- *  hidden copies or dismissals change. */
-async function allPairs(): Promise<DuplicatePair[]> {
+async function cacheStamp(): Promise<string> {
   const [s] = await db.$queryRawUnsafe<{ hashed: bigint; hidden: bigint; dismissed: bigint; files: bigint }[]>(
     `SELECT (SELECT COUNT(dhash) FROM FileMeta) AS hashed, (SELECT COUNT(duplicateOf) FROM FileMeta) AS hidden,
             (SELECT COUNT(*) FROM DuplicateDismissal) AS dismissed, (SELECT COUNT(*) FROM File) AS files`,
   );
-  const stamp = `${s!.hashed}|${s!.hidden}|${s!.dismissed}|${s!.files}`;
+  return `${s!.hashed}|${s!.hidden}|${s!.dismissed}|${s!.files}`;
+}
+
+/** Apply a review action to the cached pair list in place instead of letting
+ *  the stamp change force a full reload + rescan on the next list call. Only
+ *  patches when the cache was current before the write (`before`); otherwise
+ *  the next call rebuilds as usual. */
+async function patchCache(before: string, drop: (p: DuplicatePair) => boolean) {
+  const cache = pairCache;
+  if (cache?.stamp !== before) return;
+  const pairs = cache.pairs.filter((p) => !drop(p));
+  const stamp = await cacheStamp();
+  if (pairCache === cache) pairCache = { stamp, pairs };
+}
+
+/** All current candidate pairs among visible files. Cached until hashes,
+ *  hidden copies or dismissals change. */
+async function allPairs(): Promise<DuplicatePair[]> {
+  const stamp = await cacheStamp();
   if (pairCache?.stamp === stamp) return pairCache.pairs;
   const rows = await db.$queryRawUnsafe<{ id: string; dhash: bigint }[]>(
     `SELECT fileId AS id, dhash FROM FileMeta WHERE dhash IS NOT NULL AND duplicateOf IS NULL`,
@@ -210,9 +226,24 @@ export async function listPairs(input: { fileId?: string; offset: number; limit:
 
 const filled = (s: string | null | undefined) => (s?.trim() ? s : null);
 
+// review actions run one at a time so each cache patch sees only its own write
+let reviewChain: Promise<unknown> = Promise.resolve();
+function serial<T>(fn: () => Promise<T>): Promise<T> {
+  const run = reviewChain.then(fn, fn);
+  reviewChain = run.catch(() => undefined);
+  return run;
+}
+
 /** Merge `copy` into `keeper` and hide `copy`. Library files are untouched. */
-export async function resolvePair(keeper: string, copy: string) {
+export function resolvePair(keeper: string, copy: string) {
+  return serial(() => resolveNow(keeper, copy));
+}
+
+async function resolveNow(keeper: string, copy: string) {
   if (keeper === copy) throw new Error("keeper and copy are the same file");
+  const before = await cacheStamp();
+  // a hidden keeper becomes visible again below and may gain pairs: rebuild then
+  const keeperHidden = (await db.fileMeta.findUnique({ where: { fileId: keeper }, select: { duplicateOf: true } }))?.duplicateOf != null;
   const links = await db.fileTag.findMany({ where: { fileId: copy }, include: { tag: true } });
   if (links.length) await setTags([keeper], links.map((l) => l.tag.name), []);
   await db.$transaction(async (tx) => {
@@ -240,11 +271,16 @@ export async function resolvePair(keeper: string, copy: string) {
     // drop the hidden copy from the tagging inbox counts right away
     await tx.tagCandidate.deleteMany({ where: { fileId: copy } });
   });
+  if (!keeperHidden) await patchCache(before, (p) => p.a === copy || p.b === copy);
 }
 
-export async function dismissPair(x: string, y: string) {
+export function dismissPair(x: string, y: string) {
   const [a, b] = [x, y].sort() as [string, string];
-  await db.duplicateDismissal.upsert({ where: { a_b: { a, b } }, create: { a, b }, update: {} });
+  return serial(async () => {
+    const before = await cacheStamp();
+    await db.duplicateDismissal.upsert({ where: { a_b: { a, b } }, create: { a, b }, update: {} });
+    await patchCache(before, (p) => p.a === a && p.b === b);
+  });
 }
 
 export async function unhide(fileId: string) {

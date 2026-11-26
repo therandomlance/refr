@@ -95,7 +95,10 @@ describe("resolve, hide, favorites", () => {
   });
 
   it("resolve merges tags/favorite/source onto the keeper and hides the copy", async () => {
+    expect((await listPairs({ fileId: keeper, offset: 0, limit: 10 })).total).toBe(1); // warm the pair cache
     await resolvePair(keeper, copy);
+    // the warm cache is patched in place, not left stale
+    expect((await listPairs({ fileId: keeper, offset: 0, limit: 10 })).total).toBe(0);
     const tags = (await db.fileTag.findMany({ where: { fileId: keeper }, include: { tag: true } })).map((t) => t.tag.name);
     expect(tags).toContain("dupset/extra");
     const meta = await db.fileMeta.findUnique({ where: { fileId: keeper } });
