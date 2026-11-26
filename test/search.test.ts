@@ -34,6 +34,11 @@ describe("query grammar", () => {
     expect(commitToken(tag, tag)).toMatchObject({ tag, negate: false, exact: false, or: false });
     expect(commitToken("-" + tag, tag)).toMatchObject({ tag, negate: true });
     expect(commitToken("=suggest:" + tag, "suggest:" + tag)).toMatchObject({ tag: "suggest:" + tag, exact: true });
+    // typed text (no row picked) is one chip too — not split on spaces
+    expect(commitToken("-" + tag)).toMatchObject({ tag, negate: true });
+    expect(commitToken(" =path:refs/My Folder ")).toMatchObject({ tag: "path:refs/My Folder", exact: true });
+    expect(commitToken('"red car"')).toMatchObject({ kind: "text", tag: "red car" });
+    expect(commitToken("-")).toBeNull();
   });
 
   it("quoted text chips survive parse/serialize", () => {
@@ -142,6 +147,15 @@ describe("SQL translation (seeded sqlite)", () => {
     expect(await run("path:lib")).toEqual(["f1", "f2"]);
     expect(await run("=path:lib")).toEqual(["f2"]);
     expect(await run("-path:lib")).toEqual(["f3", "f4"]);
+    // subfolders under an alias, case-insensitive alias, trailing slash
+    expect(await run("path:lib/sub")).toEqual(["f1"]);
+    expect(await run("path:LIB/sub/")).toEqual(["f1"]);
+    expect(await run("=path:lib/sub")).toEqual(["f1"]);
+    expect(await run("-path:lib/sub")).toEqual(["f2", "f3", "f4"]);
+    expect(await idsOf(parseQuery("path:/refrtest/lib/sub/"))).toEqual(["f1"]);
+    // case-sensitive like the filesystem (SQLite LIKE would fold ASCII case)
+    expect(await idsOf(parseQuery("path:/refrtest/LIB"))).toEqual([]);
+    expect(await idsOf(parseQuery("path:/refrtest/lib/SUB"))).toEqual([]);
   });
 
   it("multi-word tag with spaces", async () => {

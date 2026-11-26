@@ -1,5 +1,6 @@
 /** Pure decision logic for TagInput's Enter key (kept free of tRPC for tests). */
 import { KEYWORD_GROUPS, KEYWORD_HINTS, parseValueKeyword } from "./keywords";
+import { isStrongMatch } from "./match";
 
 export function stripModifiers(raw: string): string {
   return raw.replace(/^[-~=]+/, "").trim();
@@ -28,6 +29,41 @@ export function keywordRowsFor(keywords: readonly string[], typed: string): { gr
   };
 }
 
+/** Completion-mode prefixes whose rows carry the same prefix as the input. */
+const MODE_PREFIXES = ["path:", "suggest:"];
+
+/** Whether a row is a good enough match for `typed` that bare Enter may take
+ *  it: exact, prefix, or a segment/word start — never a mid-word substring
+ *  (typing a new tag `red` must not pick `tired`). Alias rows also match by alias. */
+export function rowMatches(row: { name: string; alias?: string }, typed: string): boolean {
+  const mode = MODE_PREFIXES.find((p) => typed.toLowerCase().startsWith(p) && row.name.toLowerCase().startsWith(p));
+  const [name, term] = mode ? [row.name.slice(mode.length), typed.slice(mode.length)] : [row.name, typed];
+  return isStrongMatch(name, term) || (row.alias !== undefined && isStrongMatch(row.alias, typed));
+}
+
+/** Initial highlight once rows describe `typed`: the exact row, else the first
+ *  strong match, else the semantic fallback (when it's the only row), else none
+ *  (-1 → Enter commits the typed text). While results are still loading nothing
+ *  is highlighted, so a keyword row can't be picked before tag rows arrive. */
+export function defaultHighlight({
+  rows,
+  typed,
+  pending,
+  showSemantic,
+}: {
+  rows: readonly { name: string; alias?: string }[];
+  typed: string;
+  pending: boolean;
+  showSemantic: boolean;
+}): number {
+  if (pending) return -1;
+  const exact = rows.findIndex((r) => r.name.toLowerCase() === typed.toLowerCase());
+  if (exact >= 0) return exact;
+  const strong = rows.findIndex((r) => rowMatches(r, typed));
+  if (strong >= 0) return strong;
+  return rows.length === 0 && showSemantic ? 0 : -1;
+}
+
 export type EnterAction =
   | { kind: "none" }
   | { kind: "literal"; value: string }
@@ -43,6 +79,7 @@ export function resolveEnter({
   highlight,
   showSemantic,
   navigated,
+  pending = false,
 }: {
   raw: string;
   /** the (debounced) term the visible rows were built from */
@@ -53,6 +90,8 @@ export function resolveEnter({
   showSemantic: boolean;
   /** the user moved the highlight (arrows / hover) since the rows last changed */
   navigated: boolean;
+  /** server results for the current term haven't arrived yet */
+  pending?: boolean;
 }): EnterAction {
   const typed = raw.trim();
   const literal: EnterAction = typed ? { kind: "literal", value: typed } : { kind: "none" };
@@ -60,6 +99,8 @@ export function resolveEnter({
   if (!open) return literal;
   // rows still describe an older prefix → never let a stale row win
   if (stripModifiers(raw) !== debounced) return literal;
+  // tag/path rows not back yet → the visible rows are incomplete (keywords only)
+  if (pending && !navigated) return literal;
   if (!navigated) {
     // bare Enter on an empty box shouldn't fill a keyword row
     if (!typed) return { kind: "none" };

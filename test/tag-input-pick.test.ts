@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { applyModifiers, keywordRowsFor, resolveEnter } from "refr/lib/tag-input-pick";
+import { applyModifiers, defaultHighlight, keywordRowsFor, resolveEnter } from "refr/lib/tag-input-pick";
+import { matchRank } from "refr/lib/match";
 
 const base = {
   open: true,
@@ -91,5 +92,55 @@ describe("keyword groups", () => {
     const rows = [{ name: "wallpaper:" }];
     expect(resolveEnter({ raw: "wall", debounced: "wall", open: true, rows, highlight: 0, showSemantic: false, navigated: false }))
       .toEqual({ kind: "fill", prefix: "wallpaper:" });
+  });
+});
+
+describe("default highlight (match-aware)", () => {
+  it("never auto-picks a mid-word substring: Enter keeps a new tag as typed", () => {
+    const rows = [{ name: "tired" }];
+    const h = defaultHighlight({ rows, typed: "red", pending: false, showSemantic: false });
+    expect(h).toBe(-1);
+    expect(resolveEnter({ ...base, raw: "red", debounced: "red", rows, highlight: h }))
+      .toEqual({ kind: "literal", value: "red" });
+    expect(defaultHighlight({ rows: [{ name: "untagged" }, { name: "tagged" }], typed: "tag", pending: false, showSemantic: false }))
+      .toBe(1);
+  });
+
+  it("highlights exact, then prefix or segment-start matches", () => {
+    const rows = [{ name: "scarf" }, { name: "cart" }, { name: "car" }];
+    expect(defaultHighlight({ rows, typed: "car", pending: false, showSemantic: false })).toBe(2);
+    expect(defaultHighlight({ rows: [{ name: "scarf" }, { name: "vehicle/car-red" }], typed: "car", pending: false, showSemantic: false })).toBe(1);
+    expect(defaultHighlight({ rows: [{ name: "type:image" }], typed: "image", pending: false, showSemantic: false })).toBe(0);
+  });
+
+  it("matches alias rows by their alias, path/suggest rows without the prefix", () => {
+    expect(defaultHighlight({ rows: [{ name: "reference/figure", alias: "fig" }], typed: "fig", pending: false, showSemantic: false })).toBe(0);
+    expect(defaultHighlight({ rows: [{ name: "path:refs/characters" }], typed: "path:char", pending: false, showSemantic: false })).toBe(0);
+    expect(defaultHighlight({ rows: [{ name: "path:refs/old" }], typed: "path:ol", pending: false, showSemantic: false })).toBe(0);
+    expect(defaultHighlight({ rows: [{ name: "path:refs/bold" }], typed: "path:ol", pending: false, showSemantic: false })).toBe(-1);
+  });
+
+  it("highlights nothing while results load; the semantic row when it's alone", () => {
+    expect(defaultHighlight({ rows: [{ name: "type:image" }], typed: "image", pending: true, showSemantic: false })).toBe(-1);
+    expect(defaultHighlight({ rows: [], typed: "red car", pending: false, showSemantic: true })).toBe(0);
+  });
+
+  it("Enter commits the typed text while results are pending", () => {
+    const rows = [{ name: "type:image" }];
+    expect(resolveEnter({ ...base, raw: "image", debounced: "image", rows, pending: true }))
+      .toEqual({ kind: "literal", value: "image" });
+    expect(resolveEnter({ ...base, raw: "image", debounced: "image", rows, pending: true, navigated: true }))
+      .toEqual({ kind: "pick", name: "type:image" });
+  });
+});
+
+describe("matchRank", () => {
+  it("ranks exact, prefix, segment start, substring", () => {
+    expect(matchRank("Car", "car")).toBe(0);
+    expect(matchRank("cart", "car")).toBe(1);
+    expect(matchRank("vehicle/car", "car")).toBe(2);
+    expect(matchRank("mass effect", "eff")).toBe(2);
+    expect(matchRank("scar/scarf", "car")).toBe(3);
+    expect(matchRank("dog", "car")).toBe(-1);
   });
 });

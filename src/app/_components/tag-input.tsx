@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { api } from "refr/trpc/react";
 import { isTypingTarget, overlayOpen } from "refr/lib/keyboard";
-import { applyModifiers, isFillRow, keywordRowsFor, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
+import { applyModifiers, defaultHighlight, isFillRow, keywordRowsFor, resolveEnter, stripModifiers } from "refr/lib/tag-input-pick";
 import { parseValueKeyword } from "refr/lib/keywords";
 
 /**
@@ -53,6 +53,8 @@ export function TagInput({
   const [debounced, setDebounced] = useState("");
   const boxRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+  const listId = useId();
 
   useEffect(() => {
     const t = setTimeout(() => setDebounced(stripModifiers(raw)), 150);
@@ -65,18 +67,16 @@ export function TagInput({
   const suggestTyped = suggestMode ? debounced.slice(8) : "";
   const tagTerm = suggestMode ? suggestTyped : debounced;
 
-  const suggestions = api.tags.search.useQuery(
-    { term: tagTerm, limit: 20 },
-    // in suggest: mode even an empty term lists tags (all get the suggest: prefix)
-    { enabled: (tagTerm.length > 0 && !pathMode) || suggestMode },
-  );
+  // in suggest: mode even an empty term lists tags (all get the suggest: prefix)
+  const tagsEnabled = (tagTerm.length > 0 && !pathMode) || suggestMode;
+  const suggestions = api.tags.search.useQuery({ term: tagTerm, limit: 20 }, { enabled: tagsEnabled });
   const pathSuggestions = api.files.pathComplete.useQuery(
     { typed: pathTyped },
     { enabled: pathMode },
   );
 
   const tagRows = suggestions.data ?? [];
-  const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: "path:" + p })) : [];
+  const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: "path:" + p.name, count: p.count })) : [];
   const suggestRows = suggestMode
     ? tagRows.map((r) => ({ name: "suggest:" + r.name, count: r.count }))
     : [];
@@ -114,14 +114,25 @@ export function TagInput({
   ];
   const showSemantic = semanticFallback && !pathMode && !suggestMode && raw.trim().length > 0 && !parseValueKeyword(debounced) && rows.length === 0 && suggestions.isFetched;
   const rowCount = rows.length + (showSemantic ? 1 : 0);
+  // server rows for the current term not back yet (keyword rows show instantly)
+  const pending = (tagsEnabled && !suggestions.isFetched) || (pathMode && !pathSuggestions.isFetched);
+  // stale = rows were built for an older prefix than what's in the box
+  const stale = stripModifiers(raw) !== debounced;
 
-  // Prefer the row that matches what was typed exactly (so Enter on a full tag
-  // name — e.g. a chip put back for editing — doesn't pick a longer descendant).
-  const exactRow = rows.findIndex((r) => r.name.toLowerCase() === debounced.toLowerCase());
+  // exact row (so Enter on a full tag name — e.g. a chip put back for editing —
+  // doesn't pick a longer descendant), else the first prefix/segment match, else
+  // nothing: Enter then commits exactly what was typed
+  const initial = defaultHighlight({ rows, typed: debounced, pending, showSemantic });
   useEffect(() => {
-    setHighlight(Math.max(0, exactRow));
+    setHighlight(initial);
     setNavigated(false);
-  }, [debounced, exactRow]);
+  }, [debounced, initial]);
+
+  // keep the highlighted row visible while arrowing through a long list
+  useEffect(() => {
+    if (!open || highlight < 0) return;
+    listRef.current?.querySelector(`[data-row="${highlight}"]`)?.scrollIntoView({ block: "nearest" });
+  }, [highlight, open]);
 
   useEffect(() => {
     if (!hotkey) return;
@@ -191,6 +202,11 @@ export function TagInput({
     <div ref={boxRef} className="relative">
       <input
         className="taginput"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={open && rowCount > 0}
+        aria-controls={listId}
+        aria-activedescendant={open && highlight >= 0 && highlight < rowCount ? `${listId}-${highlight}` : undefined}
         placeholder={placeholder}
         autoFocus={autoFocus}
         value={raw}
@@ -202,14 +218,21 @@ export function TagInput({
         }}
         onFocus={() => setOpen(true)}
         onKeyDown={(e) => {
-          if (e.key === "ArrowDown") {
+          if (e.key === "ArrowDown" || e.key === "ArrowUp") {
             e.preventDefault();
-            if (rowCount > 0) { setHighlight((h) => Math.min(h + 1, rowCount - 1)); setNavigated(true); }
+            // after Esc, the first arrow just brings the list back
+            if (!open) { setOpen(true); return; }
+            if (rowCount === 0) return;
+            setHighlight((h) => (e.key === "ArrowDown" ? Math.min(h + 1, rowCount - 1) : Math.max(h - 1, 0)));
+            setNavigated(true);
           }
-          else if (e.key === "ArrowUp") { e.preventDefault(); setHighlight((h) => Math.max(h - 1, 0)); setNavigated(true); }
-          else if (e.key === "Tab" && open && rows[highlight]) {
+          else if (e.key === "Tab" && open && rows.length > 0 && (stale || pending)) {
+            // rows describe an older prefix — don't overwrite newer typing
             e.preventDefault();
-            const filled = applyModifiers(raw, rows[highlight].name);
+          }
+          else if (e.key === "Tab" && open && (rows[highlight] ?? rows[0])) {
+            e.preventDefault();
+            const filled = applyModifiers(raw, (rows[highlight] ?? rows[0])!.name);
             setRaw(filled);
             onRawChange?.(filled);
             setOpen(true);
@@ -220,7 +243,7 @@ export function TagInput({
           }
           else if (e.key === "Enter") {
             e.preventDefault();
-            const action = resolveEnter({ raw, debounced, open, rows, highlight, showSemantic, navigated });
+            const action = resolveEnter({ raw, debounced, open, rows, highlight, showSemantic, navigated, pending });
             if (action.kind === "literal") commit(action.value);
             else if (action.kind === "semantic") commitSemantic();
             else if (action.kind === "fill") fillKeyword(action.prefix);
@@ -229,11 +252,18 @@ export function TagInput({
         }}
       />
       {open && rowCount > 0 && (
-        <div className="ctxmenu" style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 4, maxHeight: 280, overflowY: "auto" }}>
+        <div ref={listRef} id={listId} role="listbox" className="ctxmenu" style={{ position: "absolute", left: 0, right: 0, top: "100%", marginTop: 4, maxHeight: 280, overflowY: "auto" }}>
           {rows.map((r, i) => (
             <button
               key={r.name}
+              id={`${listId}-${i}`}
+              data-row={i}
+              role="option"
+              aria-selected={i === highlight}
+              tabIndex={-1}
               style={i === highlight ? { background: "var(--accent-soft)" } : undefined}
+              // keep focus in the input so typing continues after a click
+              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => { setHighlight(i); setNavigated(true); }}
               onClick={() => choose(r.name)}
             >
@@ -243,7 +273,13 @@ export function TagInput({
           ))}
           {showSemantic && (
             <button
+              id={`${listId}-${rows.length}`}
+              data-row={rows.length}
+              role="option"
+              aria-selected={highlight === rows.length}
+              tabIndex={-1}
               style={highlight === rows.length ? { background: "var(--accent-soft)" } : undefined}
+              onMouseDown={(e) => e.preventDefault()}
               onMouseEnter={() => { setHighlight(rows.length); setNavigated(true); }}
               onClick={commitSemantic}
             >

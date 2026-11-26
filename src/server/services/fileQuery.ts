@@ -10,6 +10,7 @@ import {
   buildListQuery,
   nextCursorFor,
   PAGE_SIZE,
+  pathUnderSql,
   type FileSummary,
   type ListResult,
   type Sort,
@@ -26,12 +27,8 @@ export const timelineMonthSchema = z.object({
 export function libraryRootsWhere(roots?: string[]): Sql | undefined {
   if (roots === undefined) return undefined;
   if (roots.length === 0) return { text: "1=0", params: [] };
-  return {
-    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (${roots
-      .map(() => "fp.path LIKE ? ESCAPE '\\'")
-      .join(" OR ")}))`,
-    params: roots.map((r) => r.replace(/[\\%_]/g, (c) => "\\" + c) + "/%"),
-  };
+  const parts = roots.map((r) => pathUnderSql(r, { self: false }));
+  return { text: `(${parts.map((p) => p.text).join(" OR ")})`, params: parts.flatMap((p) => p.params) };
 }
 
 /** Files carrying none of `tags` (or any tag beneath them). */
@@ -184,19 +181,7 @@ export function pathPrefixWhere(prefix: string, recursive = false): Sql {
   // folders: by default direct children only — a file belongs to a folder if
   // its path is <prefix>/<name> with no further "/" in <name>. recursive=true
   // matches every descendant path (prefix + "/...")
-  const esc = prefix.replace(/[\\%_]/g, (c) => "\\" + c);
-  if (recursive) {
-    return {
-      text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id
-             AND fp.path LIKE ? ESCAPE '\\')`,
-      params: [esc + "/%"],
-    };
-  }
-  return {
-    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id
-           AND fp.path LIKE ? ESCAPE '\\' AND instr(substr(fp.path, ?), '/') = 0)`,
-    params: [esc + "/%", prefix.length + 2],
-  };
+  return pathUnderSql(prefix, { directOnly: !recursive, self: false });
 }
 
 /** WHERE for a browse source: a folder prefix or a tag (and its descendants). */

@@ -4,6 +4,7 @@ import type { Prisma } from "../../../generated/prisma";
 import { invalidateTagVectors, invalidateAllTagVectors } from "./ml";
 
 import { ancestors, isUnder, normalize } from "refr/lib/tag-names";
+import { matchTier } from "refr/lib/match";
 import { expandImplications, resolveAlias, rewriteRuleTags } from "refr/lib/tag-rules";
 import { getRules, updateRules } from "./tagRules";
 
@@ -279,14 +280,23 @@ async function loadTree(generation: number): Promise<TreeNode[]> {
 
 export type TagSuggestion = TreeNode & { /** the alias source that matched, for `fig → reference/figure` rows */ alias?: string };
 
-/** Fuzzy autocomplete: substring match ordered by count desc. Alias sources
+/** Fuzzy autocomplete: substring match, exact → prefix/segment → mid-word, by
+ *  count within each. Alias sources
  *  matching the term surface their target (exact alias hits first). */
 export async function searchTags(term: string, limit = 20): Promise<TagSuggestion[]> {
   const t = normalize(term);
   const all = await tree();
+  // exact, then prefix/segment-start matches, then mid-word substrings; by count within each
+  // an alias row ranks by whichever of its name / alias matches better
+  const tier = (r: TagSuggestion) =>
+    Math.min(...[r.name, r.alias].filter((n) => n !== undefined).map((n) => {
+      const k = matchTier(n, t);
+      return k < 0 ? 3 : k;
+    }));
+  const byRank = (a: TagSuggestion, b: TagSuggestion) => tier(a) - tier(b) || b.count - a.count;
   const tags: TagSuggestion[] = all
     .filter((x) => x.name.includes(t))
-    .sort((a, b) => b.count - a.count)
+    .sort(byRank)
     .slice(0, limit);
   const aliases = Object.entries(getRules().aliases).filter(([from]) => t && from.includes(t));
   if (aliases.length === 0) return tags;
@@ -297,7 +307,7 @@ export async function searchTags(term: string, limit = 20): Promise<TagSuggestio
     const prev = byTarget.get(name);
     if (!prev || alias === t) byTarget.set(name, { name, count: counts.get(name) ?? 0, alias });
   }
-  const rows = [...tags.filter((x) => !byTarget.has(x.name)), ...byTarget.values()].sort((a, b) => b.count - a.count);
+  const rows = [...tags.filter((x) => !byTarget.has(x.name)), ...byTarget.values()].sort(byRank);
   const exact = rows.filter((r) => r.alias === t);
   return [...exact, ...rows.filter((r) => r.alias !== t)].slice(0, limit);
 }

@@ -90,7 +90,19 @@ export function commitToken(raw: string, suggestion?: string): Token | null {
       exact: mods.includes("="),
     });
   }
-  return parseQuery(raw)[0] ?? null;
+  // typed text is one chip, spaces and all (multi-word tags, `path:My Folder`);
+  // only a quoted semantic chip goes through the string grammar
+  const s = raw.trim();
+  const mods = /^[-~=]*/.exec(s)?.[0] ?? "";
+  const body = s.slice(mods.length).trim();
+  if (!body) return null;
+  if (body.startsWith('"')) return parseQuery(s)[0] ?? null;
+  return makeToken({
+    tag: body,
+    negate: mods.includes("-"),
+    or: mods.includes("~"),
+    exact: mods.includes("="),
+  });
 }
 
 // ---------------------------------------------------------------- SQL
@@ -127,6 +139,25 @@ function existsClause(cond: Sql, negate: boolean): Sql {
   };
 }
 
+/** Files with a FilePath at `dir` itself (unless `self` is false) or beneath it.
+ *  `directOnly` keeps only `dir`'s direct children. Byte-wise comparisons, so
+ *  matching is case-sensitive like the filesystem (LIKE is not, for ASCII) and
+ *  the range can use the FilePath.path index. "0" is the character after "/".
+ *  Client-safe (pure SQL text), shared with fileQuery's folder/library filters. */
+export function pathUnderSql(dir: string, opts: { directOnly?: boolean; self?: boolean } = {}): Sql {
+  const base = dir.length > 1 ? dir.replace(/\/+$/, "") : dir;
+  const lo = base + "/", hi = base + "0";
+  const range = opts.directOnly
+    ? `(fp.path >= ? AND fp.path < ? AND instr(substr(fp.path, length(?) + 1), '/') = 0)`
+    : `(fp.path >= ? AND fp.path < ?)`;
+  const params: unknown[] = opts.directOnly ? [lo, hi, lo] : [lo, hi];
+  const self = opts.self ?? true;
+  return {
+    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (${self ? "fp.path = ? OR " : ""}${range}))`,
+    params: self ? [base, ...params] : params,
+  };
+}
+
 /** `path:<dir>` keyword — files whose FilePath is <dir> or beneath it. Value-
  *  carrying, so handled before the zero-arg KEYWORDS registry. Negatable.
  *  `=path:` matches only the exact path or its direct children. Library aliases
@@ -135,34 +166,25 @@ function pathClause(t: Token): Sql | null {
   if (t.wildcard || !t.tag.startsWith("path:")) return null;
   const p = t.tag.slice(5);
   if (!p) return null;
-  const esc = p.replace(/[\\%_]/g, (c) => "\\" + c);
-  if (t.exact) {
-    return {
-      text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (fp.path = ?
-             OR (fp.path LIKE ? ESCAPE '\\' AND instr(substr(fp.path, ?), '/') = 0)))`,
-      params: [p, esc + "/%", p.length + 2],
-    };
-  }
-  return {
-    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (fp.path = ? OR fp.path LIKE ? ESCAPE '\\'))`,
-    params: [p, esc + "/%"],
-  };
+  return pathUnderSql(p, { directOnly: t.exact });
 }
 
-/** Rewrite `path:<alias>` tokens to their resolved library roots. Run once at
- *  the API boundary so tag-SQL, semantic filtering, and timelines all agree. */
+/** Rewrite `path:<alias>` and `path:<alias>/<sub>` tokens to their resolved
+ *  library roots. Run once at the API boundary so tag-SQL, semantic filtering,
+ *  and timelines all agree. Absolute paths (leading `/`) never match an alias. */
 export function resolvePathAliases(
   tokens: Token[],
   aliases: Record<string, string>,
 ): Token[] {
-  return tokens.map((t) =>
-    t.kind === "tag" && t.tag.startsWith("path:")
-      ? (() => {
-          const root = aliases[t.tag.slice(5).toLowerCase()];
-          return root ? { ...t, tag: "path:" + root } : t;
-        })()
-      : t,
-  );
+  return tokens.map((t) => {
+    if (t.kind !== "tag" || !t.tag.startsWith("path:")) return t;
+    const p = t.tag.slice(5);
+    const slash = p.indexOf("/");
+    const root = aliases[(slash === -1 ? p : p.slice(0, slash)).toLowerCase()];
+    if (!root) return t;
+    const rest = slash === -1 ? "" : p.slice(slash + 1).replace(/\/+$/, "");
+    return { ...t, tag: "path:" + (rest ? `${root}/${rest}` : root) };
+  });
 }
 
 /** Rewrite tag chips (and `suggest:<tag>`) through the tag-rule aliases so a
