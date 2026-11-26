@@ -6,7 +6,7 @@ import { DuplicateReview } from "./duplicate-review";
 export default function DuplicatesPage() {
   const params = useSearchParams();
   return (
-    <main className="flex min-w-0 flex-1 flex-col">
+    <main className="flex min-h-0 min-w-0 flex-1 flex-col">
       <header className="page-header">
         <div>
           <h1>Duplicates</h1>
