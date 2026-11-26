@@ -5,16 +5,16 @@ import { EventEmitter } from "node:events";
 import { z } from "zod";
 import YAML from "yaml";
 import { THEMES, ACCENTS, DENSITIES, LEGACY_THEME_MAP } from "refr/lib/themes";
+import { normalize } from "refr/lib/tag-names";
+import { resolveAliasedPath } from "refr/lib/timeline";
 import { initDataDir, paths } from "./dataDir";
 
 export { THEMES, ACCENTS, DENSITIES };
 
-/** A read-only library root. `alias` names it for `path:<alias>` searching;
- *  `timeline` toggles whether it appears in the unfiltered main timeline. */
+/** A read-only library root. `alias` names it for `path:<alias>` searching. */
 export const librarySchema = z.object({
   path: z.string(),
   alias: z.string().optional(),
-  timeline: z.boolean().default(true),
 });
 export type Library = z.infer<typeof librarySchema>;
 
@@ -35,8 +35,8 @@ const configObject = z.object({
     .transform((libs) =>
       libs.map((l) =>
         typeof l === "string"
-          ? { path: l, timeline: true }
-          : { path: l.path, alias: l.alias, timeline: l.timeline },
+          ? { path: l }
+          : { path: l.path, alias: l.alias },
       ),
     ),
   scanTime: z
@@ -47,6 +47,17 @@ const configObject = z.object({
   defaultThumbnailSize: z.enum(["small", "medium", "large"]).default("medium"),
   skipTagRemoveConfirm: z.boolean().default(false),
   sendToPaths: sendToPathsSchema.default([]),
+  /** Kept out of the unfiltered main timeline (still indexed and searchable).
+   *  `paths`: absolute folders, or `<alias>` / `<alias>/<sub>` of a library.
+   *  `tags`: files carrying one of these (or a tag beneath it). */
+  timelineExclude: z
+    .object({
+      paths: z.array(z.string()).default([]).transform((ps) => [
+        ...new Set(ps.map((p) => p.trim()).map((p) => (p.length > 1 ? p.replace(/\/+$/, "") : p)).filter(Boolean)),
+      ]),
+      tags: z.array(z.string()).default([]).transform((ts) => [...new Set(ts.map(normalize).filter(Boolean))].sort()),
+    })
+    .default({}),
   sessionHistoryCap: z.number().int().min(1).default(1000),
   theme: z.enum(THEMES).default("obsidian"),
   accent: z.enum(ACCENTS).default("blue"),
@@ -95,7 +106,33 @@ function migrateMl(raw: unknown): unknown {
   return { ...obj, ml: { tagModel: "auto", ...rest } };
 }
 
-const configSchema = z.preprocess((raw) => migrateMl(migrateTheme(raw)), configObject);
+/** Libraries used to carry `timeline: false`; those become `timelineExclude.paths`
+ *  entries (by alias when they have one, so the entry follows a moved library). */
+function migrateTimeline(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) return raw;
+  const obj = raw as Record<string, unknown>;
+  if (!Array.isArray(obj.libraries)) return raw;
+  const libraries = obj.libraries as unknown[];
+  const hidden = libraries.filter(
+    (l): l is { path: string; alias?: string } =>
+      typeof l === "object" && l !== null && (l as { timeline?: unknown }).timeline === false && typeof (l as { path?: unknown }).path === "string",
+  );
+  if (hidden.length === 0) return raw;
+  const prev = (typeof obj.timelineExclude === "object" && obj.timelineExclude !== null ? obj.timelineExclude : {}) as Record<string, unknown>;
+  const prevPaths = Array.isArray(prev.paths) ? (prev.paths as unknown[]) : [];
+  return {
+    ...obj,
+    libraries: libraries.map((l) => {
+      if (typeof l !== "object" || l === null) return l;
+      const rest = { ...(l as Record<string, unknown>) };
+      delete rest.timeline;
+      return rest;
+    }),
+    timelineExclude: { ...prev, paths: [...prevPaths, ...hidden.map((l) => (l.alias?.trim() ? l.alias.trim() : l.path))] },
+  };
+}
+
+const configSchema = z.preprocess((raw) => migrateTimeline(migrateMl(migrateTheme(raw))), configObject);
 
 export type Config = z.infer<typeof configSchema>;
 
@@ -147,12 +184,22 @@ export function libraryRoots(): string[] {
   return get().libraries.map((l) => path.resolve(l.path));
 }
 
-/** Roots feeding the main timeline. `undefined` = no libraries configured
- *  (unconstrained), `[]` = libraries configured but all excluded. */
-export function timelineRoots(): string[] | undefined {
-  const libs = get().libraries;
-  if (libs.length === 0) return undefined;
-  return libs.filter((l) => l.timeline !== false).map((l) => path.resolve(l.path));
+/** Excluded timeline folders as real paths. Alias entries whose library is gone
+ *  (or relative paths that name no alias) are skipped. */
+export function timelineExcludedPaths(): string[] {
+  const aliases = libraryAliases();
+  return get().timelineExclude.paths.flatMap((p) => {
+    if (p.startsWith("/")) return [path.resolve(p)];
+    const resolved = resolveAliasedPath(p, aliases);
+    return resolved === null ? [] : [resolved];
+  });
+}
+
+/** Follow a tag rename/merge in `timelineExclude.tags`. */
+export function rewriteTimelineExcludedTags(map: (name: string) => string) {
+  const { tags } = get().timelineExclude;
+  const next = tags.map(map);
+  if (next.some((t, i) => t !== tags[i])) patch({ timelineExclude: { tags: next } });
 }
 
 function write(cfg: Config) {

@@ -4,8 +4,10 @@ import { db } from "refr/server/db";
 import type { TimelineBucket } from "refr/lib/timeline";
 import * as config from "./config";
 import { getRules } from "./tagRules";
+import { resolveAlias } from "refr/lib/tag-rules";
 import {
   escapeLike,
+  fpUnderSql,
   SUMMARY_COLS,
   buildListQuery,
   nextCursorFor,
@@ -42,13 +44,32 @@ export function withoutTagsWhere(tags: string[]): Sql | undefined {
   };
 }
 
-/** The unfiltered main timeline: timeline-enabled libraries, minus files with
- *  a timeline-hidden tag (Tagging → Rules). undefined = unrestricted. */
+/** The unfiltered main timeline (Settings → Timeline): files with a path inside
+ *  a library and outside every excluded folder, carrying no excluded tag.
+ *  Tag-rule aliases apply to excluded tags. undefined = unrestricted. */
 export function mainTimelineWhere(): Sql | undefined {
-  const parts = [libraryRootsWhere(config.timelineRoots()), withoutTagsWhere(getRules().timelineHidden)]
-    .filter((p): p is Sql => p !== undefined);
+  const roots = config.libraryRoots();
+  const excluded = config.timelineExcludedPaths();
+  const rules = getRules();
+  const tags = [...new Set(config.get().timelineExclude.tags.map((t) => resolveAlias(rules, t)))];
+  const parts: Sql[] = [];
+  if (roots.length > 0 || excluded.length > 0) {
+    // one FilePath must satisfy both, so a copy outside the excluded folders keeps the file
+    const inside = roots.length > 0 ? orSql(roots.map((r) => fpUnderSql(r, { self: false }))) : { text: "1=1", params: [] };
+    const outside = excluded.length > 0 ? orSql(excluded.map((p) => fpUnderSql(p))) : { text: "0=1", params: [] };
+    parts.push({
+      text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND ${inside.text} AND NOT ${outside.text})`,
+      params: [...inside.params, ...outside.params],
+    });
+  }
+  const noTags = withoutTagsWhere(tags);
+  if (noTags) parts.push(noTags);
   if (parts.length === 0) return undefined;
   return { text: parts.map((p) => `(${p.text})`).join(" AND "), params: parts.flatMap((p) => p.params) };
+}
+
+function orSql(parts: Sql[]): Sql {
+  return { text: `(${parts.map((p) => p.text).join(" OR ")})`, params: parts.flatMap((p) => p.params) };
 }
 
 /** Is there any row (matching `where`) newer than (mtime,id)? Drives

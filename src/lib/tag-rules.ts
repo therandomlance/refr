@@ -8,16 +8,15 @@ import { ancestors, isUnder, normalize } from "./tag-names";
  * - alias `from → to`: typing/searching `from` (or `from/...`) means `to` (or `to/...`).
  * - implication `tag ⇒ [implied]`: adding `tag` (or any descendant) also adds
  *   `implied`, transitively.
- * - timeline-hidden `tag`: files carrying `tag` (or any descendant) stay out of
- *   the unfiltered main timeline, like a library with `timeline: false`.
+ *
+ * Tags hidden from the main timeline live in config (`timelineExclude`), not here.
  */
 export type TagRules = {
   aliases: Record<string, string>;
   implications: Record<string, string[]>;
-  timelineHidden: string[];
 };
 
-export const EMPTY_RULES: TagRules = { aliases: {}, implications: {}, timelineHidden: [] };
+export const EMPTY_RULES: TagRules = { aliases: {}, implications: {} };
 
 /** Rewrite `name` through the alias whose source is the longest prefix of it. One hop. */
 export function resolveAlias(rules: TagRules, name: string): string {
@@ -50,7 +49,7 @@ export function expandImplications(rules: TagRules, names: string[]): string[] {
 }
 
 /** Normalize names, drop empty/self/duplicate entries. Never throws. */
-export function sanitizeRules(rules: Omit<TagRules, "timelineHidden"> & { timelineHidden?: string[] }): TagRules {
+export function sanitizeRules(rules: TagRules): TagRules {
   const aliases: Record<string, string> = {};
   for (const [f, t] of Object.entries(rules.aliases)) {
     const from = normalize(f);
@@ -66,10 +65,7 @@ export function sanitizeRules(rules: Omit<TagRules, "timelineHidden"> & { timeli
       .sort();
     if (list.length) implications[key] = list;
   }
-  const hidden = new Set((rules.timelineHidden ?? []).map(normalize).filter(Boolean));
-  // a tag beneath another hidden tag is already covered
-  const timelineHidden = [...hidden].filter((t) => ![...hidden].some((h) => h !== t && isUnder(t, h))).sort();
-  return { aliases, implications, timelineHidden };
+  return { aliases, implications };
 }
 
 /** Problems that make a rule set ambiguous or loop. Empty = valid. Expects sanitized rules. */
@@ -88,9 +84,6 @@ export function validateRules(rules: TagRules): string[] {
     }
     if (reachesUnder(rules, implied, tag)) errors.push(`Implications starting at "${tag}" loop back to it.`);
   }
-  for (const tag of rules.timelineHidden) {
-    if (resolveAlias(rules, tag) !== tag) errors.push(`"${tag}" is an alias; hide "${resolveAlias(rules, tag)}" from the timeline instead.`);
-  }
   return [...new Set(errors)];
 }
 
@@ -108,7 +101,7 @@ function reachesUnder(rules: TagRules, start: string[], root: string): boolean {
   return false;
 }
 
-/** Rewrite every tag reference (alias targets, implication keys and values, timeline-hidden tags).
+/** Rewrite every tag reference (alias targets, implication keys and values).
  *  `map` returns the new name, or the input unchanged. Alias *sources* are
  *  typed shorthands, not tags, so they're left alone. */
 export function rewriteRuleTags(rules: TagRules, map: (name: string) => string): TagRules {
@@ -118,5 +111,5 @@ export function rewriteRuleTags(rules: TagRules, map: (name: string) => string):
     const key = map(k);
     implications[key] = [...(implications[key] ?? []), ...vs.map(map)];
   }
-  return sanitizeRules({ aliases, implications, timelineHidden: rules.timelineHidden.map(map) });
+  return sanitizeRules({ aliases, implications });
 }

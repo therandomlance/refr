@@ -7,6 +7,7 @@ import { ancestors, isUnder, normalize } from "refr/lib/tag-names";
 import { matchTier } from "refr/lib/match";
 import { expandImplications, resolveAlias, rewriteRuleTags } from "refr/lib/tag-rules";
 import { getRules, updateRules } from "./tagRules";
+import * as config from "./config";
 
 export { ancestors, normalize };
 
@@ -194,7 +195,9 @@ export async function rename(oldName: string, newName: string) {
     }
     await rewriteDenials(tx, { exact: [from], prefix: from }, (name) => to + name.slice(from.length));
   });
-  updateRules((rules) => rewriteRuleTags(rules, (name) => (isUnder(name, from) ? to + name.slice(from.length) : name)));
+  const renameTag = (name: string) => (isUnder(name, from) ? to + name.slice(from.length) : name);
+  updateRules((rules) => rewriteRuleTags(rules, renameTag));
+  config.rewriteTimelineExcludedTags(renameTag);
   invalidateTreeCache();
   await invalidateAllTagVectors();
 }
@@ -223,7 +226,9 @@ export async function merge(sources: string[], target: string) {
     }
   });
   const merged = new Set(srcNames);
-  updateRules((rules) => rewriteRuleTags(rules, (name) => (merged.has(name) ? to : name)));
+  const mergeTag = (name: string) => (merged.has(name) ? to : name);
+  updateRules((rules) => rewriteRuleTags(rules, mergeTag));
+  config.rewriteTimelineExcludedTags(mergeTag);
   invalidateTreeCache();
   await invalidateAllTagVectors();
 }

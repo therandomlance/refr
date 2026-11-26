@@ -22,9 +22,9 @@ export const settingsRouter = createTRPCRouter({
             z.object({
               path: z.string(),
               alias: z.string().optional(),
-              timeline: z.boolean().optional(),
             }),
           ),
+          timelineExclude: z.object({ paths: z.array(z.string()), tags: z.array(z.string()) }).partial(),
           scanTime: z.string().regex(/^\d{2}:\d{2}$/).nullable(),
           defaultThumbnailSize: z.enum(["small", "medium", "large"]),
           skipTagRemoveConfirm: z.boolean(),

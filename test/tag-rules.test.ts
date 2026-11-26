@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it, onTestFinished } from "vitest";
 import { db } from "refr/server/db";
 import { paths } from "refr/server/services/dataDir";
-import { getRules, saveRules, TagRulesInvalid } from "refr/server/services/tagRules";
+import { getRules, migrateTimelineHidden, saveRules, TagRulesInvalid } from "refr/server/services/tagRules";
 import { applyRulesToExisting, merge, rename, searchTags, setTags } from "refr/server/services/tags";
 import { makeToken, resolveTagAliases } from "refr/server/services/search";
 import { searchRouter } from "refr/server/api/routers/search";
@@ -20,7 +20,7 @@ async function tagsOf(fileId: string): Promise<string[]> {
   return rows.map((r) => r.tag.name).sort();
 }
 
-const rules = (r: Partial<TagRules>): TagRules => sanitizeRules({ aliases: {}, implications: {}, timelineHidden: [], ...r });
+const rules = (r: Partial<TagRules>): TagRules => sanitizeRules({ aliases: {}, implications: {}, ...r });
 
 describe("tag rules (pure)", () => {
   it("resolves aliases by longest prefix, one hop", () => {
@@ -43,12 +43,6 @@ describe("tag rules (pure)", () => {
     expect(validateRules(rules({ aliases: { x: "x/y" } }))).not.toEqual([]);
     expect(validateRules(rules({ implications: { "a/b": ["a"] } }))).not.toEqual([]);
     expect(validateRules(rules({ aliases: { fig: "reference/figure" }, implications: { a: ["b"] } }))).toEqual([]);
-  });
-
-  it("normalizes timeline-hidden tags and rejects aliases", () => {
-    expect(rules({ timelineHidden: ["NSFW", "nsfw/gore", "wip", "wip"] }).timelineHidden).toEqual(["nsfw", "wip"]);
-    expect(validateRules(rules({ aliases: { x: "y" }, timelineHidden: ["x"] }))).not.toEqual([]);
-    expect(validateRules(rules({ aliases: { x: "y" }, timelineHidden: ["y"] }))).toEqual([]);
   });
 
   it("rewrites alias chips in search tokens, leaving keywords and wildcards", () => {
@@ -119,12 +113,12 @@ describe("tag rules (applied)", () => {
     expect(await applyRulesToExisting()).toEqual({ renamedTags: 0, changedFiles: 0 });
   });
 
-  it("timeline-hidden tags leave the main timeline but stay searchable", async () => {
+  it("excluded tags leave the main timeline, follow aliases and renames, stay searchable", async () => {
     clearRules();
     // fixtures have no library paths: test only the tag half of the timeline filter
     const previous = config.get().libraries;
     config.patch({ libraries: [] });
-    onTestFinished(() => { config.patch({ libraries: previous }); });
+    onTestFinished(() => { config.patch({ libraries: previous, timelineExclude: { tags: [] } }); });
     await setTags(["tr1"], ["trhide/sub"], []);
     const onTimeline = async () => {
       const where = mainTimelineWhere();
@@ -135,12 +129,30 @@ describe("tag rules (applied)", () => {
       return rows.map((r) => r.id);
     };
     expect(await onTimeline()).toContain("tr1");
-    saveRules(rules({ timelineHidden: ["trhide"] }));
+    config.patch({ timelineExclude: { tags: ["TRHIDE", "trhide"] } });
+    expect(config.get().timelineExclude.tags).toEqual(["trhide"]);
     expect(await onTimeline()).toEqual(IDS.filter((id) => id !== "tr1"));
     const search = searchRouter.createCaller({ db, authed: true, headers: new Headers() });
     expect((await search.query({ tokens: [makeToken({ tag: "trhide" })] })).items.map((i) => i.id)).toEqual(["tr1"]);
     await rename("trhide", "trhidden");
-    expect(getRules().timelineHidden).toEqual(["trhidden"]);
+    expect(config.get().timelineExclude.tags).toEqual(["trhidden"]);
     expect(await onTimeline()).not.toContain("tr1");
+    // an excluded shorthand means its alias target
+    config.patch({ timelineExclude: { tags: ["trsh"] } });
+    expect(await onTimeline()).toContain("tr1");
+    saveRules(rules({ aliases: { trsh: "trhidden" } }));
+    expect(await onTimeline()).not.toContain("tr1");
+    clearRules();
+  });
+
+  it("moves legacy timelineHidden tags from tag-rules.json into config", () => {
+    onTestFinished(() => { clearRules(); config.patch({ timelineExclude: { tags: [] } }); });
+    config.patch({ timelineExclude: { tags: ["trkeep"] } });
+    fs.writeFileSync(paths.tagRules, JSON.stringify({ aliases: { trx: "try" }, implications: {}, timelineHidden: ["TRold"] }));
+    migrateTimelineHidden();
+    expect(config.get().timelineExclude.tags).toEqual(["trkeep", "trold"]);
+    expect(JSON.parse(fs.readFileSync(paths.tagRules, "utf8"))).toEqual({ aliases: { trx: "try" }, implications: {} });
+    migrateTimelineHidden(); // idempotent
+    expect(config.get().timelineExclude.tags).toEqual(["trkeep", "trold"]);
   });
 });

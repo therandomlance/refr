@@ -1,14 +1,17 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
 import { THEMES, ACCENTS, DENSITIES, type Theme, type Accent, type Density } from "refr/lib/themes";
 import { Icon } from "refr/app/_components/icon";
 import { Hint } from "refr/app/_components/hint";
+import { TagInput } from "refr/app/_components/tag-input";
+import { normalize } from "refr/lib/tag-names";
 
 const SECTIONS = [
   ["libraries", "Libraries"],
+  ["timeline", "Timeline"],
   ["workspace", "Workspace"],
   ["services", "Services & security"],
   ["backup", "Backup"],
@@ -28,7 +31,14 @@ export default function SettingsPage() {
   const settings = api.settings.get.useQuery();
   const utils = api.useUtils();
   const patch = api.settings.patch.useMutation({
-    onSuccess: () => void utils.settings.get.invalidate(),
+    onSuccess: (_data, input) => {
+      void utils.settings.get.invalidate();
+      // libraries and exclusions decide what the main timeline shows
+      if (input.timelineExclude || input.libraries) {
+        void utils.files.invalidate();
+        void utils.search.invalidate();
+      }
+    },
   });
 
   // Scroll the page's own scroller instead of using native #hash jumps: those scroll
@@ -75,6 +85,14 @@ export default function SettingsPage() {
         <Section title="Background activity">
           <BackgroundStatus />
         </Section>
+        </div>
+
+        <div className="settings-group" id="timeline"><h2>Timeline</h2>
+        <TimelineExclusions
+          value={s.timelineExclude}
+          aliases={s.libraries.flatMap((l) => (l.alias ? [l.alias.toLowerCase()] : []))}
+          onChange={(timelineExclude) => save({ timelineExclude })}
+        />
         </div>
 
         <div className="settings-group" id="workspace"><h2>Workspace</h2>
@@ -293,11 +311,11 @@ function LibraryList({
   values,
   onChange,
 }: {
-  values: { path: string; alias?: string; timeline: boolean }[];
-  onChange: (v: { path: string; alias?: string; timeline: boolean }[]) => void;
+  values: { path: string; alias?: string }[];
+  onChange: (v: { path: string; alias?: string }[]) => void;
 }) {
   const [draft, setDraft] = useState("");
-  const update = (i: number, patch: Partial<{ path: string; alias?: string; timeline: boolean }>) =>
+  const update = (i: number, patch: Partial<{ path: string; alias?: string }>) =>
     onChange(values.map((v, j) => (j === i ? { ...v, ...patch } : v)));
   return (
     <div className="flex flex-col gap-2">
@@ -315,10 +333,6 @@ function LibraryList({
               if (next !== v.alias) update(i, { alias: next });
             }}
           />
-          <label className="flex items-center gap-1 text-xs text-fg-muted" title="Include in the main timeline. Unchecked libraries stay searchable.">
-            <input type="checkbox" checked={v.timeline} onChange={(e) => update(i, { timeline: e.target.checked })} />
-            Timeline
-          </label>
           <button className="btn" aria-label={`Remove library ${v.path}`} onClick={() => onChange(values.filter((_, j) => j !== i))}><Icon name="close" /></button>
         </div>
       ))}
@@ -326,13 +340,107 @@ function LibraryList({
         className="flex gap-2"
         onSubmit={(e) => {
           e.preventDefault();
-          if (draft.trim()) { onChange([...values, { path: draft.trim(), timeline: true }]); setDraft(""); }
+          if (draft.trim()) { onChange([...values, { path: draft.trim() }]); setDraft(""); }
         }}
       >
         <input className="input flex-1" placeholder="/absolute/path" value={draft} onChange={(e) => setDraft(e.target.value)} />
         <button className="btn" type="submit">Add library path</button>
       </form>
     </div>
+  );
+}
+
+type TimelineExclude = { paths: string[]; tags: string[] };
+
+/** Folders and tags kept out of the unfiltered main timeline. Files stay indexed
+ *  and turn up in search, tag and folder views. */
+function TimelineExclusions({
+  value,
+  aliases,
+  onChange,
+}: {
+  value: TimelineExclude;
+  /** lowercased library aliases, to flag entries whose library is gone */
+  aliases: string[];
+  onChange: (v: TimelineExclude) => void;
+}) {
+  const [draft, setDraft] = useState("");
+  const [typed, setTyped] = useState("");
+  useEffect(() => {
+    const t = setTimeout(() => setTyped(draft.trim()), 150);
+    return () => clearTimeout(t);
+  }, [draft]);
+  const completions = api.files.pathComplete.useQuery({ typed }, { enabled: draft.length > 0 });
+  const listId = useId();
+  const unresolved = (p: string) => !p.startsWith("/") && !aliases.includes(p.split("/")[0]!.toLowerCase());
+  const addPath = () => {
+    const p = draft.trim().replace(/^path:/, "");
+    if (p && !value.paths.includes(p)) onChange({ ...value, paths: [...value.paths, p] });
+    setDraft("");
+  };
+
+  return (
+    <>
+      <Section title="Excluded folders" hint="A whole library (its alias or root path) or any folder inside one. A file stays on the timeline if it also has a copy outside every excluded folder.">
+        <div className="flex flex-col gap-2">
+          {value.paths.length > 0 && (
+            <ul className="flex flex-col gap-1">
+              {value.paths.map((p) => (
+                <li key={p} className="flex items-center gap-2">
+                  <code className="min-w-40 flex-1 overflow-hidden text-ellipsis rounded px-2 py-1 text-xs bg-fill">{p}</code>
+                  {unresolved(p) && <span className="text-xs text-danger" title="No library has this alias, so nothing is excluded">No such library</span>}
+                  <button className="btn" aria-label={`Show ${p} in the timeline again`} onClick={() => onChange({ ...value, paths: value.paths.filter((x) => x !== p) })}>
+                    <Icon name="close" />
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); addPath(); }}>
+            <input
+              className="input flex-1"
+              aria-label="Folder to exclude from the timeline"
+              placeholder="alias, alias/folder or /absolute/path"
+              list={listId}
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+            />
+            <datalist id={listId}>
+              {(completions.data ?? []).map((r) => <option key={r.name} value={r.name} />)}
+            </datalist>
+            <button className="btn" type="submit">Exclude folder</button>
+          </form>
+        </div>
+      </Section>
+
+      <Section title="Excluded tags" hint="Files carrying one of these tags, or a tag beneath it, stay off the timeline. Tag aliases are followed.">
+        <div className="flex flex-col gap-2">
+          <div className="max-w-sm">
+            <TagInput
+              placeholder="Exclude tag…"
+              onCommit={(raw, suggestion) => {
+                const t = normalize(suggestion ?? raw);
+                if (t && !value.tags.includes(t)) onChange({ ...value, tags: [...value.tags, t] });
+              }}
+            />
+          </div>
+          {value.tags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {value.tags.map((t) => (
+                <span key={t} className="chip">
+                  {t}
+                  <button className="x" aria-label={`Show ${t} in the timeline again`} onClick={() => onChange({ ...value, tags: value.tags.filter((x) => x !== t) })}>
+                    <Icon name="close" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          ) : (
+            <p className="text-xs text-fg-subtle">No excluded tags.</p>
+          )}
+        </div>
+      </Section>
+    </>
   );
 }
 

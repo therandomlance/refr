@@ -15,16 +15,17 @@ it("indexes excluded libraries without showing them in the main timeline", async
   const visible = path.join(root, "visible_%");
   const hidden = path.join(root, "hidden");
   const previous = config.get().libraries;
+  const previousExclude = config.get().timelineExclude;
   const search = searchRouter.createCaller({ db, authed: true, headers: new Headers() });
   const files = filesRouter.createCaller({ db, authed: true, headers: new Headers() });
   const ids: string[] = [];
   try {
     fs.mkdirSync(visible);
     fs.mkdirSync(hidden);
-    config.patch({ libraries: [
-      { path: visible, timeline: true },
-      { path: hidden, alias: "hidden", timeline: false },
-    ] });
+    config.patch({
+      libraries: [{ path: visible }, { path: hidden, alias: "hidden" }],
+      timelineExclude: { paths: ["hidden"] },
+    });
     for (const [index, library] of [visible, visible, hidden].entries()) {
       const content = `${root}-${index}`;
       const file = path.join(library, `${index}.jpg`);
@@ -60,14 +61,44 @@ it("indexes excluded libraries without showing them in the main timeline", async
     expect((await files.list({ pathPrefix: hidden, month: { year: 2022, month: 1 } })).items.map((f) => f.id)).toEqual([ids[2]]);
     await expect(files.list({ month: { year: 2024, month: 13 } })).rejects.toThrow();
 
-    config.patch({ libraries: [{ path: hidden, alias: "hidden", timeline: false }] });
+    config.patch({ libraries: [{ path: hidden, alias: "hidden" }] });
     expect((await search.query({ tokens: [] })).items).toEqual([]);
     expect((await files.list({})).items).toEqual([]);
     expect(await search.timeline({ tokens: [] })).toEqual([]);
     expect((await search.query({ tokens })).items.map((f) => f.id)).toEqual([ids[2]]);
+
+    // a folder inside a library, by absolute path or alias/sub; an alias with no library excludes nothing
+    const sub = path.join(hidden, "sub");
+    fs.mkdirSync(sub);
+    const content = `${root}-sub`;
+    fs.writeFileSync(path.join(sub, "s.jpg"), content);
+    ids.push(crypto.createHash("sha256").update(content).digest("hex"));
+    await scanNow();
+    const mainIds = async () => (await files.list({})).items.map((f) => f.id).sort();
+    config.patch({ libraries: [{ path: visible }, { path: hidden, alias: "hidden" }], timelineExclude: { paths: ["hidden/sub/", "nope"] } });
+    expect(config.get().timelineExclude.paths).toEqual(["hidden/sub", "nope"]);
+    expect(await mainIds()).toEqual([ids[0], ids[1], ids[2]].sort());
+    config.patch({ timelineExclude: { paths: [sub, visible] } });
+    expect(await mainIds()).toEqual([ids[2]]);
   } finally {
-    config.patch({ libraries: previous });
+    config.patch({ libraries: previous, timelineExclude: previousExclude });
     await db.file.deleteMany({ where: { id: { in: ids } } });
     fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it("migrates libraries with timeline: false into excluded paths", () => {
+  const previous = config.get();
+  try {
+    config.patch({
+      libraries: [{ path: "/lib-a", timeline: false }, { path: "/lib-b", alias: "b", timeline: false }, { path: "/lib-c", timeline: true }],
+      timelineExclude: { paths: ["/elsewhere"] },
+    });
+    const cfg = config.get();
+    expect(cfg.libraries).toEqual([{ path: "/lib-a" }, { path: "/lib-b", alias: "b" }, { path: "/lib-c" }]);
+    expect(cfg.timelineExclude.paths).toEqual(["/elsewhere", "/lib-a", "b"]);
+    expect(config.timelineExcludedPaths()).toEqual(["/elsewhere", "/lib-a", "/lib-b"]);
+  } finally {
+    config.patch({ libraries: previous.libraries, timelineExclude: previous.timelineExclude });
   }
 });

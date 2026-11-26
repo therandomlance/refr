@@ -10,11 +10,11 @@ import { useActionFeedback } from "refr/app/_components/action-feedback";
 import { normalize } from "refr/lib/tag-names";
 import { EMPTY_RULES, sanitizeRules, validateRules, type TagRules } from "refr/lib/tag-rules";
 
-type Section = "aliases" | "implications" | "timeline";
+type Section = "aliases" | "implications";
 
 /**
  * Tagging → Rules: tag aliases (`fig → reference/figure`) and implications
- * (`artist/x ⇒ medium/digital`), plus tags hidden from the main timeline. Each section adds a rule from one "A → B"
+ * (`artist/x ⇒ medium/digital`). Each section adds a rule from one "A → B"
  * form; edits are validated with the same pure functions the server uses,
  * then saved straight to data/tag-rules.json. Removals offer undo.
  */
@@ -26,7 +26,7 @@ export function TagRulesEditor() {
     meta: { customFeedback: true },
     onSuccess: (rules) => {
       utils.tagRules.get.setData(undefined, rules);
-      // timeline-hidden tags change what the main timeline shows
+      // aliases also apply to timeline-excluded tags
       void utils.files.invalidate();
       void utils.search.invalidate();
     },
@@ -217,51 +217,6 @@ export function TagRulesEditor() {
             </ul>
           ) : (
             <p className="text-xs text-fg-subtle">No implications yet.</p>
-          )}
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <h2 className="text-[15px] font-semibold">
-            Hidden from timeline
-            <Hint text="Works like turning off a library's timeline: the files are still indexed and turn up in search, tag and folder views. Tags beneath a hidden tag are hidden too." />
-          </h2>
-          <div className="flex flex-col gap-2">
-            <div className="max-w-sm">
-              <TagInput
-                placeholder="Hide tag…"
-                onCommit={(raw, suggestion) => {
-                  const t = normalize(suggestion ?? raw);
-                  if (t && !rules.timelineHidden.includes(t)) commit({ ...rules, timelineHidden: [...rules.timelineHidden, t] }, "timeline");
-                }}
-              />
-            </div>
-            {problems?.section === "timeline" && (
-              <div role="alert" className="text-xs text-danger">
-                {problems.list.map((p) => <p key={p}>{p}</p>)}
-              </div>
-            )}
-          </div>
-          {rules.timelineHidden.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {rules.timelineHidden.map((t) => (
-                <span key={t} className="chip">
-                  {t}
-                  <button
-                    className="x"
-                    aria-label={`Show ${t} in the timeline again`}
-                    onClick={() => remove(
-                      { ...rules, timelineHidden: rules.timelineHidden.filter((x) => x !== t) },
-                      "timeline",
-                      `${t} shows in the timeline again.`,
-                    )}
-                  >
-                    <Icon name="close" />
-                  </button>
-                </span>
-              ))}
-            </div>
-          ) : (
-            <p className="text-xs text-fg-subtle">No hidden tags.</p>
           )}
         </section>
 

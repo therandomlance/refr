@@ -4,6 +4,7 @@ import { z } from "zod";
 import { EMPTY_RULES, sanitizeRules, validateRules, type TagRules } from "refr/lib/tag-rules";
 import { paths } from "./dataDir";
 import { readJson, writeJson } from "./jsonStore";
+import * as config from "./config";
 
 /** Storage for tag aliases + implications (`data/tag-rules.json`). Applying
  *  them lives in tags.ts; the pure logic in src/lib/tag-rules.ts. */
@@ -11,8 +12,19 @@ import { readJson, writeJson } from "./jsonStore";
 const rulesSchema = z.object({
   aliases: z.record(z.string(), z.string()).default({}),
   implications: z.record(z.string(), z.array(z.string())).default({}),
-  timelineHidden: z.array(z.string()).default([]),
 });
+
+/** Tag rules once held `timelineHidden`; move those tags into config's
+ *  `timelineExclude.tags` (Settings → Timeline) and drop the field. Run at boot. */
+export function migrateTimelineHidden() {
+  const legacy = readJson(paths.tagRules, z.object({ timelineHidden: z.array(z.string()).optional() }));
+  if (!legacy?.timelineHidden) return;
+  if (legacy.timelineHidden.length > 0) {
+    const { tags } = config.get().timelineExclude;
+    config.patch({ timelineExclude: { tags: [...tags, ...legacy.timelineHidden] } });
+  }
+  write(getRules());
+}
 
 export class TagRulesInvalid extends Error {
   constructor(readonly problems: string[]) {

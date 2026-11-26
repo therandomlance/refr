@@ -2,6 +2,7 @@ import { z } from "zod";
 import { DUPLICATE_KEYWORD, parseValueKeyword, type KEYWORD_NAMES } from "refr/lib/keywords";
 import { normalize } from "refr/lib/tag-names";
 import { resolveAlias, type TagRules } from "refr/lib/tag-rules";
+import { resolveAliasedPath } from "refr/lib/timeline";
 
 /**
  * §9.1 token model + §9.2 grammar + §9.3 SQL translation.
@@ -145,6 +146,12 @@ function existsClause(cond: Sql, negate: boolean): Sql {
  *  the range can use the FilePath.path index. "0" is the character after "/".
  *  Client-safe (pure SQL text), shared with fileQuery's folder/library filters. */
 export function pathUnderSql(dir: string, opts: { directOnly?: boolean; self?: boolean } = {}): Sql {
+  const cond = fpUnderSql(dir, opts);
+  return { text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND ${cond.text})`, params: cond.params };
+}
+
+/** The per-row condition behind `pathUnderSql`: FilePath `fp` is at/under `dir`. */
+export function fpUnderSql(dir: string, opts: { directOnly?: boolean; self?: boolean } = {}): Sql {
   const base = dir.length > 1 ? dir.replace(/\/+$/, "") : dir;
   const lo = base + "/", hi = base + "0";
   const range = opts.directOnly
@@ -153,7 +160,7 @@ export function pathUnderSql(dir: string, opts: { directOnly?: boolean; self?: b
   const params: unknown[] = opts.directOnly ? [lo, hi, lo] : [lo, hi];
   const self = opts.self ?? true;
   return {
-    text: `EXISTS (SELECT 1 FROM FilePath fp WHERE fp.fileId = f.id AND (${self ? "fp.path = ? OR " : ""}${range}))`,
+    text: `(${self ? "fp.path = ? OR " : ""}${range})`,
     params: self ? [base, ...params] : params,
   };
 }
@@ -178,14 +185,11 @@ export function resolvePathAliases(
 ): Token[] {
   return tokens.map((t) => {
     if (t.kind !== "tag" || !t.tag.startsWith("path:")) return t;
-    const p = t.tag.slice(5);
-    const slash = p.indexOf("/");
-    const root = aliases[(slash === -1 ? p : p.slice(0, slash)).toLowerCase()];
-    if (!root) return t;
-    const rest = slash === -1 ? "" : p.slice(slash + 1).replace(/\/+$/, "");
-    return { ...t, tag: "path:" + (rest ? `${root}/${rest}` : root) };
+    const resolved = resolveAliasedPath(t.tag.slice(5), aliases);
+    return resolved === null ? t : { ...t, tag: "path:" + resolved };
   });
 }
+
 
 /** Rewrite tag chips (and `suggest:<tag>`) through the tag-rule aliases so a
  *  shorthand searches its target. Keywords, paths and wildcards are left alone. */

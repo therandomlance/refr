@@ -7,7 +7,6 @@ import { applyRulesToExisting } from "refr/server/services/tags";
 const rulesInput = z.object({
   aliases: z.record(z.string(), z.string()),
   implications: z.record(z.string(), z.array(z.string())),
-  timelineHidden: z.array(z.string()).default([]),
 });
 
 /** Tag aliases + implications (data/tag-rules.json), edited on Tagging → Rules. */

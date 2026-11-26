@@ -74,7 +74,9 @@ passwordHash: null          # null = no login (trusted network); set a password 
 libraries:
   - path: /mnt/art/
     alias: art              # lets you search path:art
-    timeline: true          # include in the main timeline
+timelineExclude:            # kept off the main timeline (still indexed and searchable)
+  paths: [art/wip]          # library alias, alias/folder, or absolute path
+  tags: [nsfw]              # files with these tags (or tags beneath them)
 scanTime: "03:00"           # nightly rescan, or null to disable
 sendToPaths: []             # folders "Send to" may copy files into
 theme: obsidian

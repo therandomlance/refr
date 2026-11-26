@@ -53,13 +53,13 @@ it("pages browse IDs without loading metadata, respecting folders, tags, recursi
     const anonymous = filesRouter.createCaller({ db, authed: false, headers: new Headers() });
     await expect(anonymous.ids({ pathPrefix: root })).rejects.toMatchObject({ code: "UNAUTHORIZED" });
 
-    config.patch({ libraries: [{ path: root, timeline: true }, { path: "/other-library", timeline: false }] });
+    config.patch({ libraries: [{ path: root }, { path: "/other-library" }], timelineExclude: { paths: ["/other-library"] } });
     expect(await collect({})).toEqual(ids.slice(0, 1003).sort());
-    config.patch({ libraries: [{ path: root, timeline: false }] });
+    config.patch({ libraries: [{ path: root }], timelineExclude: { paths: [root] } });
     expect(await collect({})).toEqual([]);
     expect(await collect({ pathPrefix: root })).toEqual(ids.slice(0, 1003).sort());
   } finally {
-    config.patch({ libraries });
+    config.patch({ libraries, timelineExclude: { paths: [] } });
     await db.file.deleteMany({ where: { id: { in: ids } } });
     await db.tag.deleteMany({ where: { name: { in: [tagName, `${tagName}/child`, `${tagName}/child/deeper`, "select-all_XX/child"] } } });
   }

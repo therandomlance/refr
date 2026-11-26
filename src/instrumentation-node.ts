@@ -109,6 +109,12 @@ export async function registerNode() {
 
   const { watch } = await import("./server/services/config");
   watch();
+  try {
+    const { migrateTimelineHidden } = await import("./server/services/tagRules");
+    migrateTimelineHidden();
+  } catch (e) {
+    console.error("[migrate] timeline-hidden tags:", e instanceof Error ? e.message : e);
+  }
 
   // thumbnail catch-up for any files missing thumbs. Migrate the flat layout
   // first so hasThumb() sees existing files instead of re-encoding everything.
