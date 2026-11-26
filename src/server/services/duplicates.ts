@@ -268,8 +268,6 @@ async function resolveNow(keeper: string, copy: string) {
     });
     // copies previously hidden under `copy` now point at the surviving keeper
     await tx.fileMeta.updateMany({ where: { duplicateOf: copy }, data: { duplicateOf: keeper } });
-    // drop the hidden copy from the tagging inbox counts right away
-    await tx.tagCandidate.deleteMany({ where: { fileId: copy } });
   });
   if (!keeperHidden) await patchCache(before, (p) => p.a === copy || p.b === copy);
 }

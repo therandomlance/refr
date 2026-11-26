@@ -14,7 +14,7 @@ const formatBytes = (n: number) =>
   n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(1)} MB` : n >= 1 << 10 ? `${Math.round(n / (1 << 10))} KB` : `${n} B`;
 
 /**
- * Tagging → Duplicates: near-identical image pairs (dHash, duplicates.ts).
+ * Duplicates page: near-identical image pairs (dHash, duplicates.ts).
  * "Keep" merges the other file's tags/favorite/notes onto the kept one and
  * hides the other from every grid (search `is:duplicate` to see hidden copies).
  * Library files are never touched.
@@ -64,7 +64,7 @@ export function DuplicateReview({ fileId }: { fileId: string | null }) {
         {fileId && (
           <span className="chip">
             Pairs with one file
-            <Link className="x" href="/tagging?view=duplicates" aria-label="Show all pairs">×</Link>
+            <Link className="x" href="/duplicates" aria-label="Show all pairs">×</Link>
           </span>
         )}
         <span>

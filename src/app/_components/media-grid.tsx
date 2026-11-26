@@ -47,8 +47,6 @@ export function MediaGrid({
   header,
   hiddenIds,
   tileActions,
-  onTilePick,
-  tileClass,
   tagBadges,
 }: {
   source: GridSource;
@@ -69,11 +67,6 @@ export function MediaGrid({
   hiddenIds?: ReadonlySet<string>;
   /** per-tile overlay (replaces the selection checkbox, like the browse suggestion strips) */
   tileActions?: (f: FileSummary) => React.ReactNode;
-  /** Plain click / Space on a tile while nothing is selected calls this instead of
-   *  opening the viewer (Enter still opens it) — e.g. the tagging page's decision toggle. */
-  onTilePick?: (fileId: string) => void;
-  /** Extra classes per tile (e.g. review state). */
-  tileClass?: (f: FileSummary) => string;
   /** Offer the "Tags" toggle: each thumbnail lists its tags along the bottom.
    *  `context` = the tag being browsed (left out / shown relative). */
   tagBadges?: { context?: string | null };
@@ -648,7 +641,6 @@ export function MediaGrid({
       e.preventDefault();
       if (!target || e.repeat || e.ctrlKey || e.metaKey || e.altKey || e.shiftKey) return;
       if (e.key === "Enter") openViewer(target);
-      else if (onTilePick && selection.size === 0) onTilePick(target);
       else {
         anchor.current = indexOf.get(target) ?? -1;
         toggle(target);
@@ -700,8 +692,7 @@ export function MediaGrid({
       toggle(f.id);
     } else {
       anchor.current = index;
-      if (onTilePick) onTilePick(f.id);
-      else openViewer(f.id);
+      openViewer(f.id);
     }
   };
 
@@ -745,7 +736,7 @@ export function MediaGrid({
       <div
         key={f.id}
         data-file-id={f.id}
-        className={`tile ${f.mediaType === "video" ? "vid" : ""} ${selection.has(f.id) ? "sel" : ""} ${draggingId === f.id ? "dragging" : ""} ${dropAt?.id === f.id ? (dropAt.after ? "drop-after" : "drop-before") : ""} ${tileClass?.(f) ?? ""}`}
+        className={`tile ${f.mediaType === "video" ? "vid" : ""} ${selection.has(f.id) ? "sel" : ""} ${draggingId === f.id ? "dragging" : ""} ${dropAt?.id === f.id ? (dropAt.after ? "drop-after" : "drop-before") : ""}`}
         draggable={!!onReorder}
         onDragStart={(e) => {
           if (!onReorder) return;
@@ -1126,8 +1117,8 @@ function TileTags({ id, context }: { id: string; context?: string | null }) {
   const badges = useMemo(() => tileTagBadges(q.data ?? [], context), [q.data, context]);
   if (!badges.length) return null;
   return (
-    <div className="review-badges tile-tags">
-      {badges.map((b) => <span key={b.full} className="review-badge" title={b.full}>{b.label}</span>)}
+    <div className="tile-tags">
+      {badges.map((b) => <span key={b.full} className="tile-tag" title={b.full}>{b.label}</span>)}
     </div>
   );
 }

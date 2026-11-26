@@ -215,7 +215,7 @@ export function useFileContextMenu(
       label: fileIds.length > 1 ? `Pop out ${fileIds.length} images` : "Pop out",
       onClick: () => reference.openImages(fileIds),
     });
-    items.push({ label: "Find duplicates", onClick: () => router.push(`/tagging?view=duplicates&file=${fileIds[0]}`) });
+    items.push({ label: "Find duplicates", onClick: () => router.push(`/duplicates?file=${fileIds[0]}`) });
     if (mlStatus.data?.state === "ready") {
       items.push({
         label: "Find similar",

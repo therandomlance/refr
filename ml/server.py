@@ -1,6 +1,5 @@
 """refr CLIP sidecar: embeddings + in-RAM kNN. See SPEC.md §13.1."""
 import argparse
-import base64
 import ctypes
 import sqlite3
 import sys
@@ -127,21 +126,19 @@ def parent_of(name):
 
 
 class Membership:
-    """Tag name (any tree node) → matrix rows tagged with it or a descendant, plus
-    ✕ denials by tag name. Rebuilt when FileTag/SuggestionDenial or the kNN
-    matrix change (row-count + max-rowid stamp; FileTag has no timestamps)."""
+    """Tag name (any tree node) → matrix rows tagged with it or a descendant.
+    Rebuilt when FileTag or the kNN matrix change (row-count + max-rowid stamp;
+    FileTag has no timestamps)."""
 
     def __init__(self):
         self.stamp = None
-        self.rows = {}    # name -> np.int64 array (sorted, unique)
-        self.denied = {}  # tagName -> np.int64 array
+        self.rows = {}  # name -> np.int64 array (sorted, unique)
 
     def refresh(self, index, matrix_stamp):
         conn = sqlite3.connect(f"file:{args.db}?mode=ro", uri=True)
         try:
             ft = conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM FileTag").fetchone()
-            sd = conn.execute("SELECT COUNT(*), COALESCE(MAX(rowid), 0) FROM SuggestionDenial").fetchone()
-            stamp = (ft, sd, matrix_stamp)
+            stamp = (ft, matrix_stamp)
             if stamp == self.stamp:
                 return self
             acc = {}
@@ -151,13 +148,7 @@ class Membership:
                     continue
                 for a in ancestors(name):
                     acc.setdefault(a, []).append(r)
-            den = {}
-            for name, fid in conn.execute("SELECT tagName, fileId FROM SuggestionDenial"):
-                r = index.get(fid)
-                if r is not None:
-                    den.setdefault(name, []).append(r)
             self.rows = {k: np.unique(np.array(v, dtype=np.int64)) for k, v in acc.items()}
-            self.denied = {k: np.unique(np.array(v, dtype=np.int64)) for k, v in den.items()}
             self.stamp = stamp
             return self
         finally:
@@ -165,9 +156,6 @@ class Membership:
 
     def of(self, name):
         return self.rows.get(name, np.zeros(0, dtype=np.int64))
-
-    def denials(self, name):
-        return self.denied.get(name, np.zeros(0, dtype=np.int64))
 
     def sibling_names(self, name):
         """Immediate children of name's parent, other than name. Top-level tags have none."""
@@ -376,67 +364,6 @@ def train(req: TrainReq):
         "positives": int(len(pos_all)),
         "negatives": int(len(deny) + len(sib) + len(rand)),
     }
-
-
-# ------------------------------------------------------------------ tag sweep
-
-
-class SweepModel(BaseModel):
-    name: str
-    w: str  # base64 float32 LE
-    b: float = 0.0
-
-
-class SweepReq(BaseModel):
-    targets: list[str]
-    models: list[SweepModel]  # targets + any siblings worth checking as rivals
-    poolSize: int = 200
-
-
-@app.post("/sweep")
-def sweep(req: SweepReq):
-    """Calibrated cross-tag candidates (tagmath.sweep_tag) for each target tag."""
-    mem = current_membership()
-    with knn_cache.lock:
-        mat = knn_cache.matrix
-        ids = knn_cache.ids
-    if mat is None or len(ids) == 0:
-        return {"results": [{"tag": t, "skipped": True} for t in req.targets]}
-    models = {}
-    for m in req.models:
-        w = np.frombuffer(base64.b64decode(m.w), dtype="<f4")
-        if w.shape[0] != mat.shape[1]:
-            continue
-        models[m.name] = tagmath.Model(m.name, w, m.b, mem.of(m.name))
-    targets = [t for t in req.targets if t in models]
-    out = [{"tag": t, "skipped": True} for t in req.targets if t not in models]
-    for start in range(0, len(targets), 64):
-        chunk = targets[start : start + 64]
-        W = np.stack([models[t].w for t in chunk])
-        S = mat @ W.T  # N × chunk
-        for j, t in enumerate(chunk):
-            m = models[t]
-            sib_names = [k for k in mem.sibling_names(t)]
-            siblings = [models[k] for k in sib_names if k in models]
-            sib_member = {}
-            for k in sib_names:
-                mask = np.zeros(len(ids), dtype=bool)
-                mask[mem.of(k)] = True
-                sib_member[k] = mask
-            # siblings with no model still count when a candidate is already tagged with them
-            for k in sib_names:
-                if k not in models:
-                    siblings.append(tagmath.Model(k, np.zeros(mat.shape[1], dtype=np.float32), 0.0))
-            r = tagmath.sweep_tag(mat, S[:, j] + m.b, m, mem.denials(t), siblings, sib_member, req.poolSize)
-            if r is None:
-                out.append({"tag": t, "skipped": True, "positives": int(len(m.pos))})
-                continue
-            r["tag"] = t
-            r["exemplars"] = [[ids[i] for i in group] for group in r["exemplars"]]
-            for p in r["pool"]:
-                p["fileId"] = ids[p.pop("row")]
-            out.append(r)
-    return {"results": out}
 
 
 if __name__ == "__main__":

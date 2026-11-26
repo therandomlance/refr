@@ -92,8 +92,8 @@ them videos still index, just without thumbs/dimensions).
 Semantic (CLIP) features are off by default; enable in Settings. Requires system
 python ≥ 3.10 — first enable creates `ml/.venv/` and downloads several GB
 (torch + model weights). The default model is SigLIP 2 (`ViT-B-16-SigLIP2`); a CUDA GPU is
-used when available. ML powers *Find similar*, semantic text search, tag suggestions, the
-Tagging page, and board suggestions. Everything else works without it.
+used when available. ML powers *Find similar*, semantic text search, tag suggestions, and
+board suggestions. Everything else works without it.
 
 ## Tour
 
@@ -162,31 +162,20 @@ Shortcuts on grid tiles: `Q` queue, `T` add tag, `Shift+T` remove tag, `P` palet
 send to, `B` add to board, `L` favorite, `Ctrl/⌘+I` invert selection. Right-click any tile (or a
 selection) for the same actions.
 
-### Tagging
+### Duplicates
 
-The **Tagging** page goes through your tags in batches. For each tag it shows the images
-the model is confident about, alongside a few you've already tagged for comparison. Click
-an image to cycle it through accept, reject, and skip, then commit the batch. Rejections
-train a per-tag classifier, so suggestions improve over time. A confidence slider sets the
-threshold.
-
-![Reviewing subject/landscape suggestions in batch](docs/screenshots/tagging.webp)
-
-The **Dupes** view lists near-identical images (resized or re-encoded copies), found by
+The **Duplicates** page lists near-identical images (resized or re-encoded copies), found by
 a perceptual hash of each thumbnail. Keep one image of a pair and the other's tags,
 favorite, source and note merge onto it. The other image is then hidden from every view
 (search `is:duplicate` to see hidden copies) but never deleted. "Not duplicates"
 dismisses a pair.
 
-The **Rules** view holds tag aliases and implications. An alias makes a shorthand stand
+### Tag rules
+
+**Settings → Tags** holds tag aliases and implications. An alias makes a shorthand stand
 for another tag when tagging and searching (`fig` → `reference/figure`). An implication
 adds more tags automatically (`artist/x` ⇒ `medium/digital`). Rules are stored in
 `data/tag-rules.json` and can be applied retroactively to existing files.
-
-The **Files** view works the other way around: it lists your newest files with their most
-confident tag matches, so you can tag new images as they arrive.
-
-![Newest files with suggested tags](docs/screenshots/tagging-files.webp)
 
 ### Queue
 

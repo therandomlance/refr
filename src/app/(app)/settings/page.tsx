@@ -8,10 +8,12 @@ import { Icon } from "refr/app/_components/icon";
 import { Hint } from "refr/app/_components/hint";
 import { TagInput } from "refr/app/_components/tag-input";
 import { normalize } from "refr/lib/tag-names";
+import { TagRulesEditor } from "./tag-rules";
 
 const SECTIONS = [
   ["libraries", "Libraries"],
   ["timeline", "Timeline"],
+  ["tags", "Tags"],
   ["workspace", "Workspace"],
   ["services", "Services & security"],
   ["backup", "Backup"],
@@ -93,6 +95,10 @@ export default function SettingsPage() {
           aliases={s.libraries.flatMap((l) => (l.alias ? [l.alias.toLowerCase()] : []))}
           onChange={(timelineExclude) => save({ timelineExclude })}
         />
+        </div>
+
+        <div className="settings-group" id="tags"><h2>Tags</h2>
+          <TagRulesEditor />
         </div>
 
         <div className="settings-group" id="workspace"><h2>Workspace</h2>

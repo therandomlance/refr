@@ -252,7 +252,7 @@ never a parent FK. `src/server/services/tags.ts`:
 
 ### 7.3 Tag rules (aliases + implications)
 
-`data/tag-rules.json`, edited on Tagging → Rules (or by hand; re-read on mtime change).
+`data/tag-rules.json`, edited on Settings → Tags (or by hand; re-read on mtime change).
 Pure logic in `src/lib/tag-rules.ts`, storage in `src/server/services/tagRules.ts`.
 
 - **Alias** `from → to`: resolved by longest matching prefix, one hop (`fig/arms` →
@@ -278,7 +278,7 @@ boot fallback in `instrumentation-node.ts` can `CREATE TABLE IF NOT EXISTS` idem
 - Duplicates (`src/server/services/duplicates.ts`): 64-bit dHash of each image thumbnail,
   hashed by a single-flight background pass after thumbnail drains. Pairs within 3 bits are
   found with 4×16-bit LSH banding (pigeonhole guarantees recall at ≤ 3). Near-flat hashes
-  and buckets > 400 are skipped. Reviewed on Tagging → Dupes: keep one (tags, favorite,
+  and buckets > 400 are skipped. Reviewed on the Duplicates page: keep one (tags, favorite,
   source, note merge onto it; the other gets `duplicateOf`), or dismiss ("Not duplicates",
   `DuplicateDismissal`). Hidden files are never deleted; `duplicates.unhide` restores.
 

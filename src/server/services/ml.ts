@@ -57,15 +57,8 @@ type MlRuntime = {
   tagRefresh: Promise<void> | null;
   tagRefreshRequested: boolean;
   tagGeneration: number;
-  /** Set by sweep.ts (registerSweepHooks) — ml.ts can't import it (cycle). */
-  sweepHooks?: SweepHooks;
 };
 
-/** Tag-cache events the tagging sweep listens to. `names: null` = everything. */
-export type SweepHooks = { invalidated: (names: string[] | null) => void; warmed: () => void };
-export function setSweepHooks(hooks: SweepHooks | undefined) {
-  runtime.sweepHooks = hooks;
-}
 const globalForMl = globalThis as typeof globalThis & {
   refrMl?: MlRuntime;
   refrEmbedJob?: { running: boolean; rerun?: boolean };
@@ -623,7 +616,6 @@ export async function excludeSuggestion(tagName: string, fileId: string) {
       create: { tagName, fileId },
       update: {},
     });
-    await tx.tagCandidate.deleteMany({ where: { tag: { name: tagName }, fileId } });
     return { alreadyExcluded: !!previous };
   });
   if (!result.alreadyExcluded) await invalidateClassifier(tagName); // a new negative
@@ -633,31 +625,6 @@ export async function excludeSuggestion(tagName: string, fileId: string) {
 export async function restoreSuggestion(tagName: string, fileId: string) {
   const { count } = await db.suggestionDenial.deleteMany({ where: { tagName, fileId } });
   if (count > 0) await invalidateClassifier(tagName);
-}
-
-/** Bulk ✕: returns the fileIds that weren't already denied (what an undo restores). */
-export async function excludeSuggestions(tagName: string, fileIds: string[]): Promise<string[]> {
-  if (fileIds.length === 0) return [];
-  const added = await db.$transaction(async (tx) => {
-    const existing = new Set((await tx.suggestionDenial.findMany({
-      where: { tagName, fileId: { in: fileIds } }, select: { fileId: true },
-    })).map((r) => r.fileId));
-    const fresh = [...new Set(fileIds)].filter((id) => !existing.has(id));
-    if (fresh.length) await tx.suggestionDenial.createMany({ data: fresh.map((fileId) => ({ tagName, fileId })) });
-    await tx.tagCandidate.deleteMany({ where: { tag: { name: tagName }, fileId: { in: fileIds } } });
-    return fresh;
-  });
-  if (added.length) await invalidateClassifier(tagName);
-  return added;
-}
-
-export async function restoreSuggestions(denials: { tag: string; fileId: string }[]) {
-  const byTag = new Map<string, string[]>();
-  for (const d of denials) byTag.set(d.tag, [...(byTag.get(d.tag) ?? []), d.fileId]);
-  for (const [tagName, fileIds] of byTag) {
-    const { count } = await db.suggestionDenial.deleteMany({ where: { tagName, fileId: { in: fileIds } } });
-    if (count > 0) await invalidateClassifier(tagName);
-  }
 }
 
 // ---------------------------------------------------------------- tag vectors
@@ -673,7 +640,6 @@ export async function invalidateTagVectors(tagNames: string[]) {
   const tagIds = tags.map((t) => t.id);
   await db.tagVector.deleteMany({ where: { tagId: { in: tagIds } } });
   await db.tagClassifier.deleteMany({ where: { tagId: { in: tagIds } } });
-  runtime.sweepHooks?.invalidated(tagNames);
   void enqueueTagVectors();
 }
 
@@ -684,7 +650,6 @@ export async function invalidateAllTagVectors() {
   runtime.tagGeneration++;
   await db.tagVector.deleteMany({});
   await db.tagClassifier.deleteMany({});
-  runtime.sweepHooks?.invalidated(null);
   void enqueueTagVectors();
 }
 
@@ -692,7 +657,6 @@ export async function invalidateAllTagVectors() {
 async function invalidateClassifier(tagName: string) {
   runtime.tagGeneration++;
   await db.tagClassifier.deleteMany({ where: { tag: { name: tagName } } });
-  runtime.sweepHooks?.invalidated([tagName]);
   void enqueueTagVectors();
 }
 
@@ -942,16 +906,6 @@ function canWarm() {
   return config.get().ml.enabled && !embedJob.running && !thumbStatus().running;
 }
 
-/** No embedding/thumbnail work in flight — background tag jobs may run. */
-export function mlIdle() {
-  return canWarm();
-}
-
-/** True while tag vectors/classifiers are being (re)built. */
-export function tagCachesWarming() {
-  return runtime.tagRefresh !== null;
-}
-
 /** Process-wide, best-effort warming: centroid vectors first, then (when enabled)
  *  classifiers. Never await this from a suggestion request. */
 export function enqueueTagVectors(): Promise<void> {
@@ -999,7 +953,6 @@ export function enqueueTagVectors(): Promise<void> {
   }).finally(() => {
     runtime.tagRefresh = null;
     if (runtime.tagRefreshRequested) return enqueueTagVectors();
-    runtime.sweepHooks?.warmed();
   });
   runtime.tagRefresh = pending;
   return pending;
@@ -1070,54 +1023,6 @@ export async function suggestImagesOutsideRoot(tagName: string) {
   if (!v) return [];
   const excluded = await getExclusions(tagName);
   return knn(v, 60, 0, root, excluded.size ? [...excluded] : undefined);
-}
-
-/** Cached scoring direction per tag for the sweep: the trained classifier (raw
- *  weights + bias) when enabled, else the tag vector (bias 0). Cache-only — the
- *  sweep warms caches first; tags still missing are left out. */
-export async function cachedTagModels(): Promise<Map<number, { w: Float32Array; b: number }>> {
-  const modelId = currentModelId();
-  const out = new Map<number, { w: Float32Array; b: number }>();
-  for (const r of await db.tagVector.findMany({ where: { model: vectorParams(modelId).key }, select: { tagId: true, vector: true } })) {
-    out.set(r.tagId, { w: toVec(r.vector), b: 0 });
-  }
-  if (classifierEnabled()) {
-    const trained = await db.tagClassifier.findMany({
-      where: { variant: classifierVariant(), model: modelId, weights: { not: null }, bias: { not: null } },
-      select: { tagId: true, weights: true, bias: true },
-    });
-    for (const r of trained) out.set(r.tagId, { w: toVec(r.weights!), b: r.bias! });
-  }
-  return out;
-}
-
-export type SweepResult =
-  | { tag: string; skipped: true; positives?: number }
-  | {
-    tag: string; skipped?: false; positives: number; modes: number; exemplars: string[][];
-    pool: {
-      fileId: string; score: number; confidence: number; mode: number; rank: number;
-      rival: { tag: string; confidence: number } | null; nearDenial: boolean;
-    }[];
-  };
-
-export async function sweepSidecar(
-  targets: string[],
-  models: { name: string; w: Float32Array; b: number }[],
-  poolSize = 200,
-): Promise<SweepResult[]> {
-  const r = await post<{ results: SweepResult[] }>("/sweep", {
-    targets,
-    poolSize,
-    models: models.map((m) => ({ name: m.name, w: Buffer.from(m.w.buffer, m.w.byteOffset, m.w.byteLength).toString("base64"), b: m.b })),
-  });
-  return r.results;
-}
-
-/** Latest embedding write for the current model (sweep staleness check). */
-export async function lastEmbeddingAt(): Promise<Date | null> {
-  const r = await db.fileEmbedding.findFirst({ where: { model: currentModelId() }, orderBy: { updatedAt: "desc" }, select: { updatedAt: true } });
-  return r?.updatedAt ?? null;
 }
 
 /** Serve the available cache immediately; missing vectors warm off the request path. */

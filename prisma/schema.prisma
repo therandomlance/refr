@@ -23,7 +23,6 @@ model File {
     tags      FileTag[]
     embedding FileEmbedding?
     denials   SuggestionDenial[]
-    candidates TagCandidate[]
     meta      FileMeta?
 
     @@index([mtime, id]) // keyset pagination for default sort
@@ -47,8 +46,6 @@ model Tag {
     files FileTag[]
     vector TagVector?
     classifiers TagClassifier[]
-    candidates TagCandidate[]
-    sweep TagSweep?
 
     @@index([name])
 }
@@ -111,38 +108,6 @@ model SuggestionDenial {
 
     @@id([tagName, fileId])
     @@index([tagName])
-}
-
-/// Tagging inbox (src/server/services/sweep.ts): calibrated candidates per tag
-/// from the background sweep. Derived cache — rebuilt by the next sweep.
-/// confidence = fraction of the tag's own images scoring ≤ this file (0..1).
-model TagCandidate {
-    tagId           Int
-    fileId          String
-    confidence      Float
-    score           Float
-    mode            Int // nearest sub-style prototype of the tag
-    rank            Int // diversified (MMR) review order within the tag
-    rivalTag        String? // sibling tag this file looks more like (or already has)
-    rivalConfidence Float?
-    nearDenial      Boolean // close to an image rejected for this tag
-    sweptAt         DateTime
-    tag             Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
-    file            File     @relation(fields: [fileId], references: [id], onDelete: Cascade)
-
-    @@id([tagId, fileId])
-    @@index([tagId, rank])
-    @@index([fileId])
-}
-
-/// Per-tag sweep summary: positives, sub-style count, exemplar fileIds per mode.
-model TagSweep {
-    tagId     Int      @id
-    positives Int
-    modes     Int
-    exemplars String // JSON string[][] (per mode)
-    sweptAt   DateTime
-    tag       Tag      @relation(fields: [tagId], references: [id], onDelete: Cascade)
 }
 
 /// Per-file user data + derived extras, 1:1 with File, created lazily (upsert).
