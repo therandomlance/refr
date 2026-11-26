@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "refr/trpc/react";
 import { ConfirmDialog } from "refr/app/_components/dialog";
 import { THEMES, ACCENTS, DENSITIES, type Theme, type Accent, type Density } from "refr/lib/themes";
@@ -364,19 +364,10 @@ function TimelineExclusions({
   aliases: string[];
   onChange: (v: TimelineExclude) => void;
 }) {
-  const [draft, setDraft] = useState("");
-  const [typed, setTyped] = useState("");
-  useEffect(() => {
-    const t = setTimeout(() => setTyped(draft.trim()), 150);
-    return () => clearTimeout(t);
-  }, [draft]);
-  const completions = api.files.pathComplete.useQuery({ typed }, { enabled: draft.length > 0 });
-  const listId = useId();
   const unresolved = (p: string) => !p.startsWith("/") && !aliases.includes(p.split("/")[0]!.toLowerCase());
-  const addPath = () => {
-    const p = draft.trim().replace(/^path:/, "");
+  const addPath = (raw: string) => {
+    const p = raw.trim().replace(/^path:/, "");
     if (p && !value.paths.includes(p)) onChange({ ...value, paths: [...value.paths, p] });
-    setDraft("");
   };
 
   return (
@@ -396,20 +387,13 @@ function TimelineExclusions({
               ))}
             </ul>
           )}
-          <form className="flex gap-2" onSubmit={(e) => { e.preventDefault(); addPath(); }}>
-            <input
-              className="input flex-1"
-              aria-label="Folder to exclude from the timeline"
+          <div className="max-w-sm">
+            <TagInput
+              pathsOnly
               placeholder="alias, alias/folder or /absolute/path"
-              list={listId}
-              value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onCommit={(raw, suggestion) => addPath(suggestion ?? raw)}
             />
-            <datalist id={listId}>
-              {(completions.data ?? []).map((r) => <option key={r.name} value={r.name} />)}
-            </datalist>
-            <button className="btn" type="submit">Exclude folder</button>
-          </form>
+          </div>
         </div>
       </Section>
 

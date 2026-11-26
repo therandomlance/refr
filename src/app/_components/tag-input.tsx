@@ -19,6 +19,7 @@ export function TagInput({
   keywordHints = [],
   autoFocus = false,
   pathAutocomplete = false,
+  pathsOnly = false,
   suggestAutocomplete = false,
   hotkey = false,
   seed,
@@ -36,6 +37,8 @@ export function TagInput({
   autoFocus?: boolean;
   /** when true, input starting with `path:` offers library path completions */
   pathAutocomplete?: boolean;
+  /** a folder picker: every input is a path (no `path:` prefix), completed like `path:` */
+  pathsOnly?: boolean;
   /** when true, input starting with `suggest:` offers tag completions (search) */
   suggestAutocomplete?: boolean;
   /** when true, pressing `/` anywhere (outside inputs/overlays) focuses this input */
@@ -61,9 +64,9 @@ export function TagInput({
     return () => clearTimeout(t);
   }, [raw]);
 
-  const pathMode = pathAutocomplete && debounced.startsWith("path:");
+  const pathMode = pathsOnly || (pathAutocomplete && debounced.startsWith("path:"));
   const suggestMode = suggestAutocomplete && !pathMode && debounced.startsWith("suggest:");
-  const pathTyped = pathMode ? debounced.slice(5) : "";
+  const pathTyped = pathsOnly ? debounced : pathMode ? debounced.slice(5) : "";
   const suggestTyped = suggestMode ? debounced.slice(8) : "";
   const tagTerm = suggestMode ? suggestTyped : debounced;
 
@@ -76,7 +79,7 @@ export function TagInput({
   );
 
   const tagRows = suggestions.data ?? [];
-  const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: "path:" + p.name, count: p.count })) : [];
+  const pathRows = pathMode ? (pathSuggestions.data ?? []).map((p) => ({ name: (pathsOnly ? "" : "path:") + p.name, count: p.count })) : [];
   const suggestRows = suggestMode
     ? tagRows.map((r) => ({ name: "suggest:" + r.name, count: r.count }))
     : [];
